@@ -1,4 +1,5 @@
 const TOKEN_KEY = "remoteScreenToken";
+const MOUSE_TRACK_KEY = "remoteScreenMouseTrack";
 
 const tokenInput = document.getElementById("accessToken");
 const deviceInput = document.getElementById("deviceId");
@@ -13,11 +14,13 @@ const metaEl = document.getElementById("meta");
 const fpsEl = document.getElementById("fps");
 const deviceListEl = document.getElementById("deviceList");
 const auditListEl = document.getElementById("auditList");
+const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
 tokenInput.value = localStorage.getItem(TOKEN_KEY) || tokenInput.value;
+mouseTrackToggle.checked = localStorage.getItem(MOUSE_TRACK_KEY) !== "0";
 
 let ws = null;
 let dashWs = null;
@@ -77,6 +80,16 @@ function setStatus(text, online) {
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
+}
+
+function isMouseTrackEnabled() {
+  return mouseTrackToggle.checked;
+}
+
+function sendMouseMove(clientX, clientY) {
+  if (!remoteWidth) return;
+  const { x, y } = mapCoords(clientX, clientY);
+  sendControl({ action: "mouse_move", x, y });
 }
 
 function mapCoords(clientX, clientY) {
@@ -252,17 +265,17 @@ function disconnect() {
 }
 
 canvas.addEventListener("mousemove", (e) => {
-  if (!remoteWidth) return;
+  if (!isMouseTrackEnabled()) return;
   const now = performance.now();
   if (now - lastMoveAt < 33) return;
   lastMoveAt = now;
-  const { x, y } = mapCoords(e.clientX, e.clientY);
-  sendControl({ action: "mouse_move", x, y });
+  sendMouseMove(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   e.preventDefault();
+  if (!isMouseTrackEnabled()) sendMouseMove(e.clientX, e.clientY);
   const button = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
   sendControl({ action: "mouse_click", button, down: true });
 });
@@ -302,6 +315,15 @@ canvas.addEventListener("keyup", (e) => {
 connectBtn.addEventListener("click", connect);
 disconnectBtn.addEventListener("click", disconnect);
 refreshBtn.addEventListener("click", refreshDashboard);
+function updateMouseTrackUi() {
+  canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
+}
+
+mouseTrackToggle.addEventListener("change", () => {
+  localStorage.setItem(MOUSE_TRACK_KEY, mouseTrackToggle.checked ? "1" : "0");
+  updateMouseTrackUi();
+});
+updateMouseTrackUi();
 tokenInput.addEventListener("change", () => {
   saveToken();
   refreshDashboard();
