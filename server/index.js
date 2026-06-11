@@ -31,15 +31,14 @@ function send(ws, payload) {
   }
 }
 
-function sendBinary(ws, payload) {
-  if (ws && ws.readyState === ws.OPEN) {
-    ws.send(payload);
-  }
-}
-
-function isBinaryFrame(raw) {
+function parseBinaryFrame(raw) {
   const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-  return buf.length >= 5 && buf[0] === 0x01;
+  if (buf.length < 5 || buf[0] !== 0x01) return null;
+  return {
+    width: buf.readUInt16BE(1),
+    height: buf.readUInt16BE(3),
+    data: buf.slice(5).toString("base64"),
+  };
 }
 
 function parseQuery(url) {
@@ -279,15 +278,18 @@ wss.on("connection", (ws, req) => {
   }
 
   ws.on("message", (raw) => {
-    if (ws.role === "agent" && isBinaryFrame(raw)) {
-      const meta = agentMeta.get(deviceId) || {};
-      meta.lastSeen = new Date().toISOString();
-      agentMeta.set(deviceId, meta);
-      const set = viewers.get(deviceId);
-      if (!set || set.size === 0) return;
-      const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-      for (const viewer of set) sendBinary(viewer, buf);
-      return;
+    if (ws.role === "agent") {
+      const binaryFrame = parseBinaryFrame(raw);
+      if (binaryFrame) {
+        const meta = agentMeta.get(deviceId) || {};
+        meta.lastSeen = new Date().toISOString();
+        agentMeta.set(deviceId, meta);
+        const set = viewers.get(deviceId);
+        if (!set || set.size === 0) return;
+        const payload = { type: "frame", ...binaryFrame };
+        for (const viewer of set) send(viewer, payload);
+        return;
+      }
     }
 
     let msg;

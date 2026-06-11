@@ -12,7 +12,6 @@ import os
 import platform
 import re
 import socket
-import struct
 import sys
 import time
 import uuid
@@ -668,7 +667,6 @@ def handle_control(msg: dict) -> None:
 
 
 STREAM_BUFFER_LIMIT = 256 * 1024
-FRAME_MAGIC = 0x01
 
 
 def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
@@ -683,11 +681,6 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
             interpolation=cv2.INTER_LINEAR,
         )
     return frame
-
-
-def pack_frame_packet(jpeg_bytes: bytes, width: int, height: int) -> bytes:
-    header = struct.pack(">BHH", FRAME_MAGIC, int(width), int(height))
-    return header + jpeg_bytes
 
 
 class StreamCapturer:
@@ -807,8 +800,14 @@ async def capture_loop(
                     continue
 
                 jpeg_bytes, out_w, out_h = result
+                payload = {
+                    "type": "frame",
+                    "data": base64.b64encode(jpeg_bytes).decode("ascii"),
+                    "width": out_w,
+                    "height": out_h,
+                }
                 try:
-                    await ws.send(pack_frame_packet(jpeg_bytes, out_w, out_h))
+                    await ws.send(json.dumps(payload))
                 except Exception as exc:
                     agent_log(f"frame send error: {exc}")
                     return

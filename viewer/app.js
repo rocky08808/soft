@@ -23,6 +23,11 @@ const screenshotBtn = document.getElementById("screenshotBtn");
 const clearScreenshotsBtn = document.getElementById("clearScreenshotsBtn");
 const screenshotListEl = document.getElementById("screenshotList");
 const screenshotHintEl = document.getElementById("screenshotHint");
+const screenshotModalEl = document.getElementById("screenshotModal");
+const screenshotModalImgEl = document.getElementById("screenshotModalImg");
+const screenshotModalTitleEl = document.getElementById("screenshotModalTitle");
+const screenshotModalCloseBtn = document.getElementById("screenshotModalClose");
+const screenshotModalDownloadBtn = document.getElementById("screenshotModalDownload");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
@@ -32,6 +37,7 @@ const MAX_SCREENSHOT_UI = 80;
 let clipboardEntries = [];
 let keyboardEntries = [];
 let screenshotEntries = [];
+let screenshotModalEntry = null;
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
@@ -158,10 +164,17 @@ function renderPendingFrame() {
     }
     if (pendingFrame) scheduleFrameRender();
   };
+  img.onerror = () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    placeholder.style.display = "block";
+    placeholder.textContent = "画面解码失败，请刷新重连";
+  };
   if (frame.bytes) {
-    objectUrl = URL.createObjectURL(new Blob([frame.bytes], { type: "image/jpeg" }));
+    objectUrl = URL.createObjectURL(
+      new Blob([new Uint8Array(frame.bytes)], { type: "image/jpeg" })
+    );
     img.src = objectUrl;
-  } else {
+  } else if (frame.base64) {
     img.src = "data:image/jpeg;base64," + frame.base64;
   }
 }
@@ -358,12 +371,51 @@ function setScreenshotHint(text) {
   if (screenshotHintEl) screenshotHintEl.textContent = text;
 }
 
+function screenshotImageUrl(entry) {
+  if (!entry?.data) return "";
+  return `data:image/jpeg;base64,${entry.data}`;
+}
+
+function base64ToJpegBlob(b64) {
+  const raw = atob(b64);
+  const chunk = 8192;
+  const parts = [];
+  for (let i = 0; i < raw.length; i += chunk) {
+    const slice = raw.slice(i, i + chunk);
+    const arr = new Uint8Array(slice.length);
+    for (let j = 0; j < slice.length; j++) arr[j] = slice.charCodeAt(j);
+    parts.push(arr);
+  }
+  return new Blob(parts, { type: "image/jpeg" });
+}
+
 function downloadScreenshot(entry) {
   if (!entry?.data) return;
   const link = document.createElement("a");
-  link.href = `data:image/jpeg;base64,${entry.data}`;
+  const url = URL.createObjectURL(base64ToJpegBlob(entry.data));
+  link.href = url;
   link.download = `screenshot-${entry.id || Date.now()}.jpg`;
   link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function closeScreenshotModal() {
+  if (!screenshotModalEl) return;
+  screenshotModalEl.hidden = true;
+  screenshotModalEntry = null;
+  if (screenshotModalImgEl) screenshotModalImgEl.removeAttribute("src");
+}
+
+function openScreenshotModal(entry) {
+  if (!entry?.data || !screenshotModalEl || !screenshotModalImgEl) return;
+  screenshotModalEntry = entry;
+  const time = new Date(entry.time).toLocaleString();
+  const size = entry.width && entry.height ? `${entry.width}×${entry.height}` : "";
+  if (screenshotModalTitleEl) {
+    screenshotModalTitleEl.textContent = size ? `截屏预览 · ${time} · ${size}` : `截屏预览 · ${time}`;
+  }
+  screenshotModalImgEl.src = screenshotImageUrl(entry);
+  screenshotModalEl.hidden = false;
 }
 
 function renderScreenshots() {
@@ -387,8 +439,7 @@ function renderScreenshots() {
       <span class="clipboard-tag">点击查看 · 右键下载</span>
     `;
     li.addEventListener("click", () => {
-      if (!entry.data) return;
-      window.open(`data:image/jpeg;base64,${entry.data}`, "_blank");
+      openScreenshotModal(entry);
     });
     li.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -515,9 +566,14 @@ function connect() {
     setScreenshotHint(`设备: ${deviceId}`);
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     if (event.data instanceof ArrayBuffer) {
       drawFrameBinary(event.data);
+      setStatus(`远程控制中 · ${deviceId}`, true);
+      return;
+    }
+    if (event.data instanceof Blob) {
+      drawFrameBinary(await event.data.arrayBuffer());
       setStatus(`远程控制中 · ${deviceId}`, true);
       return;
     }
@@ -654,6 +710,18 @@ screenshotBtn.addEventListener("click", requestScreenshot);
 clearScreenshotsBtn.addEventListener("click", () => {
   screenshotEntries = [];
   renderScreenshots();
+});
+screenshotModalCloseBtn?.addEventListener("click", closeScreenshotModal);
+screenshotModalDownloadBtn?.addEventListener("click", () => {
+  if (screenshotModalEntry) downloadScreenshot(screenshotModalEntry);
+});
+screenshotModalEl?.addEventListener("click", (e) => {
+  if (e.target === screenshotModalEl) closeScreenshotModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && screenshotModalEl && !screenshotModalEl.hidden) {
+    closeScreenshotModal();
+  }
 });
 function updateMouseTrackUi() {
   canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
