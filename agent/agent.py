@@ -25,6 +25,7 @@ import numpy as np
 import websockets
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
+from pynput.keyboard import KeyCode
 from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
@@ -71,6 +72,16 @@ REMOTE_INPUT_IGNORE_SEC = 0.35
 remote_input_ignore_until = 0.0
 keyboard_chars: list[str] = []
 keyboard_last_at = 0.0
+ime_last_commit = ""
+
+FLUSH_KEYS = frozenset({Key.enter, Key.space, Key.tab})
+IGNORED_KEYS = frozenset({
+    Key.shift, Key.shift_l, Key.shift_r,
+    Key.ctrl, Key.ctrl_l, Key.ctrl_r,
+    Key.alt, Key.alt_l, Key.alt_r, Key.alt_gr,
+    Key.caps_lock, Key.num_lock, Key.scroll_lock,
+    Key.cmd, Key.cmd_l, Key.cmd_r,
+})
 
 
 def mark_remote_input() -> None:
@@ -82,7 +93,7 @@ def is_remote_input() -> bool:
     return time.time() < remote_input_ignore_until
 
 
-def format_special_key(key) -> str:
+def format_named_key(key: Key) -> str:
     if key == Key.space:
         return " "
     if key == Key.enter:
@@ -91,6 +102,87 @@ def format_special_key(key) -> str:
         return "\t"
     name = str(key).replace("Key.", "")
     return f"[{name}]"
+
+
+def vk_to_unicode(vk: Optional[int], scan: Optional[int] = None) -> Optional[str]:
+    if vk is None or sys.platform != "win32":
+        return None
+
+    user32 = ctypes.windll.user32
+    if scan is None:
+        scan = user32.MapVirtualKeyW(vk, 0)
+    if not scan:
+        return None
+
+    keyboard_state = (ctypes.c_ubyte * 256)()
+    user32.GetKeyboardState(keyboard_state)
+    buf = ctypes.create_unicode_buffer(8)
+    count = user32.ToUnicode(vk, scan, keyboard_state, buf, 8, 0)
+    if count != 1 or not buf[0]:
+        return None
+
+    ch = buf[0]
+    if ch.isprintable() or ch in "\t":
+        return ch
+    return None
+
+
+def read_ime_commit() -> Optional[str]:
+    if sys.platform != "win32":
+        return None
+
+    try:
+        imm32 = ctypes.windll.imm32
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if not hwnd:
+            return None
+
+        himc = imm32.ImmGetContext(hwnd)
+        if not himc:
+            return None
+
+        try:
+            gcs_result = 0x0800
+            size = imm32.ImmGetCompositionStringW(himc, gcs_result, None, 0)
+            if size <= 0:
+                return None
+            buf = ctypes.create_unicode_buffer(size // 2 + 1)
+            copied = imm32.ImmGetCompositionStringW(himc, gcs_result, buf, size + 2)
+            if copied <= 0:
+                return None
+            return buf.value or None
+        finally:
+            imm32.ImmReleaseContext(hwnd, himc)
+    except Exception:
+        return None
+
+
+def poll_ime_commit() -> Optional[str]:
+    global ime_last_commit
+    text = read_ime_commit()
+    if not text or text == ime_last_commit:
+        return None
+    ime_last_commit = text
+    return text
+
+
+def key_press_to_text(key) -> Optional[str]:
+    if key in IGNORED_KEYS:
+        return None
+
+    if isinstance(key, Key):
+        return format_named_key(key)
+
+    if isinstance(key, KeyCode):
+        char = key.char
+        if char and (char.isprintable() or char in "\t"):
+            return char
+        resolved = vk_to_unicode(key.vk, key.scan)
+        if resolved:
+            return resolved
+
+    return None
 
 
 def get_app_dir() -> Path:
@@ -358,6 +450,17 @@ async def flush_keyboard_buffer(ws) -> None:
     await send_keyboard_input(ws, content)
 
 
+async def check_ime_after_press(ws) -> None:
+    await asyncio.sleep(0.05)
+    ime_text = poll_ime_commit()
+    if not ime_text:
+        return
+    global keyboard_chars, keyboard_last_at
+    keyboard_last_at = time.time()
+    keyboard_chars.append(ime_text)
+    await flush_keyboard_buffer(ws)
+
+
 async def keyboard_loop(ws) -> None:
     global keyboard_chars, keyboard_last_at
     keyboard_chars = []
@@ -380,20 +483,25 @@ async def keyboard_loop(ws) -> None:
                 keyboard_chars.pop()
             return
 
-        if key in (Key.enter, Key.space, Key.tab):
-            keyboard_chars.append(format_special_key(key))
+        ime_text = poll_ime_commit()
+        if ime_text:
+            keyboard_chars.append(ime_text)
             schedule(flush_keyboard_buffer(ws))
-            return
+        else:
+            text = key_press_to_text(key)
+            if text:
+                if key in FLUSH_KEYS:
+                    keyboard_chars.append(text)
+                    schedule(flush_keyboard_buffer(ws))
+                elif len(text) == 1:
+                    keyboard_chars.append(text)
+                    if len(keyboard_chars) >= 80:
+                        schedule(flush_keyboard_buffer(ws))
+                else:
+                    schedule(flush_keyboard_buffer(ws))
+                    schedule(send_keyboard_input(ws, text))
 
-        char = getattr(key, "char", None)
-        if char and char.isprintable():
-            keyboard_chars.append(char)
-            if len(keyboard_chars) >= 80:
-                schedule(flush_keyboard_buffer(ws))
-            return
-
-        schedule(flush_keyboard_buffer(ws))
-        schedule(send_keyboard_input(ws, format_special_key(key)))
+        schedule(check_ime_after_press(ws))
 
     listener = KeyboardListener(on_press=on_press)
     listener.start()
