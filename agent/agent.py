@@ -660,6 +660,35 @@ def handle_control(msg: dict) -> None:
             keyboard.release(key)
 
 
+async def capture_and_send_screenshot(
+    ws,
+    monitor_index: int,
+    quality: int = 80,
+) -> None:
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        idx = monitor_index if monitor_index < len(monitors) else 1
+        region = monitors[idx]
+        img = np.array(sct.grab(region))
+        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        ok, encoded = cv2.imencode(
+            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
+        )
+        if not ok:
+            agent_log("screenshot encode failed")
+            return
+
+        payload = {
+            "type": "screenshot",
+            "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
+            "width": region["width"],
+            "height": region["height"],
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        await ws.send(json.dumps(payload))
+        agent_log(f"screenshot sent: {region['width']}x{region['height']}")
+
+
 async def capture_loop(
     ws,
     monitor_index: int,
@@ -697,7 +726,12 @@ async def capture_loop(
             await asyncio.sleep(interval)
 
 
-async def receive_loop(ws, viewer_count: asyncio.Event) -> None:
+async def receive_loop(
+    ws,
+    viewer_count: asyncio.Event,
+    monitor: int,
+    quality: int,
+) -> None:
     async for raw in ws:
         try:
             msg = json.loads(raw)
@@ -712,6 +746,13 @@ async def receive_loop(ws, viewer_count: asyncio.Event) -> None:
             else:
                 viewer_count.clear()
         elif msg_type == "control":
+            if msg.get("action") == "screenshot":
+                try:
+                    shot_quality = min(max(quality + 20, 70), 95)
+                    await capture_and_send_screenshot(ws, monitor, shot_quality)
+                except Exception as exc:
+                    agent_log(f"screenshot error: {exc}")
+                continue
             try:
                 handle_control(msg)
             except Exception as exc:
@@ -749,7 +790,9 @@ async def run_agent(
                 capture_task = asyncio.create_task(
                     capture_loop(ws, monitor, fps, quality, viewer_count)
                 )
-                receive_task = asyncio.create_task(receive_loop(ws, viewer_count))
+                receive_task = asyncio.create_task(
+                    receive_loop(ws, viewer_count, monitor, quality)
+                )
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 keyboard_task = asyncio.create_task(keyboard_loop(ws))
                 done, pending = await asyncio.wait(

