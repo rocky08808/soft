@@ -58,7 +58,7 @@ app.get("/download/install.bat", (req, res) => {
     "  exit /b 1",
     ")",
     "echo.",
-    "echo 安装完成。可在控制端设备列表查看是否在线。",
+    "echo 安装完成。ReSA 已启动并设置登录自启。",
     "pause",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");

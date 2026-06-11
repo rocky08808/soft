@@ -84,13 +84,61 @@
       user-select: all;
     }
     .link-box {
-      margin-top: 0.75rem;
       padding: 0.6rem 0.75rem;
       background: #0f172a;
       border-radius: 6px;
       font-size: 0.9rem;
       word-break: break-all;
+      user-select: all;
     }
+    .link-row {
+      margin-top: 0.75rem;
+    }
+    .link-row label {
+      display: block;
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-bottom: 0.35rem;
+    }
+    .link-row-inner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: stretch;
+    }
+    .link-row-inner .link-box {
+      flex: 1 1 220px;
+      margin-top: 0;
+    }
+    .link-row-inner button {
+      flex: 0 0 auto;
+      padding: 0.55rem 0.85rem;
+      background: #475569;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .link-row-inner button:hover { background: #64748b; }
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+      margin-top: 0.5rem;
+    }
+    .hero-actions button {
+      padding: 0.55rem 1rem;
+      background: #334155;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .hero-actions button:hover { background: #475569; }
     .note { font-size: 0.9rem; color: #94a3b8; }
     .back { margin-top: 1.5rem; }
     .back a { color: #60a5fa; }
@@ -118,19 +166,54 @@
     <div class="hero">
       <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可完成安装与开机自启。</p>
       <a id="installBatLink" class="btn-primary" href="/download/install.bat" download>下载一键安装脚本</a>
+      <div class="hero-actions">
+        <button type="button" id="copyInstallBatBtn">复制安装 bat 地址</button>
+      </div>
+      <div class="link-row" style="text-align:left;">
+        <label>安装 bat 下载地址</label>
+        <div class="link-box" id="installBatUrl"></div>
+      </div>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.bat</code></span></div>
         <div class="step"><span class="step-num">2</span><span>双击运行（若 SmartScreen 提示，选「更多信息」→「仍要运行」，仅首次）</span></div>
-        <div class="step"><span class="step-num">3</span><span>回到控制端，在设备列表查看是否在线</span></div>
+        <div class="step"><span class="step-num">3</span><span>安装完成后程序会自动启动，设备 ID 见下方路径说明</span></div>
       </div>
     </div>
 
     <div class="install-card">
-      <h2>发给对方的安装链接</h2>
-      <div class="link-box" id="pageLink"></div>
-      <div class="install-actions">
-        <button type="button" id="copyLinkBtn">复制链接</button>
-        <button type="button" id="copyBatBtn">复制脚本下载地址</button>
+      <h2>下载链接</h2>
+      <p class="note">可直接复制以下地址，在被控电脑浏览器中打开或发给对方。</p>
+
+      <div class="link-row">
+        <label>安装页</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="pageLink"></div>
+          <button type="button" id="copyLinkBtn">复制</button>
+        </div>
+      </div>
+
+      <div class="link-row">
+        <label>安装 bat（ReSA-Install.bat）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="installBatUrl2"></div>
+          <button type="button" id="copyBatBtn">复制</button>
+        </div>
+      </div>
+
+      <div class="link-row">
+        <label>卸载 bat（ReSA-Uninstall.bat）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="uninstallBatUrl"></div>
+          <button type="button" id="copyUninstallBatBtn">复制</button>
+        </div>
+      </div>
+
+      <div class="link-row">
+        <label>程序包（ReSA.exe）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="exeUrl"></div>
+          <button type="button" id="copyExeBtn">复制</button>
+        </div>
       </div>
     </div>
 
@@ -155,6 +238,7 @@
       <p class="note">在被控电脑上运行卸载脚本，会停止进程、删除计划任务/自启，并清除安装目录（含旧版 RemoteScreenAgent）。</p>
       <div class="install-actions">
         <a href="/download/uninstall.bat" download>下载一键卸载脚本</a>
+        <button type="button" id="copyUninstallBatBtn2">复制卸载 bat 地址</button>
       </div>
       <p class="note" style="margin-top: 0.75rem;">或 PowerShell 一行命令：</p>
       <div class="cmd-box" id="uninstallCmd"></div>
@@ -163,7 +247,6 @@
       </div>
     </div>
 
-    <p class="back"><a href="/">← 返回控制端</a></p>
   </div>
 
   <div id="toast" class="toast">已复制</div>
@@ -173,34 +256,44 @@
     const pageUrl = origin + "/install.html";
     const batUrl = origin + "/download/install.bat";
     const uninstallBatUrl = origin + "/download/uninstall.bat";
+    const exeUrl = origin + "/download/ReSA.exe";
     const psOneLiner =
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
     const uninstallOneLiner =
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
 
     document.getElementById("pageLink").textContent = pageUrl;
+    document.getElementById("installBatUrl").textContent = batUrl;
+    document.getElementById("installBatUrl2").textContent = batUrl;
+    document.getElementById("uninstallBatUrl").textContent = uninstallBatUrl;
+    document.getElementById("exeUrl").textContent = exeUrl;
     document.getElementById("psCmd").textContent = psOneLiner;
     document.getElementById("uninstallCmd").textContent = uninstallOneLiner;
 
     const toast = document.getElementById("toast");
-    function showToast() {
+    function showToast(text) {
+      toast.textContent = text || "已复制";
       toast.classList.add("show");
       setTimeout(() => toast.classList.remove("show"), 1600);
     }
 
-    async function copyText(text) {
+    async function copyText(text, label) {
       try {
         await navigator.clipboard.writeText(text);
-        showToast();
+        showToast(label ? `${label} 已复制` : "已复制");
       } catch {
         window.prompt("复制以下内容:", text);
       }
     }
 
-    document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl));
-    document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl));
-    document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner));
-    document.getElementById("copyUninstallBtn").addEventListener("click", () => copyText(uninstallOneLiner));
+    document.getElementById("copyInstallBatBtn").addEventListener("click", () => copyText(batUrl, "安装 bat 地址"));
+    document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
+    document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "安装 bat 地址"));
+    document.getElementById("copyUninstallBatBtn").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
+    document.getElementById("copyUninstallBatBtn2").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
+    document.getElementById("copyExeBtn").addEventListener("click", () => copyText(exeUrl, "ReSA.exe 地址"));
+    document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner, "PowerShell 命令"));
+    document.getElementById("copyUninstallBtn").addEventListener("click", () => copyText(uninstallOneLiner, "卸载命令"));
   </script>
 </body>
 </html>
