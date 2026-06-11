@@ -6,13 +6,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import ctypes
 import json
 import os
 import platform
 import socket
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 import mss
@@ -147,6 +149,62 @@ def resolve_key(value: str | int):
     return None
 
 
+def get_clipboard_text() -> Optional[str]:
+    if sys.platform != "win32":
+        return None
+
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    CF_UNICODETEXT = 13
+
+    if not user32.OpenClipboard(0):
+        return None
+    try:
+        if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+            return None
+        handle = user32.GetClipboardData(CF_UNICODETEXT)
+        if not handle:
+            return None
+        data = kernel32.GlobalLock(handle)
+        if not data:
+            return None
+        try:
+            return ctypes.wstring_at(data)
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
+async def clipboard_loop(ws) -> None:
+    last_text = ""
+    max_len = 4000
+    loop = asyncio.get_event_loop()
+
+    while True:
+        await asyncio.sleep(0.8)
+        try:
+            text = await loop.run_in_executor(None, get_clipboard_text)
+        except Exception:
+            continue
+
+        if not text or text == last_text:
+            continue
+
+        last_text = text
+        truncated = len(text) > max_len
+        payload = {
+            "type": "clipboard_copy",
+            "content": text[:max_len],
+            "truncated": truncated,
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        try:
+            await ws.send(json.dumps(payload))
+        except Exception:
+            return
+
+
 def handle_control(msg: dict) -> None:
     action = msg.get("action")
     if action == "mouse_move":
@@ -274,8 +332,9 @@ async def run_agent(
                     capture_loop(ws, monitor, fps, quality, viewer_count)
                 )
                 receive_task = asyncio.create_task(receive_loop(ws, viewer_count))
+                clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 done, pending = await asyncio.wait(
-                    {capture_task, receive_task},
+                    {capture_task, receive_task, clipboard_task},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:

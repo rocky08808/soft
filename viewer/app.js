@@ -14,8 +14,13 @@ const metaEl = document.getElementById("meta");
 const fpsEl = document.getElementById("fps");
 const deviceListEl = document.getElementById("deviceList");
 const auditListEl = document.getElementById("auditList");
+const clipboardListEl = document.getElementById("clipboardList");
+const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
+
+const MAX_CLIPBOARD_UI = 300;
+let clipboardEntries = [];
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
@@ -151,6 +156,74 @@ function renderDevices(devices) {
   }
 }
 
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function previewText(text, max = 160) {
+  const value = String(text || "");
+  if (value.length <= max) return value;
+  return value.slice(0, max) + "...";
+}
+
+function renderClipboard() {
+  clipboardListEl.innerHTML = "";
+  if (!clipboardEntries.length) {
+    clipboardListEl.innerHTML = '<li class="empty">暂无复制记录</li>';
+    return;
+  }
+
+  for (const entry of clipboardEntries.slice(0, MAX_CLIPBOARD_UI)) {
+    const li = document.createElement("li");
+    li.className = "clipboard-item";
+    const time = new Date(entry.time).toLocaleString();
+    li.innerHTML = `
+      <div class="clipboard-time">${time}</div>
+      <div class="clipboard-text">${escapeHtml(previewText(entry.content))}</div>
+      ${entry.truncated ? '<span class="clipboard-tag">内容已截断</span>' : ""}
+      <span class="clipboard-tag">点击复制到本机</span>
+    `;
+    li.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(entry.content);
+        li.style.borderColor = "#22c55e";
+        setTimeout(() => {
+          li.style.borderColor = "";
+        }, 800);
+      } catch {
+        window.prompt("复制以下内容:", entry.content);
+      }
+    });
+    clipboardListEl.appendChild(li);
+  }
+}
+
+function addClipboardEntry(entry) {
+  if (!entry || !entry.content) return;
+  clipboardEntries.unshift(entry);
+  if (clipboardEntries.length > MAX_CLIPBOARD_UI) {
+    clipboardEntries.length = MAX_CLIPBOARD_UI;
+  }
+  renderClipboard();
+}
+
+async function loadClipboardHistory(deviceId) {
+  try {
+    const data = await apiFetch(
+      `/api/clipboard?deviceId=${encodeURIComponent(deviceId)}&limit=${MAX_CLIPBOARD_UI}`
+    );
+    clipboardEntries = data.entries || [];
+    renderClipboard();
+  } catch {
+    clipboardEntries = [];
+    clipboardListEl.innerHTML = '<li class="empty">无法加载复制记录</li>';
+  }
+}
+
 function renderAudit(entries) {
   auditListEl.innerHTML = "";
   if (!entries.length) {
@@ -217,6 +290,7 @@ function connect() {
   ws.onopen = () => {
     setStatus(`已连接 · ${deviceId}`, true);
     disconnectBtn.disabled = false;
+    loadClipboardHistory(deviceId);
   };
 
   ws.onmessage = (event) => {
@@ -232,6 +306,13 @@ function connect() {
       if (msg.device?.hostname) {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
       }
+      clipboardEntries = msg.clipboard || [];
+      renderClipboard();
+      return;
+    }
+
+    if (msg.type === "clipboard_copy" && msg.entry) {
+      addClipboardEntry(msg.entry);
       return;
     }
 
@@ -315,6 +396,10 @@ canvas.addEventListener("keyup", (e) => {
 connectBtn.addEventListener("click", connect);
 disconnectBtn.addEventListener("click", disconnect);
 refreshBtn.addEventListener("click", refreshDashboard);
+clearClipboardBtn.addEventListener("click", () => {
+  clipboardEntries = [];
+  renderClipboard();
+});
 function updateMouseTrackUi() {
   canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
 }

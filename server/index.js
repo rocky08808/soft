@@ -8,12 +8,14 @@ const { WebSocketServer } = require("ws");
 const PORT = Number(process.env.PORT) || 8080;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "remote-screen-dev";
 const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
+const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
 
 const agents = new Map();
 const agentMeta = new Map();
 const viewers = new Map();
 const dashboardClients = new Set();
 const auditLog = [];
+const clipboardLog = new Map();
 
 const app = express();
 app.use(express.json());
@@ -54,6 +56,25 @@ function addAudit(event, detail) {
     ...detail,
   });
   if (auditLog.length > MAX_AUDIT) auditLog.length = MAX_AUDIT;
+}
+
+function addClipboardEntry(deviceId, msg) {
+  if (!clipboardLog.has(deviceId)) clipboardLog.set(deviceId, []);
+  const list = clipboardLog.get(deviceId);
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    time: msg.time || new Date().toISOString(),
+    content: String(msg.content || ""),
+    truncated: Boolean(msg.truncated),
+  };
+  list.unshift(entry);
+  if (list.length > MAX_CLIPBOARD) list.length = MAX_CLIPBOARD;
+  return entry;
+}
+
+function getClipboardEntries(deviceId, limit) {
+  const list = clipboardLog.get(deviceId) || [];
+  return list.slice(0, limit);
 }
 
 function deviceSnapshot(deviceId) {
@@ -116,6 +137,13 @@ app.get("/api/audit", authMiddleware, (req, res) => {
   res.json({ entries: auditLog.slice(0, limit) });
 });
 
+app.get("/api/clipboard", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  const limit = Math.min(Number(req.query.limit) || 300, MAX_CLIPBOARD);
+  res.json({ deviceId, entries: getClipboardEntries(deviceId, limit) });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -167,6 +195,7 @@ wss.on("connection", (ws, req) => {
       deviceId,
       agentOnline: agents.has(deviceId),
       device: deviceSnapshot(deviceId),
+      clipboard: getClipboardEntries(deviceId, 300),
     });
     notifyAgentViewerCount(deviceId);
     addAudit("viewer_connect", { deviceId, ip: clientIp });
@@ -201,6 +230,25 @@ wss.on("connection", (ws, req) => {
         const meta = agentMeta.get(deviceId) || {};
         meta.lastSeen = new Date().toISOString();
         agentMeta.set(deviceId, meta);
+        const set = viewers.get(deviceId);
+        if (!set || set.size === 0) return;
+        for (const viewer of set) send(viewer, msg);
+        return;
+      }
+
+      if (msg.type === "clipboard_copy") {
+        const entry = addClipboardEntry(deviceId, msg);
+        addAudit("clipboard_copy", {
+          deviceId,
+          preview: entry.content.slice(0, 80),
+        });
+        const payload = { type: "clipboard_copy", deviceId, entry };
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, payload);
+        }
+        broadcastDashboard("clipboard_copy", payload);
+        return;
       }
 
       const set = viewers.get(deviceId);
