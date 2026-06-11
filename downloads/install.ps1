@@ -1,16 +1,16 @@
-﻿# RemoteScreen Agent — remote one-click install
+﻿# ReSA — remote one-click install
 param(
     [string]$BaseUrl = "https://olxp.cc/download"
 )
 
 $ErrorActionPreference = "Stop"
-$Dir = Join-Path $env:LOCALAPPDATA "RemoteScreenAgent"
-$Exe = Join-Path $Dir "RemoteScreenAgent.exe"
-$TaskName = "RemoteScreenAgent"
-$Url = ($BaseUrl.TrimEnd("/") + "/RemoteScreenAgent.exe")
+$Dir = Join-Path $env:LOCALAPPDATA "ReSA"
+$Exe = Join-Path $Dir "ReSA.exe"
+$TaskName = "ReSA"
+$Url = ($BaseUrl.TrimEnd("/") + "/ReSA.exe")
 
 Write-Host ""
-Write-Host "=== RemoteScreen Agent 一键安装 ===" -ForegroundColor Cyan
+Write-Host "=== ReSA 一键安装 ===" -ForegroundColor Cyan
 Write-Host "下载: $Url"
 Write-Host "安装到: $Dir"
 Write-Host ""
@@ -22,7 +22,7 @@ try {
     Invoke-WebRequest -Uri $Url -OutFile $Exe -UseBasicParsing
 } catch {
     Write-Host "[错误] 下载失败: $_" -ForegroundColor Red
-    Write-Host "请确认服务器 downloads 目录已上传 RemoteScreenAgent.exe" -ForegroundColor Yellow
+    Write-Host "请确认服务器 downloads 目录已上传 ReSA.exe" -ForegroundColor Yellow
     exit 1
 }
 
@@ -33,7 +33,7 @@ if (-not (Test-Path $Exe)) {
 
 Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
-$running = Get-Process -Name "RemoteScreenAgent" -ErrorAction SilentlyContinue
+$running = Get-Process -Name "ReSA" -ErrorAction SilentlyContinue
 if ($running) {
     $running | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
@@ -52,7 +52,7 @@ try {
 } catch {
     $Startup = [Environment]::GetFolderPath("Startup")
     $Wsh = New-Object -ComObject WScript.Shell
-    $Link = $Wsh.CreateShortcut((Join-Path $Startup "RemoteScreenAgent.lnk"))
+    $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
     $Link.TargetPath = $Exe
     $Link.WorkingDirectory = $Dir
     $Link.Save()

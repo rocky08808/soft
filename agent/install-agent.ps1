@@ -1,4 +1,4 @@
-# Install RemoteScreenAgent — double-click exe, no config file needed
+# Install ReSA — double-click exe, no config file needed
 param(
     [string]$Server = "wss://olxp.cc",
     [string]$DeviceId = "",
@@ -8,10 +8,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $AgentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$DistExe = Join-Path $AgentDir "dist\RemoteScreenAgent.exe"
-$InstallDir = Join-Path $env:LOCALAPPDATA "RemoteScreenAgent"
+$DistExe = Join-Path $AgentDir "dist\ReSA.exe"
+$InstallDir = Join-Path $env:LOCALAPPDATA "ReSA"
 $SettingsPath = Join-Path $InstallDir "settings.json"
-$TaskName = "RemoteScreenAgent"
+$TaskName = "ReSA"
 
 if (-not (Test-Path $DistExe)) {
     throw "Not found: $DistExe`nRun build.bat first."
@@ -22,7 +22,7 @@ if (-not $Token) {
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-$InstallExe = Join-Path $InstallDir "RemoteScreenAgent.exe"
+$InstallExe = Join-Path $InstallDir "ReSA.exe"
 Copy-Item -Force $DistExe $InstallExe
 # Remove "Mark of the Web" so SmartScreen is less likely to block copied files.
 if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
@@ -52,7 +52,7 @@ if ($DeviceId) {
 }
 
 if (-not $NoAutostart) {
-    $ExePath = Join-Path $InstallDir "RemoteScreenAgent.exe"
+    $ExePath = Join-Path $InstallDir "ReSA.exe"
     $Action = New-ScheduledTaskAction -Execute $ExePath -WorkingDirectory $InstallDir
     $Trigger = New-ScheduledTaskTrigger -AtLogOn
     $Settings = New-ScheduledTaskSettingsSet `
@@ -64,5 +64,5 @@ if (-not $NoAutostart) {
     Start-ScheduledTask -TaskName $TaskName
     Write-Host "Agent started."
 } else {
-    Write-Host "Run: $InstallDir\RemoteScreenAgent.exe"
+    Write-Host "Run: $InstallDir\ReSA.exe"
 }

@@ -1,20 +1,20 @@
 ; Inno Setup script — compile with Inno Setup 6 to produce setup.exe
 ; https://jrsoftware.org/isinfo.php
 
-#define MyAppName "RemoteScreen Agent"
+#define MyAppName "ReSA"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "RemoteScreen"
-#define MyAppExeName "RemoteScreenAgent.exe"
+#define MyAppPublisher "ReSA"
+#define MyAppExeName "ReSA.exe"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-DefaultDirName={localappdata}\RemoteScreenAgent
+DefaultDirName={localappdata}\ReSA
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=RemoteScreenAgent-Setup
+OutputBaseFilename=ReSA-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -61,7 +61,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    SettingsDir := ExpandConstant('{localappdata}\RemoteScreenAgent');
+    SettingsDir := ExpandConstant('{localappdata}\ReSA');
     SettingsPath := SettingsDir + '\settings.json';
     ForceDirectories(SettingsDir);
     ConfigContent :=
@@ -79,4 +79,4 @@ begin
 end;
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "RemoteScreenAgent"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ReSA"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue

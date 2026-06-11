@@ -112,14 +112,14 @@
 </head>
 <body>
   <div class="install-page">
-    <h1>RemoteScreen Agent 远程一键安装</h1>
+    <h1>ReSA 远程一键安装</h1>
     <p class="note">把本页链接发给被控电脑用户即可。服务器地址和令牌已内置，设备 ID 默认为电脑名。</p>
 
     <div class="hero">
       <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可完成安装与开机自启。</p>
       <a id="installBatLink" class="btn-primary" href="/download/install.bat" download>下载一键安装脚本</a>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>RemoteScreenAgent-Install.bat</code></span></div>
+        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.bat</code></span></div>
         <div class="step"><span class="step-num">2</span><span>双击运行（若 SmartScreen 提示，选「更多信息」→「仍要运行」，仅首次）</span></div>
         <div class="step"><span class="step-num">3</span><span>回到控制端，在设备列表查看是否在线</span></div>
       </div>
@@ -145,9 +145,9 @@
 
     <div class="install-card">
       <h2>安装后路径</h2>
-      <p class="note">程序：<code>%LOCALAPPDATA%\RemoteScreenAgent\RemoteScreenAgent.exe</code></p>
-      <p class="note">设备 ID：<code>%LOCALAPPDATA%\RemoteScreenAgent\device.id</code></p>
-      <p class="note">日志：<code>%LOCALAPPDATA%\RemoteScreenAgent\agent.log</code></p>
+      <p class="note">程序：<code>%LOCALAPPDATA%\ReSA\ReSA.exe</code></p>
+      <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReSA\device.id</code></p>
+      <p class="note">日志：<code>%LOCALAPPDATA%\ReSA\agent.log</code></p>
     </div>
 
     <p class="back"><a href="/">← 返回控制端</a></p>
@@ -160,7 +160,7 @@
     const pageUrl = origin + "/install.html";
     const batUrl = origin + "/download/install.bat";
     const psOneLiner =
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'RemoteScreenAgent-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("psCmd").textContent = psOneLiner;

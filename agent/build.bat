@@ -24,7 +24,7 @@ if exist agent.config.json (
 
 
 
-echo Building RemoteScreenAgent.exe ...
+echo Building ReSA.exe ...
 
 python -m PyInstaller --clean --noconfirm agent.spec
 
@@ -40,7 +40,7 @@ if errorlevel 1 (
 
 echo.
 
-echo Done: dist\RemoteScreenAgent.exe
+echo Done: dist\ReSA.exe
 
 echo Server/token are built into the exe. Device ID = computer name.
 
@@ -50,7 +50,7 @@ echo Preparing deploy package for other PCs...
 
 if not exist dist\deploy mkdir dist\deploy
 
-copy /Y dist\RemoteScreenAgent.exe dist\deploy\ >nul
+copy /Y dist\ReSA.exe dist\deploy\ >nul
 
 copy /Y install-on-target.bat dist\deploy\ >nul
 
@@ -59,7 +59,7 @@ copy /Y install-on-target.ps1 dist\deploy\ >nul
 copy /Y install-simple.bat dist\deploy\ >nul
 
 if not exist ..\downloads mkdir ..\downloads
-copy /Y dist\RemoteScreenAgent.exe ..\downloads\ >nul
+copy /Y dist\ReSA.exe ..\downloads\ >nul
 copy /Y install-simple.bat ..\downloads\ >nul
 copy /Y ..\downloads\install.ps1 dist\deploy\ >nul 2>nul
 

@@ -23,7 +23,7 @@ $ConfigPath = Join-Path $AgentDir "agent.config.json"
     quality  = 55
 } | ConvertTo-Json | Set-Content -Path $ConfigPath -Encoding UTF8
 
-$TaskName = "RemoteScreenAgent"
+$TaskName = "ReSA"
 $Action = New-ScheduledTaskAction -Execute $Python -Argument "`"$AgentDir\agent.py`" --config `"$ConfigPath`"" -WorkingDirectory $AgentDir
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)

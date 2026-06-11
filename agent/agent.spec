@@ -37,7 +37,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='RemoteScreenAgent',
+    name='ReSA',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

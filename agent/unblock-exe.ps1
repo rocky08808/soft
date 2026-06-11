@@ -1,6 +1,6 @@
-# Unblock RemoteScreenAgent.exe (removes download zone marker)
+# Unblock ReSA.exe (removes download zone marker)
 param(
-    [string]$Path = (Join-Path $PSScriptRoot "dist\RemoteScreenAgent.exe")
+    [string]$Path = (Join-Path $PSScriptRoot "dist\ReSA.exe")
 )
 
 if (-not (Test-Path $Path)) {

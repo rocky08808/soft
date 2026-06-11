@@ -1,22 +1,22 @@
-# Run on the target PC (not the build machine). Put this next to RemoteScreenAgent.exe.
+# Run on the target PC (not the build machine). Put this next to ReSA.exe.
 param(
     [switch]$NoAutostart
 )
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
-$SourceExe = Join-Path $Here "RemoteScreenAgent.exe"
-$InstallDir = Join-Path $env:LOCALAPPDATA "RemoteScreenAgent"
-$InstallExe = Join-Path $InstallDir "RemoteScreenAgent.exe"
-$TaskName = "RemoteScreenAgent"
+$SourceExe = Join-Path $Here "ReSA.exe"
+$InstallDir = Join-Path $env:LOCALAPPDATA "ReSA"
+$InstallExe = Join-Path $InstallDir "ReSA.exe"
+$TaskName = "ReSA"
 
 if (-not (Test-Path $SourceExe)) {
-    Write-Host "ERROR: RemoteScreenAgent.exe not found in: $Here" -ForegroundColor Red
+    Write-Host "ERROR: ReSA.exe not found in: $Here" -ForegroundColor Red
     pause
     exit 1
 }
 
-Write-Host "Installing RemoteScreenAgent..."
+Write-Host "Installing ReSA..."
 Write-Host "Source: $SourceExe"
 Write-Host "Target: $InstallDir"
 Write-Host ""

@@ -288,7 +288,7 @@ def get_app_dir() -> Path:
 
 
 def get_settings_dir() -> Path:
-    return Path(os.environ.get("LOCALAPPDATA", "")) / "RemoteScreenAgent"
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "ReSA"
 
 
 def get_settings_path() -> Path:

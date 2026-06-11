@@ -37,16 +37,16 @@ app.get("/install", (_req, res) => {
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const psCmd =
-    "$b='%BASE%'; $f=Join-Path $env:TEMP 'RemoteScreenAgent-install.ps1'; " +
+    "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
     "& $f -BaseUrl $b";
   const body = [
     "@echo off",
     "chcp 65001 >nul",
-    "title RemoteScreen Agent 一键安装",
+    "title ReSA 一键安装",
     "echo.",
-    "echo === RemoteScreen Agent 一键安装 ===",
+    "echo === ReSA 一键安装 ===",
     "echo.",
     `set "BASE=${base}"`,
     `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
@@ -61,7 +61,7 @@ app.get("/download/install.bat", (req, res) => {
     "pause",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", 'attachment; filename="RemoteScreenAgent-Install.bat"');
+  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.bat"');
   res.send(body);
 });
 
