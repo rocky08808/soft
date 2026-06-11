@@ -69,10 +69,11 @@ app.get("/download/install.bat", (req, res) => {
 app.get("/download/uninstall.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const psCmd =
-    "Write-Host '正在获取卸载脚本...' -ForegroundColor Cyan; " +
+    "Write-Host 'Downloading uninstall script...' -ForegroundColor Cyan; " +
     "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/uninstall.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
+    "$t=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $true)); " +
     "& $f; exit $LASTEXITCODE";
   const body = [
     "@echo off",

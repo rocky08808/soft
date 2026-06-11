@@ -1,4 +1,4 @@
-# ReSA — uninstall (includes legacy RemoteScreenAgent)
+﻿# ReSA uninstall (includes legacy RemoteScreenAgent)
 param(
     [switch]$Quiet
 )
@@ -25,12 +25,12 @@ $AgentProfiles = @(
 )
 
 $RunKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-$failures = New-Object System.Collections.Generic.List[string]
+$failures = @()
 
 function Write-Step {
     param(
         [string]$Text,
-        [ConsoleColor]$Color = [ConsoleColor]::Gray
+        [string]$Color = "Gray"
     )
     if (-not $Quiet) {
         Write-Host $Text -ForegroundColor $Color
@@ -66,11 +66,11 @@ function Remove-AgentScheduledTask {
     }
 
     if (Test-ScheduledTaskExists -TaskName $TaskName) {
-        $failures.Add("计划任务仍存在: $TaskName")
+        $script:failures += "task still exists: $TaskName"
         return $false
     }
 
-    Write-Step "已删除计划任务: $TaskName"
+    Write-Step -Text "removed task: $TaskName" -Color "Green"
     return $true
 }
 
@@ -87,7 +87,7 @@ function Stop-AgentProcess {
             Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 300
         if (-not (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
-            Write-Step "已停止进程: $ProcessName"
+            Write-Step -Text "stopped process: $ProcessName" -Color "Green"
             return $true
         }
     }
@@ -96,11 +96,11 @@ function Stop-AgentProcess {
     Start-Sleep -Milliseconds 500
 
     if (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue) {
-        $failures.Add("进程仍在运行: $ProcessName")
+        $script:failures += "process still running: $ProcessName"
         return $false
     }
 
-    Write-Step "已停止进程: $ProcessName"
+    Write-Step -Text "stopped process: $ProcessName" -Color "Green"
     return $true
 }
 
@@ -108,10 +108,12 @@ function Remove-AgentRunKey {
     param([string]$Name)
 
     try {
-        $value = Get-ItemProperty -Path $RunKeyPath -Name $Name -ErrorAction SilentlyContinue
-        if (-not $value) { return $false }
+        $props = Get-ItemProperty -Path $RunKeyPath -ErrorAction SilentlyContinue
+        if (-not $props -or -not ($props.PSObject.Properties.Name -contains $Name)) {
+            return $false
+        }
         Remove-ItemProperty -Path $RunKeyPath -Name $Name -ErrorAction SilentlyContinue
-        Write-Step "已删除注册表自启: $Name"
+        Write-Step -Text "removed run key: $Name" -Color "Green"
         return $true
     } catch {
         return $false
@@ -128,10 +130,10 @@ function Remove-AgentStartupLink {
 
     try {
         Remove-Item -LiteralPath $startupLink -Force -ErrorAction Stop
-        Write-Step "已删除启动快捷方式: $LinkName"
+        Write-Step -Text "removed startup link: $LinkName" -Color "Green"
         return $true
     } catch {
-        $failures.Add("启动快捷方式删除失败: $LinkName")
+        $script:failures += "startup link failed: $LinkName"
         return $false
     }
 }
@@ -153,7 +155,7 @@ function Remove-AgentDirectory {
         }
 
         if (-not (Test-Path -LiteralPath $InstallDir)) {
-            Write-Step "已删除安装目录: $InstallDir"
+            Write-Step -Text "removed folder: $InstallDir" -Color "Green"
             return $true
         }
     }
@@ -162,11 +164,11 @@ function Remove-AgentDirectory {
     Start-Sleep -Milliseconds 300
 
     if (Test-Path -LiteralPath $InstallDir) {
-        $failures.Add("安装目录仍存在: $InstallDir")
+        $script:failures += "folder still exists: $InstallDir"
         return $false
     }
 
-    Write-Step "已删除安装目录: $InstallDir"
+    Write-Step -Text "removed folder: $InstallDir" -Color "Green"
     return $true
 }
 
@@ -183,44 +185,44 @@ function Remove-AgentProfile {
     if (Remove-AgentDirectory -InstallDir $installDir) { $changed = $true }
 
     if (-not $changed -and -not $Quiet) {
-        Write-Step "未发现 $($Profile.Label) 相关项"
+        Write-Step -Text "not found: $($Profile.Label)" -Color "Gray"
     }
 
     return $changed
 }
 
-Write-Step ""
-Write-Step "=== ReSA 卸载 ===" Cyan
-Write-Step "将清理 ReSA 及旧版 RemoteScreenAgent（如存在）"
-Write-Step ""
+Write-Step -Text "" -Color "Gray"
+Write-Step -Text "=== ReSA Uninstall ===" -Color "Cyan"
+Write-Step -Text "Cleaning ReSA and legacy RemoteScreenAgent..." -Color "Gray"
+Write-Step -Text "" -Color "Gray"
 
 $anyFound = $false
 foreach ($profile in $AgentProfiles) {
     if (-not $Quiet) {
-        Write-Step "-- $($profile.Label) --" Cyan
+        Write-Step -Text "-- $($profile.Label) --" -Color "Cyan"
     }
     if (Remove-AgentProfile -Profile $profile) {
         $anyFound = $true
     }
     if (-not $Quiet) {
-        Write-Step ""
+        Write-Step -Text "" -Color "Gray"
     }
 }
 
-Write-Step ""
+Write-Step -Text "" -Color "Gray"
 if ($failures.Count -gt 0) {
-    Write-Step "卸载未完全成功，请关闭相关程序后重试，或以管理员身份运行。" Yellow
+    Write-Step -Text "Uninstall incomplete. Close ReSA and retry, or run as Administrator." -Color "Yellow"
     foreach ($item in $failures) {
-        Write-Step "  - $item" Yellow
+        Write-Step -Text "  - $item" -Color "Yellow"
     }
     exit 1
 }
 
 if ($anyFound) {
-    Write-Step "卸载完成。" Green
+    Write-Step -Text "Uninstall complete." -Color "Green"
 } else {
-    Write-Step "未发现已安装的 ReSA / RemoteScreenAgent。" Yellow
+    Write-Step -Text "No ReSA / RemoteScreenAgent installation found." -Color "Yellow"
 }
 
-Write-Step ""
+Write-Step -Text "" -Color "Gray"
 exit 0
