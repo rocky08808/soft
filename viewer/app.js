@@ -20,7 +20,7 @@ const ctx = canvas.getContext("2d");
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
 tokenInput.value = localStorage.getItem(TOKEN_KEY) || tokenInput.value;
-mouseTrackToggle.checked = localStorage.getItem(MOUSE_TRACK_KEY) !== "0";
+mouseTrackToggle.checked = localStorage.getItem(MOUSE_TRACK_KEY) === "1";
 
 let ws = null;
 let dashWs = null;
