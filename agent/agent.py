@@ -380,11 +380,11 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "token": args.token or cfg.get("token") or "remote-screen-dev",
         "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
         "fps": args.fps if args.fps is not None else int(cfg.get("fps", 12)),
-        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 38)),
+        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 55)),
         "stream_width": (
             args.stream_width
             if args.stream_width is not None
-            else int(cfg.get("streamWidth", cfg.get("stream_width", 960)))
+            else int(cfg.get("streamWidth", cfg.get("stream_width", 0)))
         ),
     }
 
@@ -708,6 +708,25 @@ async def capture_and_send_screenshot(
         agent_log(f"screenshot sent: {region['width']}x{region['height']}")
 
 
+def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
+    ok, encoded = cv2.imencode(
+        ".jpg",
+        frame,
+        [int(cv2.IMWRITE_JPEG_QUALITY), encode_q],
+    )
+    if not ok:
+        return None
+    out_h, out_w = frame.shape[:2]
+    return json.dumps(
+        {
+            "type": "frame",
+            "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
+            "width": out_w,
+            "height": out_h,
+        }
+    )
+
+
 async def capture_loop(
     ws,
     monitor_index: int,
@@ -719,12 +738,16 @@ async def capture_loop(
     interval = 1.0 / max(fps, 1)
     encode_q = max(20, min(quality, 95))
     frames_sent = 0
+    loop = asyncio.get_event_loop()
 
     with mss.mss() as sct:
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
         region = monitors[idx]
-        agent_log(f"capture region: {region['width']}x{region['height']} stream_width={stream_width}")
+        stream_desc = stream_width if stream_width > 0 else "native"
+        agent_log(
+            f"capture region: {region['width']}x{region['height']} stream_width={stream_desc}"
+        )
 
         while True:
             if not viewer_count.is_set():
@@ -736,26 +759,19 @@ async def capture_loop(
                 img = np.array(sct.grab(region))
                 frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
                 frame = prepare_stream_frame(frame, stream_width)
-                ok, encoded = cv2.imencode(
-                    ".jpg",
-                    frame,
-                    [int(cv2.IMWRITE_JPEG_QUALITY), encode_q],
+                payload = await loop.run_in_executor(
+                    None, build_frame_payload, frame, encode_q
                 )
-                if not ok:
+                if not payload:
                     await asyncio.sleep(interval)
                     continue
-
-                out_h, out_w = frame.shape[:2]
-                payload = {
-                    "type": "frame",
-                    "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
-                    "width": out_w,
-                    "height": out_h,
-                }
-                await ws.send(json.dumps(payload))
+                await ws.send(payload)
                 frames_sent += 1
                 if frames_sent == 1:
-                    agent_log(f"first frame sent: {out_w}x{out_h}")
+                    first = json.loads(payload)
+                    agent_log(
+                        f"first frame sent: {first['width']}x{first['height']}"
+                    )
             except Exception as exc:
                 agent_log(f"capture error: {exc}")
                 await asyncio.sleep(1)

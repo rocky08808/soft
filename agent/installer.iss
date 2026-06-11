@@ -71,8 +71,8 @@ begin
       '  "token": "' + TokenPage.Values[0] + '",' + #13#10 +
       '  "monitor": 1,' + #13#10 +
       '  "fps": 12,' + #13#10 +
-      '  "quality": 38,' + #13#10 +
-      '  "streamWidth": 960' + #13#10 +
+      '  "quality": 55,' + #13#10 +
+      '  "streamWidth": 0' + #13#10 +
       '}';
     SaveStringToFile(SettingsPath, ConfigContent, False);
   end;

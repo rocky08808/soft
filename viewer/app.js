@@ -51,8 +51,6 @@ let remoteHeight = 0;
 let frameCount = 0;
 let lastFpsAt = performance.now();
 let lastMoveAt = 0;
-let pendingFrame = null;
-let frameRafId = 0;
 
 function getToken() {
   return tokenInput.value.trim();
@@ -126,32 +124,19 @@ function mapCoords(clientX, clientY) {
   };
 }
 
-function parseBinaryFrame(buffer) {
-  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 5) return null;
-  const view = new DataView(buffer);
-  if (view.getUint8(0) !== 0x01) return null;
-  return {
-    width: view.getUint16(1),
-    height: view.getUint16(3),
-    bytes: buffer.slice(5),
-  };
-}
-
-function renderPendingFrame() {
-  frameRafId = 0;
-  const frame = pendingFrame;
-  if (!frame) return;
-  pendingFrame = null;
-
-  remoteWidth = frame.width;
-  remoteHeight = frame.height;
-  metaEl.textContent = `分辨率: ${frame.width} x ${frame.height}`;
+function drawFrame(base64, width, height) {
+  if (!base64) return;
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  if (w && h) {
+    remoteWidth = w;
+    remoteHeight = h;
+    metaEl.textContent = `分辨率: ${w} x ${h}`;
+  }
 
   const img = new Image();
-  let objectUrl = "";
   img.onload = () => {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    if (!frame.width || !frame.height) {
+    if (!remoteWidth) {
       remoteWidth = img.width;
       remoteHeight = img.height;
       metaEl.textContent = `分辨率: ${img.width} x ${img.height}`;
@@ -167,43 +152,12 @@ function renderPendingFrame() {
       frameCount = 0;
       lastFpsAt = now;
     }
-    if (pendingFrame) scheduleFrameRender();
   };
   img.onerror = () => {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
     placeholder.style.display = "block";
     placeholder.textContent = "画面解码失败，请刷新重连";
   };
-  if (frame.bytes) {
-    objectUrl = URL.createObjectURL(
-      new Blob([new Uint8Array(frame.bytes)], { type: "image/jpeg" })
-    );
-    img.src = objectUrl;
-  } else if (frame.base64) {
-    img.src = "data:image/jpeg;base64," + frame.base64;
-  }
-}
-
-function scheduleFrameRender() {
-  if (frameRafId) return;
-  frameRafId = requestAnimationFrame(renderPendingFrame);
-}
-
-function drawFrameBinary(buffer) {
-  const parsed = parseBinaryFrame(buffer);
-  if (!parsed) return;
-  pendingFrame = parsed;
-  scheduleFrameRender();
-}
-
-function drawFrame(base64, width, height) {
-  if (!base64) return;
-  pendingFrame = {
-    base64,
-    width: Number(width) || 0,
-    height: Number(height) || 0,
-  };
-  scheduleFrameRender();
+  img.src = "data:image/jpeg;base64," + base64;
 }
 
 function maybeAutoSelectDevice(devices) {
@@ -576,18 +530,7 @@ function connect() {
     setScreenshotHint(`设备: ${deviceId}`);
   };
 
-  ws.onmessage = async (event) => {
-    if (event.data instanceof ArrayBuffer) {
-      drawFrameBinary(event.data);
-      setStatus(`远程控制中 · ${deviceId}`, true);
-      return;
-    }
-    if (event.data instanceof Blob) {
-      drawFrameBinary(await event.data.arrayBuffer());
-      setStatus(`远程控制中 · ${deviceId}`, true);
-      return;
-    }
-
+  ws.onmessage = (event) => {
     let msg;
     try {
       msg = JSON.parse(event.data);
