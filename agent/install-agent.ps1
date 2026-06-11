@@ -22,7 +22,13 @@ if (-not $Token) {
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Copy-Item -Force $DistExe (Join-Path $InstallDir "RemoteScreenAgent.exe")
+$InstallExe = Join-Path $InstallDir "RemoteScreenAgent.exe"
+Copy-Item -Force $DistExe $InstallExe
+# Remove "Mark of the Web" so SmartScreen is less likely to block copied files.
+if (Get-Command Unblock-File -ErrorAction SilentlyContinue) {
+    Unblock-File -Path $DistExe -ErrorAction SilentlyContinue
+    Unblock-File -Path $InstallExe -ErrorAction SilentlyContinue
+}
 
 $settings = @{
     server  = $Server
