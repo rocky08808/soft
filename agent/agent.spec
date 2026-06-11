@@ -17,6 +17,8 @@ a = Analysis(
         'websockets.legacy.client',
         'pynput.keyboard._win32',
         'pynput.mouse._win32',
+        'pynput._util.win32',
+        'pynput._util.win32_vks',
         'tkinter',
     ],
     hookspath=[],

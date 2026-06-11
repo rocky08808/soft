@@ -281,7 +281,7 @@ function renderKeyboard() {
 }
 
 function addKeyboardEntry(entry) {
-  if (!entry || !entry.content) return;
+  if (!entry || entry.content == null || entry.content === undefined) return;
   keyboardEntries.unshift(entry);
   if (keyboardEntries.length > MAX_KEYBOARD_UI) {
     keyboardEntries.length = MAX_KEYBOARD_UI;

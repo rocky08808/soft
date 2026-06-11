@@ -23,6 +23,7 @@ import cv2
 import mss
 import numpy as np
 import websockets
+from pynput._util.win32 import KeyTranslator
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
 from pynput.keyboard import KeyCode
@@ -73,8 +74,11 @@ remote_input_ignore_until = 0.0
 keyboard_chars: list[str] = []
 keyboard_last_at = 0.0
 ime_last_commit = ""
+key_translator = KeyTranslator()
+pending_key_vks: set[int] = set()
 
 FLUSH_KEYS = frozenset({Key.enter, Key.space, Key.tab})
+FLUSH_VKS = frozenset({0x0D, 0x20, 0x09})  # enter, space, tab
 IGNORED_KEYS = frozenset({
     Key.shift, Key.shift_l, Key.shift_r,
     Key.ctrl, Key.ctrl_l, Key.ctrl_r,
@@ -93,6 +97,12 @@ def is_remote_input() -> bool:
     return time.time() < remote_input_ignore_until
 
 
+def normalize_char(ch: str) -> str:
+    if ch == "\r":
+        return "\n"
+    return ch
+
+
 def format_named_key(key: Key) -> str:
     if key == Key.space:
         return " "
@@ -102,6 +112,33 @@ def format_named_key(key: Key) -> str:
         return "\t"
     name = str(key).replace("Key.", "")
     return f"[{name}]"
+
+
+def key_scan_code(key) -> Optional[int]:
+    return getattr(key, "_scan", None) or getattr(key, "scan", None)
+
+
+def key_vk_code(key) -> Optional[int]:
+    vk = getattr(key, "vk", None)
+    if vk is not None:
+        return int(vk)
+    if isinstance(key, Key):
+        value = getattr(key, "value", None)
+        if value is not None:
+            return getattr(value, "vk", None)
+    return None
+
+
+def build_keyboard_state() -> ctypes.Array:
+    user32 = ctypes.windll.user32
+    state = (ctypes.c_ubyte * 256)()
+    user32.GetKeyboardState(state)
+    for vk in (0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5):
+        if user32.GetAsyncKeyState(vk) & 0x8000:
+            state[vk] |= 0x80
+    if user32.GetKeyState(0x14) & 1:
+        state[0x14] = 1
+    return state
 
 
 def vk_to_unicode(vk: Optional[int], scan: Optional[int] = None) -> Optional[str]:
@@ -114,15 +151,43 @@ def vk_to_unicode(vk: Optional[int], scan: Optional[int] = None) -> Optional[str
     if not scan:
         return None
 
-    keyboard_state = (ctypes.c_ubyte * 256)()
-    user32.GetKeyboardState(keyboard_state)
+    state = build_keyboard_state()
     buf = ctypes.create_unicode_buffer(8)
-    count = user32.ToUnicode(vk, scan, keyboard_state, buf, 8, 0)
-    if count != 1 or not buf[0]:
-        return None
+    count = user32.ToUnicode(vk, scan, state, buf, 8, 0)
+    if count == 1 and buf[0]:
+        ch = normalize_char(buf[0])
+        if ch.isprintable() or ch in "\n\t":
+            return ch
+    return None
 
-    ch = buf[0]
-    if ch.isprintable() or ch in "\t":
+
+def vk_alnum_fallback(vk: int) -> Optional[str]:
+    user32 = ctypes.windll.user32
+    shift = bool(user32.GetAsyncKeyState(0x10) & 0x8000)
+    caps = bool(user32.GetKeyState(0x14) & 1)
+    if 0x41 <= vk <= 0x5A:
+        upper = shift ^ caps
+        ch = chr(vk)
+        return ch if upper else ch.lower()
+    if 0x30 <= vk <= 0x39:
+        return chr(vk)
+    if 0x60 <= vk <= 0x69:
+        return chr(vk - 0x60 + ord("0"))
+    return None
+
+
+def char_from_scan(scan: int, listener: Optional[KeyboardListener] = None) -> Optional[str]:
+    translator = getattr(listener, "_translator", None) if listener else None
+    if translator is None:
+        translator = key_translator
+    try:
+        ch = translator.char_from_scan(scan)
+    except Exception:
+        return None
+    if not ch:
+        return None
+    ch = normalize_char(ch)
+    if ch.isprintable() or ch in "\n\t":
         return ch
     return None
 
@@ -167,22 +232,50 @@ def poll_ime_commit() -> Optional[str]:
     return text
 
 
-def key_press_to_text(key) -> Optional[str]:
-    if key in IGNORED_KEYS:
+def key_press_to_text(key, listener: Optional[KeyboardListener] = None) -> Optional[str]:
+    if key is None or key in IGNORED_KEYS:
         return None
+
+    if listener is not None:
+        try:
+            key = listener.canonical(key)
+        except Exception:
+            pass
 
     if isinstance(key, Key):
         return format_named_key(key)
 
-    if isinstance(key, KeyCode):
-        char = key.char
-        if char and (char.isprintable() or char in "\t"):
-            return char
-        resolved = vk_to_unicode(key.vk, key.scan)
+    char = getattr(key, "char", None)
+    if char:
+        ch = normalize_char(char)
+        if ch.isprintable() or ch in "\n\t":
+            return ch
+
+    scan = key_scan_code(key)
+    if scan is not None:
+        resolved = char_from_scan(scan, listener)
+        if resolved:
+            return resolved
+
+    vk = key_vk_code(key)
+    if vk is not None:
+        if vk in FLUSH_VKS:
+            return {0x0D: "\n", 0x20: " ", 0x09: "\t"}[vk]
+        resolved = vk_to_unicode(vk, scan)
+        if resolved:
+            return resolved
+        resolved = vk_alnum_fallback(vk)
         if resolved:
             return resolved
 
     return None
+
+
+def should_flush_key(key) -> bool:
+    if key in FLUSH_KEYS:
+        return True
+    vk = key_vk_code(key)
+    return vk in FLUSH_VKS if vk is not None else False
 
 
 def get_app_dir() -> Path:
@@ -461,55 +554,84 @@ async def check_ime_after_press(ws) -> None:
     await flush_keyboard_buffer(ws)
 
 
-async def keyboard_loop(ws) -> None:
+def append_keyboard_text(ws, loop, text: str, key, *, force_send: bool = False) -> None:
     global keyboard_chars, keyboard_last_at
+
+    def schedule(coro) -> None:
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    keyboard_last_at = time.time()
+    if should_flush_key(key) or force_send:
+        keyboard_chars.append(text)
+        schedule(flush_keyboard_buffer(ws))
+        return
+
+    if len(text) == 1:
+        keyboard_chars.append(text)
+        if len(keyboard_chars) >= 80:
+            schedule(flush_keyboard_buffer(ws))
+        return
+
+    schedule(flush_keyboard_buffer(ws))
+    schedule(send_keyboard_input(ws, text))
+
+
+async def keyboard_loop(ws) -> None:
+    global keyboard_chars, keyboard_last_at, pending_key_vks
     keyboard_chars = []
     keyboard_last_at = 0.0
+    pending_key_vks = set()
     loop = asyncio.get_event_loop()
     agent_log("keyboard monitor started")
 
     def schedule(coro) -> None:
         asyncio.run_coroutine_threadsafe(coro, loop)
 
-    def on_press(key) -> None:
-        global keyboard_chars, keyboard_last_at
-        if is_remote_input():
+    def handle_key(key, injected: bool = False, *, on_release: bool = False) -> None:
+        global pending_key_vks
+        if injected or is_remote_input() or key is None:
             return
 
-        keyboard_last_at = time.time()
-
         if key == Key.backspace:
-            if keyboard_chars:
+            if not on_release and keyboard_chars:
                 keyboard_chars.pop()
             return
 
         ime_text = poll_ime_commit()
         if ime_text:
-            keyboard_chars.append(ime_text)
-            schedule(flush_keyboard_buffer(ws))
-        else:
-            text = key_press_to_text(key)
-            if text:
-                if key in FLUSH_KEYS:
-                    keyboard_chars.append(text)
-                    schedule(flush_keyboard_buffer(ws))
-                elif len(text) == 1:
-                    keyboard_chars.append(text)
-                    if len(keyboard_chars) >= 80:
-                        schedule(flush_keyboard_buffer(ws))
-                else:
-                    schedule(flush_keyboard_buffer(ws))
-                    schedule(send_keyboard_input(ws, text))
+            append_keyboard_text(ws, loop, ime_text, key, force_send=True)
+            schedule(check_ime_after_press(ws))
+            return
+
+        text = key_press_to_text(key, listener)
+        vk = key_vk_code(key)
+        if text:
+            if vk is not None:
+                pending_key_vks.discard(vk)
+            append_keyboard_text(ws, loop, text, key)
+        elif not on_release and vk is not None:
+            pending_key_vks.add(vk)
+            return
 
         schedule(check_ime_after_press(ws))
 
-    listener = KeyboardListener(on_press=on_press)
+    def on_press(key, injected: bool = False) -> None:
+        handle_key(key, injected, on_release=False)
+
+    def on_release(key, injected: bool = False) -> None:
+        vk = key_vk_code(key)
+        if vk is None or vk not in pending_key_vks:
+            return
+        pending_key_vks.discard(vk)
+        handle_key(key, injected, on_release=True)
+
+    listener = KeyboardListener(on_press=on_press, on_release=on_release)
     listener.start()
 
     try:
         while True:
             await asyncio.sleep(1.0)
-            if keyboard_chars and time.time() - keyboard_last_at >= 2.0:
+            if keyboard_chars and time.time() - keyboard_last_at >= 1.5:
                 await flush_keyboard_buffer(ws)
     finally:
         listener.stop()
