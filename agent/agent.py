@@ -62,15 +62,64 @@ mouse = MouseController()
 keyboard = KeyboardController()
 
 
-def load_config(path: str | None) -> dict[str, Any]:
-    if not path:
+def get_app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def get_settings_dir() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "RemoteScreenAgent"
+
+
+def get_settings_path() -> Path:
+    return get_settings_dir() / "settings.json"
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    if not path.is_file():
         return {}
-    cfg_path = Path(path)
-    if not cfg_path.is_file():
-        print(f"Config not found: {cfg_path}", file=sys.stderr)
-        return {}
-    with cfg_path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_embedded_defaults() -> dict[str, Any]:
+    candidates = [
+        Path(getattr(sys, "_MEIPASS", "")) / "embedded.defaults.json",
+        get_app_dir() / "embedded.defaults.json",
+    ]
+    for path in candidates:
+        if path.is_file():
+            return read_json_file(path)
+    return {}
+
+
+def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
+    cfg: dict[str, Any] = {}
+    cfg.update(load_embedded_defaults())
+    cfg.update(read_json_file(get_settings_path()))
+
+    if args.config:
+        cfg.update(read_json_file(Path(args.config)))
+    else:
+        legacy = get_app_dir() / "agent.config.json"
+        if legacy.is_file():
+            cfg.update(read_json_file(legacy))
+
+    device_id = (
+        args.device_id
+        or cfg.get("deviceId")
+        or socket.gethostname()
+        or "PC-001"
+    )
+    return {
+        "server": args.server or cfg.get("server") or "ws://localhost:8080",
+        "device_id": device_id,
+        "token": args.token or cfg.get("token") or "remote-screen-dev",
+        "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
+        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 12)),
+        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 55)),
+    }
 
 
 def build_ws_url(server: str, device_id: str, token: str) -> str:
@@ -265,17 +314,22 @@ def main() -> None:
         "--quality", type=int, default=None, help="JPEG quality 1-100"
     )
     args = parser.parse_args()
+    settings = resolve_settings(args)
 
-    cfg = load_config(args.config)
-    server = args.server or cfg.get("server") or "ws://localhost:8080"
-    device_id = args.device_id or cfg.get("deviceId") or "PC-001"
-    token = args.token or cfg.get("token") or "remote-screen-dev"
-    monitor = args.monitor if args.monitor is not None else int(cfg.get("monitor", 1))
-    fps = args.fps if args.fps is not None else int(cfg.get("fps", 12))
-    quality = args.quality if args.quality is not None else int(cfg.get("quality", 55))
+    print(f"Server: {settings['server']}")
+    print(f"Device: {settings['device_id']}")
 
     try:
-        asyncio.run(run_agent(server, device_id, token, monitor, fps, quality))
+        asyncio.run(
+            run_agent(
+                settings["server"],
+                settings["device_id"],
+                settings["token"],
+                settings["monitor"],
+                settings["fps"],
+                settings["quality"],
+            )
+        )
     except KeyboardInterrupt:
         print("Stopped.")
 

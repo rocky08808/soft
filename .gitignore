@@ -5,6 +5,12 @@ npm-debug.log*
 # Secrets & local config
 server/.env
 agent/agent.config.json
+agent/embedded.defaults.json
+
+# Python / Agent build
+agent/dist/
+agent/build/
+*.spec.bak
 
 # Python
 __pycache__/
