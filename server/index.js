@@ -23,6 +23,7 @@ const screenshotLog = new Map();
 
 const app = express();
 app.use(express.json());
+app.use("/download", express.static(path.join(__dirname, "..", "downloads")));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
 function send(ws, payload) {

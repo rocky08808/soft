@@ -54,6 +54,21 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.btn-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: #334155;
+  color: #e8eaed;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.btn-link:hover {
+  background: #475569;
+}
+
 .btn-small {
   padding: 4px 10px;
   font-size: 12px;

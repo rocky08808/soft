@@ -58,13 +58,18 @@ copy /Y install-on-target.ps1 dist\deploy\ >nul
 
 copy /Y install-simple.bat dist\deploy\ >nul
 
+if not exist ..\downloads mkdir ..\downloads
+copy /Y dist\RemoteScreenAgent.exe ..\downloads\ >nul
+copy /Y install-simple.bat ..\downloads\ >nul
+copy /Y ..\downloads\install.ps1 dist\deploy\ >nul 2>nul
+
 echo.
 
 echo Deploy folder: dist\deploy\
 
-echo   1. Copy the whole dist\deploy folder to the target PC (USB is best)
+echo   Local: run install-simple.bat on target PC
 
-echo   2. On target PC run install-simple.bat (or install-on-target.bat)
+echo   URL install: upload ../downloads/ to server, open https://your-domain/install.html
 
 echo   3. If SmartScreen appears once: More info -^> Run anyway
 
