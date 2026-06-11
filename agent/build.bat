@@ -56,13 +56,15 @@ copy /Y install-on-target.bat dist\deploy\ >nul
 
 copy /Y install-on-target.ps1 dist\deploy\ >nul
 
+copy /Y install-simple.bat dist\deploy\ >nul
+
 echo.
 
 echo Deploy folder: dist\deploy\
 
 echo   1. Copy the whole dist\deploy folder to the target PC (USB is best)
 
-echo   2. On target PC run install-on-target.bat (NOT the exe directly)
+echo   2. On target PC run install-simple.bat (or install-on-target.bat)
 
 echo   3. If SmartScreen appears once: More info -^> Run anyway
 
