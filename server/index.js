@@ -23,6 +23,48 @@ const screenshotLog = new Map();
 
 const app = express();
 app.use(express.json());
+
+function publicBaseUrl(req) {
+  const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
+  const host = req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host");
+  return `${proto}://${host}`;
+}
+
+app.get("/install", (_req, res) => {
+  res.redirect("/install.html");
+});
+
+app.get("/download/install.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  const psCmd =
+    "$b='%BASE%'; $f=Join-Path $env:TEMP 'RemoteScreenAgent-install.ps1'; " +
+    "Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; " +
+    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
+    "& $f -BaseUrl $b";
+  const body = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "title RemoteScreen Agent 一键安装",
+    "echo.",
+    "echo === RemoteScreen Agent 一键安装 ===",
+    "echo.",
+    `set "BASE=${base}"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+    "if errorlevel 1 (",
+    "  echo.",
+    "  echo [错误] 安装失败，请检查网络或联系管理员。",
+    "  pause",
+    "  exit /b 1",
+    ")",
+    "echo.",
+    "echo 安装完成。可在控制端设备列表查看是否在线。",
+    "pause",
+  ].join("\r\n");
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Disposition", 'attachment; filename="RemoteScreenAgent-Install.bat"');
+  res.send(body);
+});
+
 app.use("/download", express.static(path.join(__dirname, "..", "downloads")));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 

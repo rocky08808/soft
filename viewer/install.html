@@ -3,11 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>安装 Agent</title>
+  <title>一键安装 Agent</title>
   <link rel="stylesheet" href="style.css" />
   <style>
     .install-page { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
     .install-page h1 { margin-bottom: 0.5rem; }
+    .hero {
+      background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin: 1.25rem 0;
+      text-align: center;
+    }
+    .hero p { color: #cbd5e1; margin: 0.5rem 0 1.25rem; line-height: 1.6; }
+    .hero .btn-primary {
+      display: inline-block;
+      padding: 0.85rem 1.75rem;
+      background: #2563eb;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    .hero .btn-primary:hover { background: #1d4ed8; }
+    .steps {
+      display: grid;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+      text-align: left;
+    }
+    .step {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      color: #e2e8f0;
+      font-size: 0.95rem;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+    }
     .install-card {
       background: #1e293b;
       border: 1px solid #334155;
@@ -15,76 +59,130 @@
       padding: 1rem 1.25rem;
       margin: 1rem 0;
     }
-    .install-card h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
-    .install-card p { margin: 0.5rem 0; color: #cbd5e1; line-height: 1.6; }
-    .install-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
-    .install-actions a {
+    .install-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; color: #94a3b8; }
+    .install-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+    .install-actions a, .install-actions button {
       display: inline-block;
-      padding: 0.6rem 1rem;
-      background: #2563eb;
+      padding: 0.55rem 1rem;
+      background: #475569;
       color: #fff;
       text-decoration: none;
+      border: none;
       border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
     }
-    .install-actions a.secondary { background: #475569; }
+    .install-actions button:hover, .install-actions a:hover { background: #64748b; }
     .cmd-box {
       margin-top: 0.75rem;
       padding: 0.75rem;
       background: #0f172a;
       border-radius: 6px;
       font-family: Consolas, monospace;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       word-break: break-all;
       user-select: all;
+    }
+    .link-box {
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      background: #0f172a;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      word-break: break-all;
     }
     .note { font-size: 0.9rem; color: #94a3b8; }
     .back { margin-top: 1.5rem; }
     .back a { color: #60a5fa; }
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #166534;
+      color: #fff;
+      padding: 0.6rem 1.2rem;
+      border-radius: 8px;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
   <div class="install-page">
-    <h1>安装 RemoteScreen Agent</h1>
-    <p class="note">在被控 Windows 电脑上安装。服务器地址和令牌已内置在 exe 中，设备 ID 默认为电脑名。</p>
+    <h1>RemoteScreen Agent 远程一键安装</h1>
+    <p class="note">把本页链接发给被控电脑用户即可。服务器地址和令牌已内置，设备 ID 默认为电脑名。</p>
 
-    <div class="install-card">
-      <h2>方式一：下载安装包（推荐）</h2>
-      <p>点击下载 exe，运行后按提示操作。若出现 SmartScreen，选「更多信息」→「仍要运行」（仅首次）。</p>
-      <div class="install-actions">
-        <a id="exeLink" href="/download/RemoteScreenAgent.exe" download>下载 RemoteScreenAgent.exe</a>
-        <a id="setupLink" class="secondary" href="/download/RemoteScreenAgent-Setup.exe" download hidden>下载图形安装包</a>
+    <div class="hero">
+      <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可完成安装与开机自启。</p>
+      <a id="installBatLink" class="btn-primary" href="/download/install.bat" download>下载一键安装脚本</a>
+      <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>RemoteScreenAgent-Install.bat</code></span></div>
+        <div class="step"><span class="step-num">2</span><span>双击运行（若 SmartScreen 提示，选「更多信息」→「仍要运行」，仅首次）</span></div>
+        <div class="step"><span class="step-num">3</span><span>回到控制端，在设备列表查看是否在线</span></div>
       </div>
-      <p class="note" style="margin-top: 0.75rem;">仅下载 exe 时，请再运行同目录的 <code>install-simple.bat</code> 完成自启；或使用下方一行命令全自动安装。</p>
     </div>
 
     <div class="install-card">
-      <h2>方式二：一行命令自动安装</h2>
-      <p>在被控电脑打开 PowerShell（管理员不必），复制粘贴下面整行并回车：</p>
+      <h2>发给对方的安装链接</h2>
+      <div class="link-box" id="pageLink"></div>
+      <div class="install-actions">
+        <button type="button" id="copyLinkBtn">复制链接</button>
+        <button type="button" id="copyBatBtn">复制脚本下载地址</button>
+      </div>
+    </div>
+
+    <div class="install-card">
+      <h2>高级：PowerShell 一行命令</h2>
+      <p class="note">无法下载 bat 时，在被控电脑 PowerShell 中粘贴运行：</p>
       <div class="cmd-box" id="psCmd"></div>
-      <p class="note">脚本会自动下载 exe、写入 %LOCALAPPDATA%\RemoteScreenAgent、注册登录自启并启动。</p>
+      <div class="install-actions">
+        <button type="button" id="copyPsBtn">复制命令</button>
+      </div>
     </div>
 
     <div class="install-card">
-      <h2>安装后</h2>
-      <p>设备 ID 文件：<code>%LOCALAPPDATA%\RemoteScreenAgent\device.id</code></p>
-      <p>日志：<code>%LOCALAPPDATA%\RemoteScreenAgent\agent.log</code></p>
-      <p>控制端打开：<a id="viewerLink" href="/">返回监控页面</a>，在设备列表中查看是否在线。</p>
+      <h2>安装后路径</h2>
+      <p class="note">程序：<code>%LOCALAPPDATA%\RemoteScreenAgent\RemoteScreenAgent.exe</code></p>
+      <p class="note">设备 ID：<code>%LOCALAPPDATA%\RemoteScreenAgent\device.id</code></p>
+      <p class="note">日志：<code>%LOCALAPPDATA%\RemoteScreenAgent\agent.log</code></p>
     </div>
 
     <p class="back"><a href="/">← 返回控制端</a></p>
   </div>
 
+  <div id="toast" class="toast">已复制</div>
+
   <script>
     const origin = location.origin;
+    const pageUrl = origin + "/install.html";
+    const batUrl = origin + "/download/install.bat";
     const psOneLiner =
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${origin}/download/install.ps1' | iex"`;
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'RemoteScreenAgent-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
+
+    document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("psCmd").textContent = psOneLiner;
 
-    fetch("/download/RemoteScreenAgent-Setup.exe", { method: "HEAD" })
-      .then((r) => {
-        if (r.ok) document.getElementById("setupLink").hidden = false;
-      })
-      .catch(() => {});
+    const toast = document.getElementById("toast");
+    function showToast() {
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 1600);
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast();
+      } catch {
+        window.prompt("复制以下内容:", text);
+      }
+    }
+
+    document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl));
+    document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl));
+    document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner));
   </script>
 </body>
 </html>
