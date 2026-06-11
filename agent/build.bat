@@ -62,6 +62,8 @@ if not exist ..\downloads mkdir ..\downloads
 copy /Y dist\ReSA.exe ..\downloads\ >nul
 copy /Y install-simple.bat ..\downloads\ >nul
 copy /Y ..\downloads\install.ps1 dist\deploy\ >nul 2>nul
+copy /Y ..\downloads\uninstall.ps1 dist\deploy\ >nul 2>nul
+copy /Y ..\downloads\uninstall.bat dist\deploy\ >nul 2>nul
 
 echo.
 

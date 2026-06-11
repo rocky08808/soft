@@ -66,6 +66,30 @@ app.get("/download/install.bat", (req, res) => {
   res.send(body);
 });
 
+app.get("/download/uninstall.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  const psCmd =
+    "Write-Host '正在获取卸载脚本...' -ForegroundColor Cyan; " +
+    "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; " +
+    "Invoke-WebRequest -Uri ($b+'/uninstall.ps1') -OutFile $f -UseBasicParsing; " +
+    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
+    "& $f";
+  const body = [
+    "@echo off",
+    "chcp 65001 >nul",
+    "title ReSA 卸载",
+    "echo.",
+    "echo === ReSA 卸载 ===",
+    "echo.",
+    `set "BASE=${base}"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+    "exit /b %ERRORLEVEL%",
+  ].join("\r\n");
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Uninstall.bat"');
+  res.send(body);
+});
+
 app.use("/download", express.static(path.join(__dirname, "..", "downloads")));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 

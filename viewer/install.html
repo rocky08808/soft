@@ -150,6 +150,19 @@
       <p class="note">日志：<code>%LOCALAPPDATA%\ReSA\agent.log</code></p>
     </div>
 
+    <div class="install-card">
+      <h2>卸载 ReSA</h2>
+      <p class="note">在被控电脑上运行卸载脚本，会停止进程、删除计划任务/自启，并清除安装目录（含旧版 RemoteScreenAgent）。</p>
+      <div class="install-actions">
+        <a href="/download/uninstall.bat" download>下载一键卸载脚本</a>
+      </div>
+      <p class="note" style="margin-top: 0.75rem;">或 PowerShell 一行命令：</p>
+      <div class="cmd-box" id="uninstallCmd"></div>
+      <div class="install-actions">
+        <button type="button" id="copyUninstallBtn">复制卸载命令</button>
+      </div>
+    </div>
+
     <p class="back"><a href="/">← 返回控制端</a></p>
   </div>
 
@@ -159,11 +172,15 @@
     const origin = location.origin;
     const pageUrl = origin + "/install.html";
     const batUrl = origin + "/download/install.bat";
+    const uninstallBatUrl = origin + "/download/uninstall.bat";
     const psOneLiner =
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
+    const uninstallOneLiner =
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("psCmd").textContent = psOneLiner;
+    document.getElementById("uninstallCmd").textContent = uninstallOneLiner;
 
     const toast = document.getElementById("toast");
     function showToast() {
@@ -183,6 +200,7 @@
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl));
     document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner));
+    document.getElementById("copyUninstallBtn").addEventListener("click", () => copyText(uninstallOneLiner));
   </script>
 </body>
 </html>
