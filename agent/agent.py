@@ -75,7 +75,8 @@ keyboard_chars: list[str] = []
 keyboard_last_at = 0.0
 ime_last_commit = ""
 key_translator = KeyTranslator()
-pending_key_vks: set[int] = set()
+last_keyboard_sent = ""
+last_keyboard_sent_at = 0.0
 
 FLUSH_KEYS = frozenset({Key.enter, Key.space, Key.tab})
 FLUSH_VKS = frozenset({0x0D, 0x20, 0x09})  # enter, space, tab
@@ -519,8 +520,14 @@ async def clipboard_loop(ws) -> None:
 
 
 async def send_keyboard_input(ws, content: str) -> None:
+    global last_keyboard_sent, last_keyboard_sent_at
     if not content:
         return
+    now = time.time()
+    if content == last_keyboard_sent and now - last_keyboard_sent_at < 1.0:
+        return
+    last_keyboard_sent = content
+    last_keyboard_sent_at = now
     max_len = 2000
     truncated = len(content) > max_len
     payload = {
@@ -548,20 +555,19 @@ async def check_ime_after_press(ws) -> None:
     ime_text = poll_ime_commit()
     if not ime_text:
         return
-    global keyboard_chars, keyboard_last_at
+    global keyboard_last_at
     keyboard_last_at = time.time()
-    keyboard_chars.append(ime_text)
-    await flush_keyboard_buffer(ws)
+    await send_keyboard_input(ws, ime_text)
 
 
-def append_keyboard_text(ws, loop, text: str, key, *, force_send: bool = False) -> None:
+def append_keyboard_text(ws, loop, text: str, key) -> None:
     global keyboard_chars, keyboard_last_at
 
     def schedule(coro) -> None:
         asyncio.run_coroutine_threadsafe(coro, loop)
 
     keyboard_last_at = time.time()
-    if should_flush_key(key) or force_send:
+    if should_flush_key(key):
         keyboard_chars.append(text)
         schedule(flush_keyboard_buffer(ws))
         return
@@ -577,55 +583,34 @@ def append_keyboard_text(ws, loop, text: str, key, *, force_send: bool = False) 
 
 
 async def keyboard_loop(ws) -> None:
-    global keyboard_chars, keyboard_last_at, pending_key_vks
+    global keyboard_chars, keyboard_last_at, last_keyboard_sent, last_keyboard_sent_at
     keyboard_chars = []
     keyboard_last_at = 0.0
-    pending_key_vks = set()
+    last_keyboard_sent = ""
+    last_keyboard_sent_at = 0.0
     loop = asyncio.get_event_loop()
     agent_log("keyboard monitor started")
 
     def schedule(coro) -> None:
         asyncio.run_coroutine_threadsafe(coro, loop)
 
-    def handle_key(key, injected: bool = False, *, on_release: bool = False) -> None:
-        global pending_key_vks
+    def on_press(key, injected: bool = False) -> None:
         if injected or is_remote_input() or key is None:
             return
 
         if key == Key.backspace:
-            if not on_release and keyboard_chars:
+            if keyboard_chars:
                 keyboard_chars.pop()
             return
 
-        ime_text = poll_ime_commit()
-        if ime_text:
-            append_keyboard_text(ws, loop, ime_text, key, force_send=True)
-            schedule(check_ime_after_press(ws))
-            return
-
         text = key_press_to_text(key, listener)
-        vk = key_vk_code(key)
         if text:
-            if vk is not None:
-                pending_key_vks.discard(vk)
             append_keyboard_text(ws, loop, text, key)
-        elif not on_release and vk is not None:
-            pending_key_vks.add(vk)
-            return
 
-        schedule(check_ime_after_press(ws))
+        if should_flush_key(key):
+            schedule(check_ime_after_press(ws))
 
-    def on_press(key, injected: bool = False) -> None:
-        handle_key(key, injected, on_release=False)
-
-    def on_release(key, injected: bool = False) -> None:
-        vk = key_vk_code(key)
-        if vk is None or vk not in pending_key_vks:
-            return
-        pending_key_vks.discard(vk)
-        handle_key(key, injected, on_release=True)
-
-    listener = KeyboardListener(on_press=on_press, on_release=on_release)
+    listener = KeyboardListener(on_press=on_press)
     listener.start()
 
     try:

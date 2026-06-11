@@ -228,6 +228,7 @@ function renderClipboard() {
 
 function addClipboardEntry(entry) {
   if (!entry || !entry.content) return;
+  if (entry.id && clipboardEntries.some((e) => e.id === entry.id)) return;
   clipboardEntries.unshift(entry);
   if (clipboardEntries.length > MAX_CLIPBOARD_UI) {
     clipboardEntries.length = MAX_CLIPBOARD_UI;
@@ -282,6 +283,7 @@ function renderKeyboard() {
 
 function addKeyboardEntry(entry) {
   if (!entry || entry.content == null || entry.content === undefined) return;
+  if (entry.id && keyboardEntries.some((e) => e.id === entry.id)) return;
   keyboardEntries.unshift(entry);
   if (keyboardEntries.length > MAX_KEYBOARD_UI) {
     keyboardEntries.length = MAX_KEYBOARD_UI;
@@ -344,11 +346,11 @@ function connectDashboard() {
     if (msg.type === "registered" || msg.type === "devices_changed") {
       renderDevices(msg.devices || []);
     }
-    if (msg.type === "clipboard_copy" && msg.deviceId === currentDeviceId() && msg.entry) {
+    if (!ws && msg.type === "clipboard_copy" && msg.deviceId === currentDeviceId() && msg.entry) {
       addClipboardEntry(msg.entry);
       setClipboardHint(`设备: ${msg.deviceId} · 实时更新`);
     }
-    if (msg.type === "keyboard_input" && msg.deviceId === currentDeviceId() && msg.entry) {
+    if (!ws && msg.type === "keyboard_input" && msg.deviceId === currentDeviceId() && msg.entry) {
       addKeyboardEntry(msg.entry);
     }
   };
