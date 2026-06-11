@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>远程屏幕控制</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="toolbar">
+    <label>
+      访问令牌
+      <input id="accessToken" type="password" value="rxODt12ykrc4vN5Fl3Qm2srm0v3sr-ZHf1kAU9PJzCQ" />
+    </label>
+    <label>
+      设备 ID
+      <input id="deviceId" type="text" value="PC-001" />
+    </label>
+    <label>
+      服务器
+      <input id="serverUrl" type="text" value="" placeholder="留空=当前站点" />
+    </label>
+    <button id="connectBtn">连接</button>
+    <button id="disconnectBtn" disabled>断开</button>
+    <span id="status" class="status offline">未连接</span>
+  </header>
+
+  <main>
+    <div id="screenWrap" class="screen-wrap">
+      <canvas id="screen" tabindex="0"></canvas>
+      <p id="placeholder" class="placeholder">连接后显示远程屏幕，点击画面可发送键鼠</p>
+    </div>
+    <aside class="panel">
+      <div class="panel-head">
+        <h2>在线设备</h2>
+        <button id="refreshBtn" class="btn-small" type="button">刷新</button>
+      </div>
+      <ul id="deviceList" class="device-list"></ul>
+
+      <h2 class="section-title">会话</h2>
+      <p id="meta" class="meta">分辨率: —</p>
+      <p id="fps" class="meta">帧率: —</p>
+
+      <h2 class="section-title">最近记录</h2>
+      <ul id="auditList" class="audit-list"></ul>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

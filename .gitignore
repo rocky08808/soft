@@ -1,0 +1,29 @@
+# Node
+server/node_modules/
+npm-debug.log*
+
+# Secrets & local config
+server/.env
+agent/agent.config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log

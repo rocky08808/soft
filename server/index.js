@@ -1,0 +1,255 @@
+require("dotenv").config();
+
+const http = require("http");
+const path = require("path");
+const express = require("express");
+const { WebSocketServer } = require("ws");
+
+const PORT = Number(process.env.PORT) || 8080;
+const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "remote-screen-dev";
+const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
+
+const agents = new Map();
+const agentMeta = new Map();
+const viewers = new Map();
+const dashboardClients = new Set();
+const auditLog = [];
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "..", "viewer")));
+
+function send(ws, payload) {
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(payload));
+  }
+}
+
+function parseQuery(url) {
+  const query = {};
+  const idx = url.indexOf("?");
+  if (idx === -1) return query;
+  for (const part of url.slice(idx + 1).split("&")) {
+    const [k, v] = part.split("=");
+    if (k) query[decodeURIComponent(k)] = decodeURIComponent(v || "");
+  }
+  return query;
+}
+
+function verifyToken(token) {
+  return Boolean(token) && token === ACCESS_TOKEN;
+}
+
+function extractToken(req, query) {
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) return auth.slice(7);
+  return query.token || "";
+}
+
+function addAudit(event, detail) {
+  auditLog.unshift({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    time: new Date().toISOString(),
+    event,
+    ...detail,
+  });
+  if (auditLog.length > MAX_AUDIT) auditLog.length = MAX_AUDIT;
+}
+
+function deviceSnapshot(deviceId) {
+  const meta = agentMeta.get(deviceId) || {};
+  const viewerCount = viewers.get(deviceId)?.size || 0;
+  return {
+    deviceId,
+    online: agents.has(deviceId),
+    viewerCount,
+    hostname: meta.hostname || "",
+    platform: meta.platform || "",
+    monitor: meta.monitor ?? null,
+    connectedAt: meta.connectedAt || null,
+    lastSeen: meta.lastSeen || null,
+  };
+}
+
+function listDevices() {
+  const ids = new Set([...agents.keys(), ...agentMeta.keys()]);
+  return [...ids]
+    .map(deviceSnapshot)
+    .sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.deviceId.localeCompare(b.deviceId);
+    });
+}
+
+function broadcastDashboard(type, payload) {
+  const msg = JSON.stringify({ type, ...payload });
+  for (const ws of dashboardClients) {
+    if (ws.readyState === ws.OPEN) ws.send(msg);
+  }
+}
+
+function notifyAgentViewerCount(deviceId) {
+  const agent = agents.get(deviceId);
+  if (!agent) return;
+  const count = viewers.get(deviceId)?.size || 0;
+  send(agent, { type: "viewer_count", count });
+}
+
+function authMiddleware(req, res, next) {
+  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query.token;
+  if (!verifyToken(token)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  next();
+}
+
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, agents: agents.size, viewers: [...viewers.values()].reduce((n, s) => n + s.size, 0) });
+});
+
+app.get("/api/devices", authMiddleware, (_req, res) => {
+  res.json({ devices: listDevices() });
+});
+
+app.get("/api/audit", authMiddleware, (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 50, MAX_AUDIT);
+  res.json({ entries: auditLog.slice(0, limit) });
+});
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: "/ws" });
+
+wss.on("connection", (ws, req) => {
+  const q = parseQuery(req.url || "");
+  const role = q.role;
+  const deviceId = q.deviceId || "default";
+  const token = extractToken(req, q);
+  const clientIp = req.socket.remoteAddress || "";
+
+  if (!verifyToken(token)) {
+    ws.close(4401, "unauthorized");
+    return;
+  }
+
+  ws.role = role;
+  ws.deviceId = deviceId;
+  ws.clientIp = clientIp;
+
+  if (role === "dashboard") {
+    dashboardClients.add(ws);
+    send(ws, { type: "registered", role: "dashboard", devices: listDevices() });
+    ws.on("close", () => dashboardClients.delete(ws));
+    return;
+  }
+
+  if (role === "agent") {
+    const prev = agents.get(deviceId);
+    if (prev && prev !== ws) prev.close(4000, "replaced");
+    agents.set(deviceId, ws);
+
+    const meta = agentMeta.get(deviceId) || {};
+    meta.connectedAt = meta.connectedAt || new Date().toISOString();
+    meta.lastSeen = new Date().toISOString();
+    meta.ip = clientIp;
+    agentMeta.set(deviceId, meta);
+
+    send(ws, { type: "registered", role: "agent", deviceId });
+    notifyAgentViewerCount(deviceId);
+    addAudit("agent_online", { deviceId, ip: clientIp });
+    broadcastDashboard("devices_changed", { devices: listDevices() });
+    console.log(`[agent] online: ${deviceId} (${clientIp})`);
+  } else if (role === "viewer") {
+    if (!viewers.has(deviceId)) viewers.set(deviceId, new Set());
+    viewers.get(deviceId).add(ws);
+    send(ws, {
+      type: "registered",
+      role: "viewer",
+      deviceId,
+      agentOnline: agents.has(deviceId),
+      device: deviceSnapshot(deviceId),
+    });
+    notifyAgentViewerCount(deviceId);
+    addAudit("viewer_connect", { deviceId, ip: clientIp });
+    broadcastDashboard("devices_changed", { devices: listDevices() });
+    console.log(`[viewer] connected -> ${deviceId} (${clientIp})`);
+  } else {
+    ws.close(4400, "invalid role");
+    return;
+  }
+
+  ws.on("message", (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+
+    if (ws.role === "agent") {
+      if (msg.type === "agent_info") {
+        const meta = agentMeta.get(deviceId) || {};
+        meta.hostname = msg.hostname || meta.hostname;
+        meta.platform = msg.platform || meta.platform;
+        meta.monitor = msg.monitor ?? meta.monitor;
+        meta.lastSeen = new Date().toISOString();
+        agentMeta.set(deviceId, meta);
+        broadcastDashboard("devices_changed", { devices: listDevices() });
+        return;
+      }
+
+      if (msg.type === "frame") {
+        const meta = agentMeta.get(deviceId) || {};
+        meta.lastSeen = new Date().toISOString();
+        agentMeta.set(deviceId, meta);
+      }
+
+      const set = viewers.get(deviceId);
+      if (!set || set.size === 0) return;
+      for (const viewer of set) send(viewer, msg);
+      return;
+    }
+
+    if (ws.role === "viewer" && msg.type === "control") {
+      const agent = agents.get(deviceId);
+      if (agent) send(agent, msg);
+    }
+  });
+
+  ws.on("close", () => {
+    if (ws.role === "agent" && agents.get(deviceId) === ws) {
+      agents.delete(deviceId);
+      const meta = agentMeta.get(deviceId);
+      if (meta) meta.lastSeen = new Date().toISOString();
+
+      const set = viewers.get(deviceId);
+      if (set) {
+        for (const viewer of set) {
+          send(viewer, { type: "agent_offline", deviceId });
+        }
+      }
+      addAudit("agent_offline", { deviceId, ip: clientIp });
+      broadcastDashboard("devices_changed", { devices: listDevices() });
+      console.log(`[agent] offline: ${deviceId}`);
+    }
+
+    if (ws.role === "viewer") {
+      const set = viewers.get(deviceId);
+      if (set) {
+        set.delete(ws);
+        if (set.size === 0) viewers.delete(deviceId);
+      }
+      notifyAgentViewerCount(deviceId);
+      addAudit("viewer_disconnect", { deviceId, ip: clientIp });
+      broadcastDashboard("devices_changed", { devices: listDevices() });
+      console.log(`[viewer] disconnected <- ${deviceId}`);
+    }
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`Server: http://localhost:${PORT}`);
+  console.log(`Viewer: http://localhost:${PORT}/?device=PC-001`);
+  console.log(`WebSocket: ws://localhost:${PORT}/ws`);
+  console.log(`Access token: ${ACCESS_TOKEN}`);
+  console.log(`Set ACCESS_TOKEN env var before production.`);
+});
