@@ -7,7 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $AgentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Python = (Get-Command python -ErrorAction SilentlyContinue).Source
+$Python = (Get-Command pythonw -ErrorAction SilentlyContinue).Source
+if (-not $Python) {
+    $Python = (Get-Command python -ErrorAction SilentlyContinue).Source
+}
 if (-not $Python) { throw "Python not found in PATH" }
 
 $ConfigPath = Join-Path $AgentDir "agent.config.json"
