@@ -15,7 +15,6 @@ import socket
 import sys
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -666,9 +665,6 @@ def handle_control(msg: dict) -> None:
             keyboard.release(key)
 
 
-STREAM_BUFFER_LIMIT = 256 * 1024
-
-
 def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
     height, width = frame.shape[:2]
     if stream_width > 0 and width > stream_width:
@@ -681,44 +677,6 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
             interpolation=cv2.INTER_LINEAR,
         )
     return frame
-
-
-class StreamCapturer:
-    def __init__(self, monitor_index: int, stream_width: int, quality: int) -> None:
-        self.sct = mss.mss()
-        monitors = self.sct.monitors
-        idx = monitor_index if monitor_index < len(monitors) else 1
-        self.region = monitors[idx]
-        self.stream_width = stream_width
-        self.quality = max(20, min(quality, 95))
-
-    def capture_jpeg(self, quality: Optional[int] = None) -> Optional[tuple[bytes, int, int]]:
-        img = np.array(self.sct.grab(self.region))
-        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        frame = prepare_stream_frame(frame, self.stream_width)
-        q = max(20, min(quality or self.quality, 95))
-        ok, encoded = cv2.imencode(
-            ".jpg",
-            frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), q],
-        )
-        if not ok:
-            return None
-        out_h, out_w = frame.shape[:2]
-        return encoded.tobytes(), out_w, out_h
-
-    def close(self) -> None:
-        self.sct.close()
-
-
-def ws_write_backlog(ws) -> int:
-    transport = getattr(ws, "transport", None)
-    if transport is None:
-        return 0
-    try:
-        return int(transport.get_write_buffer_size())
-    except Exception:
-        return 0
 
 
 async def capture_and_send_screenshot(
@@ -759,66 +717,52 @@ async def capture_loop(
     viewer_count: asyncio.Event,
 ) -> None:
     interval = 1.0 / max(fps, 1)
-    loop = asyncio.get_event_loop()
-    capturer = StreamCapturer(monitor_index, stream_width, quality)
-    skipped = 0
-    dynamic_quality = quality
+    encode_q = max(20, min(quality, 95))
+    frames_sent = 0
 
-    try:
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="capture") as executor:
-            while True:
-                if not viewer_count.is_set():
-                    await asyncio.sleep(0.2)
-                    continue
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        idx = monitor_index if monitor_index < len(monitors) else 1
+        region = monitors[idx]
+        agent_log(f"capture region: {region['width']}x{region['height']} stream_width={stream_width}")
 
-                loop_start = time.perf_counter()
-                backlog = ws_write_backlog(ws)
-                if backlog > STREAM_BUFFER_LIMIT:
-                    skipped += 1
-                    dynamic_quality = max(22, dynamic_quality - 8)
+        while True:
+            if not viewer_count.is_set():
+                await asyncio.sleep(0.2)
+                continue
+
+            loop_start = time.perf_counter()
+            try:
+                img = np.array(sct.grab(region))
+                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                frame = prepare_stream_frame(frame, stream_width)
+                ok, encoded = cv2.imencode(
+                    ".jpg",
+                    frame,
+                    [int(cv2.IMWRITE_JPEG_QUALITY), encode_q],
+                )
+                if not ok:
                     await asyncio.sleep(interval)
                     continue
 
-                if backlog > STREAM_BUFFER_LIMIT // 2:
-                    dynamic_quality = max(25, dynamic_quality - 3)
-                elif dynamic_quality < quality:
-                    dynamic_quality = min(quality, dynamic_quality + 1)
-
-                try:
-                    result = await loop.run_in_executor(
-                        executor,
-                        capturer.capture_jpeg,
-                        dynamic_quality,
-                    )
-                except Exception as exc:
-                    agent_log(f"capture error: {exc}")
-                    await asyncio.sleep(interval)
-                    continue
-
-                if not result:
-                    await asyncio.sleep(interval)
-                    continue
-
-                jpeg_bytes, out_w, out_h = result
+                out_h, out_w = frame.shape[:2]
                 payload = {
                     "type": "frame",
-                    "data": base64.b64encode(jpeg_bytes).decode("ascii"),
+                    "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
                     "width": out_w,
                     "height": out_h,
                 }
-                try:
-                    await ws.send(json.dumps(payload))
-                except Exception as exc:
-                    agent_log(f"frame send error: {exc}")
-                    return
+                await ws.send(json.dumps(payload))
+                frames_sent += 1
+                if frames_sent == 1:
+                    agent_log(f"first frame sent: {out_w}x{out_h}")
+            except Exception as exc:
+                agent_log(f"capture error: {exc}")
+                await asyncio.sleep(1)
+                continue
 
-                if skipped and skipped % 30 == 0:
-                    agent_log(f"stream skipped {skipped} frames due to backlog")
-
-                elapsed = time.perf_counter() - loop_start
-                await asyncio.sleep(max(0.0, interval - elapsed))
-    finally:
-        capturer.close()
+            elapsed = time.perf_counter() - loop_start
+            await asyncio.sleep(max(0.0, interval - elapsed))
 
 
 async def receive_loop(
@@ -838,8 +782,10 @@ async def receive_loop(
             count = int(msg.get("count", 0))
             if count > 0:
                 viewer_count.set()
+                agent_log(f"viewer connected: {count}")
             else:
                 viewer_count.clear()
+                agent_log("viewer disconnected")
         elif msg_type == "control":
             if msg.get("action") == "screenshot":
                 try:

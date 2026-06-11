@@ -151,6 +151,11 @@ function renderPendingFrame() {
   let objectUrl = "";
   img.onload = () => {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
+    if (!frame.width || !frame.height) {
+      remoteWidth = img.width;
+      remoteHeight = img.height;
+      metaEl.textContent = `分辨率: ${img.width} x ${img.height}`;
+    }
     if (canvas.width !== img.width) canvas.width = img.width;
     if (canvas.height !== img.height) canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
@@ -192,7 +197,12 @@ function drawFrameBinary(buffer) {
 }
 
 function drawFrame(base64, width, height) {
-  pendingFrame = { base64, width, height };
+  if (!base64) return;
+  pendingFrame = {
+    base64,
+    width: Number(width) || 0,
+    height: Number(height) || 0,
+  };
   scheduleFrameRender();
 }
 
@@ -625,6 +635,11 @@ function connect() {
     }
 
     if (msg.type === "frame") {
+      if (!msg.data) {
+        placeholder.style.display = "block";
+        placeholder.textContent = "收到空画面帧";
+        return;
+      }
       setStatus(`远程控制中 · ${deviceId}`, true);
       drawFrame(msg.data, msg.width, msg.height);
     }
