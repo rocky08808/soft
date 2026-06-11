@@ -87,12 +87,17 @@ function wsBase() {
   return `${proto}//${location.host}`;
 }
 
-async function apiFetch(path) {
+async function apiFetch(path, options = {}) {
   const res = await fetch(`${httpBase()}${path}`, {
-    headers: { Authorization: `Bearer ${getToken()}` },
+    ...options,
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      ...(options.headers || {}),
+    },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
 }
 
 function setStatus(text, online) {
@@ -708,18 +713,38 @@ canvas.addEventListener("keyup", (e) => {
 connectBtn.addEventListener("click", connect);
 disconnectBtn.addEventListener("click", disconnect);
 refreshBtn.addEventListener("click", refreshDashboard);
-clearClipboardBtn.addEventListener("click", () => {
-  clipboardEntries = [];
-  renderClipboard();
+clearClipboardBtn.addEventListener("click", async () => {
+  const deviceId = currentDeviceId();
+  try {
+    await apiFetch(`/api/clipboard?deviceId=${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+    clipboardEntries = [];
+    renderClipboard();
+    setClipboardHint(`设备: ${deviceId} · 已清空`);
+  } catch {
+    setClipboardHint("清空复制记录失败");
+  }
 });
-clearKeyboardBtn.addEventListener("click", () => {
-  keyboardEntries = [];
-  renderKeyboard();
+clearKeyboardBtn.addEventListener("click", async () => {
+  const deviceId = currentDeviceId();
+  try {
+    await apiFetch(`/api/keyboard?deviceId=${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+    keyboardEntries = [];
+    renderKeyboard();
+  } catch {
+    keyboardListEl.innerHTML = '<li class="empty">清空键盘记录失败</li>';
+  }
 });
 screenshotBtn.addEventListener("click", requestScreenshot);
-clearScreenshotsBtn.addEventListener("click", () => {
-  screenshotEntries = [];
-  renderScreenshots();
+clearScreenshotsBtn.addEventListener("click", async () => {
+  const deviceId = currentDeviceId();
+  try {
+    await apiFetch(`/api/screenshots?deviceId=${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+    screenshotEntries = [];
+    renderScreenshots();
+    setScreenshotHint(`设备: ${deviceId} · 已清空`);
+  } catch {
+    setScreenshotHint("清空截屏记录失败");
+  }
 });
 screenshotModalCloseBtn?.addEventListener("click", closeScreenshotModal);
 screenshotModalDownloadBtn?.addEventListener("click", () => {

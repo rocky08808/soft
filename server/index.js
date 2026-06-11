@@ -130,6 +130,18 @@ function getScreenshotEntries(deviceId, limit) {
   return list.slice(0, limit);
 }
 
+function clearClipboardEntries(deviceId) {
+  clipboardLog.set(deviceId, []);
+}
+
+function clearKeyboardEntries(deviceId) {
+  keyboardLog.set(deviceId, []);
+}
+
+function clearScreenshotEntries(deviceId) {
+  screenshotLog.set(deviceId, []);
+}
+
 function notifyScreenshotCapture(deviceId, msg) {
   const entry = addScreenshotEntry(deviceId, msg);
   addAudit("screenshot", {
@@ -225,6 +237,30 @@ app.get("/api/screenshots", authMiddleware, (req, res) => {
   if (!deviceId) return res.status(400).json({ error: "deviceId required" });
   const limit = Math.min(Number(req.query.limit) || MAX_SCREENSHOTS, MAX_SCREENSHOTS);
   res.json({ deviceId, entries: getScreenshotEntries(deviceId, limit) });
+});
+
+app.delete("/api/clipboard", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  clearClipboardEntries(deviceId);
+  addAudit("clipboard_clear", { deviceId });
+  res.json({ ok: true, deviceId });
+});
+
+app.delete("/api/keyboard", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  clearKeyboardEntries(deviceId);
+  addAudit("keyboard_clear", { deviceId });
+  res.json({ ok: true, deviceId });
+});
+
+app.delete("/api/screenshots", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  clearScreenshotEntries(deviceId);
+  addAudit("screenshot_clear", { deviceId });
+  res.json({ ok: true, deviceId });
 });
 
 app.post(
