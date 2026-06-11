@@ -15,6 +15,8 @@ import socket
 import sys
 import time
 import uuid
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -679,12 +681,65 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
     return frame
 
 
-SCREENSHOT_MAX_WIDTH = 1920
-SCREENSHOT_MAX_JPEG_BYTES = 900_000
+SCREENSHOT_MAX_WIDTH = 1280
+SCREENSHOT_MAX_JPEG_BYTES = 450_000
+
+
+def server_http_base(server: str) -> str:
+    base = server.rstrip("/")
+    if base.startswith("wss://"):
+        return "https://" + base[len("wss://") :]
+    if base.startswith("ws://"):
+        return "http://" + base[len("ws://") :]
+    if base.startswith("https://") or base.startswith("http://"):
+        return base
+    return "http://" + base
+
+
+async def upload_screenshot_http(
+    server: str,
+    device_id: str,
+    token: str,
+    payload: dict[str, Any],
+) -> bool:
+    url = f"{server_http_base(server)}/api/screenshots/upload"
+    body = json.dumps(
+        {
+            "deviceId": device_id,
+            "data": payload["data"],
+            "width": payload["width"],
+            "height": payload["height"],
+            "time": payload["time"],
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    def do_upload() -> None:
+        with urllib.request.urlopen(request, timeout=45) as response:
+            response.read()
+
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, do_upload)
+        return True
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        agent_log(f"screenshot http upload error: {exc}")
+        return False
 
 
 async def capture_and_send_screenshot(
     ws,
+    server: str,
+    device_id: str,
+    token: str,
     monitor_index: int,
     quality: int = 80,
 ) -> None:
@@ -724,15 +779,20 @@ async def capture_and_send_screenshot(
             "height": out_h,
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
+        if await upload_screenshot_http(server, device_id, token, payload):
+            agent_log(
+                f"screenshot uploaded: {out_w}x{out_h} q={used_q} size={len(jpeg_bytes)}"
+            )
+            return
+
         raw = json.dumps(payload)
         try:
             await ws.send(raw)
+            agent_log(
+                f"screenshot sent via ws: {out_w}x{out_h} q={used_q} size={len(jpeg_bytes)}"
+            )
         except Exception as exc:
             agent_log(f"screenshot send error: {exc} ({len(raw)} bytes)")
-            return
-        agent_log(
-            f"screenshot sent: {out_w}x{out_h} q={used_q} size={len(jpeg_bytes)}"
-        )
 
 
 def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
@@ -811,6 +871,9 @@ async def capture_loop(
 async def receive_loop(
     ws,
     viewer_count: asyncio.Event,
+    server: str,
+    device_id: str,
+    token: str,
     monitor: int,
     quality: int,
 ) -> None:
@@ -831,11 +894,14 @@ async def receive_loop(
                 agent_log("viewer disconnected")
         elif msg_type == "control":
             if msg.get("action") == "screenshot":
-                shot_quality = min(max(quality + 15, 65), 85)
+                agent_log("screenshot requested")
+                shot_quality = min(max(quality + 10, 60), 75)
 
                 async def run_screenshot() -> None:
                     try:
-                        await capture_and_send_screenshot(ws, monitor, shot_quality)
+                        await capture_and_send_screenshot(
+                            ws, server, device_id, token, monitor, shot_quality
+                        )
                     except Exception as exc:
                         agent_log(f"screenshot error: {exc}")
 
@@ -885,7 +951,9 @@ async def run_agent(
                     capture_loop(ws, monitor, fps, quality, stream_width, viewer_count)
                 )
                 receive_task = asyncio.create_task(
-                    receive_loop(ws, viewer_count, monitor, quality)
+                    receive_loop(
+                        ws, viewer_count, server, device_id, token, monitor, quality
+                    )
                 )
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 keyboard_task = asyncio.create_task(keyboard_loop(ws))

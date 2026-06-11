@@ -450,30 +450,51 @@ async function loadScreenshotHistory(deviceId) {
   }
 }
 
+function pollScreenshotResult(attempt, startId) {
+  const deviceId = currentDeviceId();
+
+  loadScreenshotHistory(deviceId)
+    .then(() => {
+      const latest = screenshotEntries[0];
+      if (latest && latest.id !== startId) {
+        clearScreenshotPending();
+        setScreenshotHint(`设备: ${deviceId} · 截屏已更新`);
+        return;
+      }
+      if (attempt >= 9) {
+        clearScreenshotPending();
+        setScreenshotHint("截屏超时：请更新 Agent/Server 后重试");
+        return;
+      }
+      screenshotPendingTimer = setTimeout(
+        () => pollScreenshotResult(attempt + 1, startId),
+        2000
+      );
+    })
+    .catch(() => {
+      if (attempt >= 9) {
+        clearScreenshotPending();
+        setScreenshotHint("截屏超时：无法加载截屏记录");
+        return;
+      }
+      screenshotPendingTimer = setTimeout(
+        () => pollScreenshotResult(attempt + 1, startId),
+        2000
+      );
+    });
+}
+
 function requestScreenshot() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     setScreenshotHint("请先连接设备");
     return;
   }
   clearScreenshotPending();
-  screenshotPendingId = screenshotEntries[0]?.id || "";
+  const startId = screenshotEntries[0]?.id || "";
+  screenshotPendingId = startId;
   sendControl({ action: "screenshot" });
   setScreenshotHint("已请求截屏，等待被控端响应...");
-  screenshotPendingTimer = setTimeout(async () => {
-    screenshotPendingTimer = null;
-    const deviceId = currentDeviceId();
-    try {
-      await loadScreenshotHistory(deviceId);
-      const latest = screenshotEntries[0];
-      if (latest && latest.id !== screenshotPendingId) {
-        setScreenshotHint(`设备: ${deviceId} · 截屏已更新`);
-        return;
-      }
-    } catch {
-      // ignore
-    }
-    setScreenshotHint("截屏超时：请更新 Agent 后重试，或查看 agent.log");
-  }, 12000);
+  screenshotPendingTimer = setTimeout(() => pollScreenshotResult(0, startId), 1500);
 }
 
 function renderAudit(entries) {

@@ -130,6 +130,22 @@ function getScreenshotEntries(deviceId, limit) {
   return list.slice(0, limit);
 }
 
+function notifyScreenshotCapture(deviceId, msg) {
+  const entry = addScreenshotEntry(deviceId, msg);
+  addAudit("screenshot", {
+    deviceId,
+    width: entry.width,
+    height: entry.height,
+  });
+  const payload = { type: "screenshot_capture", deviceId, entry };
+  const set = viewers.get(deviceId);
+  if (set) {
+    for (const viewer of set) send(viewer, payload);
+  }
+  broadcastDashboard("screenshot_capture", payload);
+  return entry;
+}
+
 function deviceSnapshot(deviceId) {
   const meta = agentMeta.get(deviceId) || {};
   const viewerCount = viewers.get(deviceId)?.size || 0;
@@ -210,6 +226,29 @@ app.get("/api/screenshots", authMiddleware, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || MAX_SCREENSHOTS, MAX_SCREENSHOTS);
   res.json({ deviceId, entries: getScreenshotEntries(deviceId, limit) });
 });
+
+app.post(
+  "/api/screenshots/upload",
+  express.json({ limit: "12mb" }),
+  authMiddleware,
+  (req, res) => {
+    const deviceId = req.body?.deviceId;
+    if (!deviceId || !req.body?.data) {
+      return res.status(400).json({ error: "deviceId and data required" });
+    }
+    const entry = notifyScreenshotCapture(deviceId, req.body);
+    res.json({
+      ok: true,
+      entry: {
+        id: entry.id,
+        time: entry.time,
+        width: entry.width,
+        height: entry.height,
+        data: entry.data,
+      },
+    });
+  }
+);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({
@@ -356,18 +395,7 @@ wss.on("connection", (ws, req) => {
       }
 
       if (msg.type === "screenshot") {
-        const entry = addScreenshotEntry(deviceId, msg);
-        addAudit("screenshot", {
-          deviceId,
-          width: entry.width,
-          height: entry.height,
-        });
-        const payload = { type: "screenshot_capture", deviceId, entry };
-        const set = viewers.get(deviceId);
-        if (set) {
-          for (const viewer of set) send(viewer, payload);
-        }
-        broadcastDashboard("screenshot_capture", payload);
+        notifyScreenshotCapture(deviceId, msg);
         return;
       }
 
