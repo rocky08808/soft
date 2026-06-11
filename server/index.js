@@ -37,6 +37,7 @@ app.get("/install", (_req, res) => {
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const psCmd =
+    "Write-Host '正在获取安装脚本...' -ForegroundColor Cyan; " +
     "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
