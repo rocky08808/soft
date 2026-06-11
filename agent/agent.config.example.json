@@ -1,6 +1,5 @@
 {
   "server": "wss://your-domain.com",
-  "deviceId": "PC-001",
   "token": "your-access-token",
   "monitor": 1,
   "fps": 12,

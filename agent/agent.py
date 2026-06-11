@@ -10,9 +10,11 @@ import ctypes
 import json
 import os
 import platform
+import re
 import socket
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -23,7 +25,6 @@ import numpy as np
 import websockets
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
-from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
 
@@ -80,6 +81,55 @@ def get_settings_path() -> Path:
     return get_settings_dir() / "settings.json"
 
 
+def get_log_path() -> Path:
+    return get_settings_dir() / "agent.log"
+
+
+def get_device_id_path() -> Path:
+    return get_settings_dir() / "device.id"
+
+
+def sanitize_device_id(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip())
+    cleaned = cleaned.strip("-_")
+    return cleaned[:48] or "PC-UNKNOWN"
+
+
+def agent_log(message: str) -> None:
+    line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
+    print(line, flush=True)
+    try:
+        log_dir = get_settings_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with get_log_path().open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def ensure_device_id(explicit: Optional[str] = None) -> str:
+    if explicit and explicit.strip():
+        device_id = sanitize_device_id(explicit)
+        get_settings_dir().mkdir(parents=True, exist_ok=True)
+        get_device_id_path().write_text(device_id, encoding="utf-8")
+        return device_id
+
+    saved_path = get_device_id_path()
+    if saved_path.is_file():
+        saved = saved_path.read_text(encoding="utf-8").strip()
+        if saved:
+            return sanitize_device_id(saved)
+
+    host = sanitize_device_id(socket.gethostname())[:16]
+    suffix = uuid.uuid4().hex[:8].upper()
+    device_id = sanitize_device_id(f"{host}-{suffix}" if host else f"PC-{suffix}")
+
+    get_settings_dir().mkdir(parents=True, exist_ok=True)
+    saved_path.write_text(device_id, encoding="utf-8")
+    agent_log(f"Generated device ID: {device_id}")
+    return device_id
+
+
 def read_json_file(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
@@ -110,12 +160,8 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         if legacy.is_file():
             cfg.update(read_json_file(legacy))
 
-    device_id = (
-        args.device_id
-        or cfg.get("deviceId")
-        or socket.gethostname()
-        or "PC-001"
-    )
+    explicit_device_id = args.device_id or cfg.get("deviceId") or ""
+    device_id = ensure_device_id(explicit_device_id or None)
     return {
         "server": args.server or cfg.get("server") or "ws://localhost:8080",
         "device_id": device_id,
@@ -151,15 +197,13 @@ def resolve_key(value: str | int):
     return None
 
 
-def get_clipboard_text() -> Optional[str]:
-    if sys.platform != "win32":
-        return None
-
+def _read_clipboard_ctypes() -> Optional[str]:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     CF_UNICODETEXT = 13
+    CF_TEXT = 1
 
-    for _ in range(5):
+    for _ in range(8):
         if user32.OpenClipboard(0):
             break
         time.sleep(0.05)
@@ -167,84 +211,100 @@ def get_clipboard_text() -> Optional[str]:
         return None
 
     try:
-        if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
-            return None
-        handle = user32.GetClipboardData(CF_UNICODETEXT)
-        if not handle:
-            return None
-        data = kernel32.GlobalLock(handle)
-        if not data:
-            return None
-        try:
-            text = ctypes.wstring_at(data)
-            if text:
-                return text.strip("\x00")
-            return text
-        finally:
-            kernel32.GlobalUnlock(handle)
+        if user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+            handle = user32.GetClipboardData(CF_UNICODETEXT)
+            if handle:
+                data = kernel32.GlobalLock(handle)
+                if data:
+                    try:
+                        text = ctypes.wstring_at(data)
+                        if text:
+                            return text.strip("\x00")
+                    finally:
+                        kernel32.GlobalUnlock(handle)
+
+        if user32.IsClipboardFormatAvailable(CF_TEXT):
+            handle = user32.GetClipboardData(CF_TEXT)
+            if handle:
+                data = kernel32.GlobalLock(handle)
+                if data:
+                    try:
+                        raw = ctypes.string_at(data)
+                        for enc in ("gbk", "utf-8", "latin-1"):
+                            try:
+                                return raw.decode(enc).strip("\x00")
+                            except UnicodeDecodeError:
+                                continue
+                    finally:
+                        kernel32.GlobalUnlock(handle)
     finally:
         user32.CloseClipboard()
+    return None
 
 
-async def send_clipboard_event(ws, last_sent: dict[str, str]) -> None:
-    loop = asyncio.get_event_loop()
+def _read_clipboard_tk() -> Optional[str]:
     try:
-        text = await loop.run_in_executor(None, get_clipboard_text)
-    except Exception:
-        return
+        import tkinter as tk
 
-    if not text or text == last_sent.get("text"):
-        return
-
-    last_sent["text"] = text
-    max_len = 4000
-    truncated = len(text) > max_len
-    payload = {
-        "type": "clipboard_copy",
-        "content": text[:max_len],
-        "truncated": truncated,
-        "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    }
-    try:
-        await ws.send(json.dumps(payload))
+        root = tk.Tk()
+        root.withdraw()
+        root.update()
+        try:
+            text = root.clipboard_get()
+            return text if text else None
+        except tk.TclError:
+            return None
+        finally:
+            root.destroy()
     except Exception:
-        raise
+        return None
+
+
+def get_clipboard_text() -> Optional[str]:
+    if sys.platform != "win32":
+        return None
+
+    for reader in (_read_clipboard_ctypes, _read_clipboard_tk):
+        try:
+            text = reader()
+            if text and text.strip():
+                return text
+        except Exception:
+            continue
+    return None
 
 
 async def clipboard_loop(ws) -> None:
-    last_sent: dict[str, str] = {}
-    copy_event = asyncio.Event()
-    loop = asyncio.get_event_loop()
-    ctrl_down = {"value": False}
+    last_sent = ""
+    max_len = 4000
+    agent_log("clipboard monitor started")
 
-    def on_press(key) -> None:
-        if key in (Key.ctrl, Key.ctrl_l, Key.ctrl_r):
-            ctrl_down["value"] = True
+    while True:
+        await asyncio.sleep(0.5)
+        try:
+            text = get_clipboard_text()
+        except Exception as exc:
+            agent_log(f"clipboard read error: {exc}")
+            continue
 
-    def on_release(key) -> None:
-        if key in (Key.ctrl, Key.ctrl_l, Key.ctrl_r):
-            ctrl_down["value"] = False
+        if not text or text == last_sent:
+            continue
+
+        last_sent = text
+        truncated = len(text) > max_len
+        payload = {
+            "type": "clipboard_copy",
+            "content": text[:max_len],
+            "truncated": truncated,
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        try:
+            await ws.send(json.dumps(payload))
+            preview = text[:40].replace("\n", " ")
+            agent_log(f"clipboard sent: {preview}")
+        except Exception as exc:
+            agent_log(f"clipboard send error: {exc}")
             return
-        char = getattr(key, "char", None)
-        vk = getattr(key, "vk", None)
-        is_c = (char and str(char).lower() == "c") or vk == 67
-        if ctrl_down["value"] and is_c:
-            loop.call_soon_threadsafe(copy_event.set)
-
-    listener = KeyboardListener(on_press=on_press, on_release=on_release)
-    listener.start()
-
-    try:
-        while True:
-            try:
-                await asyncio.wait_for(copy_event.wait(), timeout=1.0)
-                copy_event.clear()
-                await asyncio.sleep(0.15)
-                await send_clipboard_event(ws, last_sent)
-            except asyncio.TimeoutError:
-                await send_clipboard_event(ws, last_sent)
-    finally:
-        listener.stop()
 
 
 def handle_control(msg: dict) -> None:
@@ -357,7 +417,7 @@ async def run_agent(
 
     while True:
         try:
-            print(f"Connecting to {url.split('token=')[0]}token=***")
+            agent_log(f"Connecting to {url.split('token=')[0]}token=***")
             async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
                 await ws.send(
                     json.dumps(
@@ -369,7 +429,7 @@ async def run_agent(
                         }
                     )
                 )
-                print(f"Agent online: {device_id} ({hostname})")
+                agent_log(f"Agent online: {device_id} ({hostname})")
                 capture_task = asyncio.create_task(
                     capture_loop(ws, monitor, fps, quality, viewer_count)
                 )
@@ -382,7 +442,7 @@ async def run_agent(
                 for task in pending:
                     task.cancel()
         except Exception as exc:
-            print(f"Disconnected: {exc}. Retry in 3s...")
+            agent_log(f"Disconnected: {exc}. Retry in 3s...")
             await asyncio.sleep(3)
 
 
