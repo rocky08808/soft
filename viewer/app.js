@@ -45,6 +45,8 @@ let remoteHeight = 0;
 let frameCount = 0;
 let lastFpsAt = performance.now();
 let lastMoveAt = 0;
+let pendingFrame = null;
+let frameRafId = 0;
 
 function getToken() {
   return tokenInput.value.trim();
@@ -118,15 +120,20 @@ function mapCoords(clientX, clientY) {
   };
 }
 
-function drawFrame(base64, width, height) {
-  remoteWidth = width;
-  remoteHeight = height;
-  metaEl.textContent = `分辨率: ${width} x ${height}`;
+function renderPendingFrame() {
+  frameRafId = 0;
+  const frame = pendingFrame;
+  if (!frame) return;
+  pendingFrame = null;
+
+  remoteWidth = frame.width;
+  remoteHeight = frame.height;
+  metaEl.textContent = `分辨率: ${frame.width} x ${frame.height}`;
 
   const img = new Image();
   img.onload = () => {
-    canvas.width = img.width;
-    canvas.height = img.height;
+    if (canvas.width !== img.width) canvas.width = img.width;
+    if (canvas.height !== img.height) canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
     placeholder.style.display = "none";
     frameCount += 1;
@@ -136,8 +143,19 @@ function drawFrame(base64, width, height) {
       frameCount = 0;
       lastFpsAt = now;
     }
+    if (pendingFrame) scheduleFrameRender();
   };
-  img.src = "data:image/jpeg;base64," + base64;
+  img.src = "data:image/jpeg;base64," + frame.base64;
+}
+
+function scheduleFrameRender() {
+  if (frameRafId) return;
+  frameRafId = requestAnimationFrame(renderPendingFrame);
+}
+
+function drawFrame(base64, width, height) {
+  pendingFrame = { base64, width, height };
+  scheduleFrameRender();
 }
 
 function maybeAutoSelectDevice(devices) {

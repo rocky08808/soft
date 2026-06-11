@@ -14,7 +14,7 @@ echo Preparing embedded config...
 
 if exist agent.config.json (
 
-    python -c "import json; c=json.load(open('agent.config.json',encoding='utf-8')); json.dump({k:c[k] for k in ('server','token','monitor','fps','quality') if k in c}, open('embedded.defaults.json','w',encoding='utf-8'), indent=2)"
+    python -c "import json; c=json.load(open('agent.config.json',encoding='utf-8')); json.dump({k:c[k] for k in ('server','token','monitor','fps','quality','streamWidth') if k in c}, open('embedded.defaults.json','w',encoding='utf-8'), indent=2)"
 
 ) else (
 

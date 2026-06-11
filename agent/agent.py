@@ -379,8 +379,13 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "device_id": device_id,
         "token": args.token or cfg.get("token") or "remote-screen-dev",
         "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
-        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 12)),
-        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 55)),
+        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 15)),
+        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 45)),
+        "stream_width": (
+            args.stream_width
+            if args.stream_width is not None
+            else int(cfg.get("streamWidth", cfg.get("stream_width", 1280)))
+        ),
     }
 
 
@@ -660,6 +665,33 @@ def handle_control(msg: dict) -> None:
             keyboard.release(key)
 
 
+STREAM_BUFFER_LIMIT = 512 * 1024
+
+
+def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
+    height, width = frame.shape[:2]
+    if stream_width > 0 and width > stream_width:
+        scale = stream_width / width
+        new_width = stream_width
+        new_height = max(1, int(height * scale))
+        return cv2.resize(
+            frame,
+            (new_width, new_height),
+            interpolation=cv2.INTER_AREA,
+        )
+    return frame
+
+
+def ws_write_backlog(ws) -> int:
+    transport = getattr(ws, "transport", None)
+    if transport is None:
+        return 0
+    try:
+        return int(transport.get_write_buffer_size())
+    except Exception:
+        return 0
+
+
 async def capture_and_send_screenshot(
     ws,
     monitor_index: int,
@@ -694,9 +726,17 @@ async def capture_loop(
     monitor_index: int,
     fps: int,
     quality: int,
+    stream_width: int,
     viewer_count: asyncio.Event,
 ) -> None:
     interval = 1.0 / max(fps, 1)
+    encode_params = [
+        int(cv2.IMWRITE_JPEG_QUALITY),
+        max(20, min(quality, 95)),
+        int(cv2.IMWRITE_JPEG_OPTIMIZE),
+        1,
+    ]
+    skipped = 0
     with mss.mss() as sct:
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
@@ -707,23 +747,38 @@ async def capture_loop(
                 await asyncio.sleep(0.2)
                 continue
 
+            loop_start = time.perf_counter()
+            if ws_write_backlog(ws) > STREAM_BUFFER_LIMIT:
+                skipped += 1
+                await asyncio.sleep(interval)
+                continue
+
             img = np.array(sct.grab(region))
             frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            ok, encoded = cv2.imencode(
-                ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-            )
+            frame = prepare_stream_frame(frame, stream_width)
+            ok, encoded = cv2.imencode(".jpg", frame, encode_params)
             if not ok:
                 await asyncio.sleep(interval)
                 continue
 
+            out_h, out_w = frame.shape[:2]
             payload = {
                 "type": "frame",
                 "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
-                "width": region["width"],
-                "height": region["height"],
+                "width": out_w,
+                "height": out_h,
             }
-            await ws.send(json.dumps(payload))
-            await asyncio.sleep(interval)
+            try:
+                await ws.send(json.dumps(payload))
+            except Exception as exc:
+                agent_log(f"frame send error: {exc}")
+                return
+
+            if skipped and skipped % 30 == 0:
+                agent_log(f"stream skipped {skipped} frames due to backlog")
+
+            elapsed = time.perf_counter() - loop_start
+            await asyncio.sleep(max(0.0, interval - elapsed))
 
 
 async def receive_loop(
@@ -766,6 +821,7 @@ async def run_agent(
     monitor: int,
     fps: int,
     quality: int,
+    stream_width: int,
 ) -> None:
     url = build_ws_url(server, device_id, token)
     viewer_count = asyncio.Event()
@@ -788,7 +844,7 @@ async def run_agent(
                 )
                 agent_log(f"Agent online: {device_id} ({hostname})")
                 capture_task = asyncio.create_task(
-                    capture_loop(ws, monitor, fps, quality, viewer_count)
+                    capture_loop(ws, monitor, fps, quality, stream_width, viewer_count)
                 )
                 receive_task = asyncio.create_task(
                     receive_loop(ws, viewer_count, monitor, quality)
@@ -834,6 +890,12 @@ def main() -> None:
     parser.add_argument(
         "--quality", type=int, default=None, help="JPEG quality 1-100"
     )
+    parser.add_argument(
+        "--stream-width",
+        type=int,
+        default=None,
+        help="Max stream width in pixels (0 = native resolution)",
+    )
     args = parser.parse_args()
     settings = resolve_settings(args)
 
@@ -849,6 +911,7 @@ def main() -> None:
                 settings["monitor"],
                 settings["fps"],
                 settings["quality"],
+                settings["stream_width"],
             )
         )
     except KeyboardInterrupt:

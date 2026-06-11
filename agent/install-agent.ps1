@@ -34,8 +34,9 @@ $settings = @{
     server  = $Server
     token   = $Token
     monitor = 1
-    fps     = 12
-    quality = 55
+    fps         = 15
+    quality     = 45
+    streamWidth = 1280
 }
 if ($DeviceId) {
     $settings.deviceId = $DeviceId

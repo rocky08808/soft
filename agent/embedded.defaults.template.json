@@ -2,6 +2,7 @@
   "server": "wss://olxp.cc",
   "token": "your-access-token",
   "monitor": 1,
-  "fps": 12,
-  "quality": 55
+  "fps": 15,
+  "quality": 45,
+  "streamWidth": 1280
 }
