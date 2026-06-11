@@ -34,6 +34,18 @@ app.get("/install", (_req, res) => {
   res.redirect("/install.html");
 });
 
+app.get("/go", (_req, res) => {
+  res.redirect("/go.html");
+});
+
+app.get("/download/install", (req, res) => {
+  const accept = req.headers.accept || "";
+  if (accept.includes("text/html")) {
+    return res.redirect("/go.html");
+  }
+  res.redirect("/download/install.bat");
+});
+
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const psCmd =
