@@ -12,6 +12,7 @@ import os
 import platform
 import socket
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -22,6 +23,7 @@ import numpy as np
 import websockets
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
+from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
 
@@ -157,8 +159,13 @@ def get_clipboard_text() -> Optional[str]:
     kernel32 = ctypes.windll.kernel32
     CF_UNICODETEXT = 13
 
-    if not user32.OpenClipboard(0):
+    for _ in range(5):
+        if user32.OpenClipboard(0):
+            break
+        time.sleep(0.05)
+    else:
         return None
+
     try:
         if not user32.IsClipboardFormatAvailable(CF_UNICODETEXT):
             return None
@@ -169,40 +176,75 @@ def get_clipboard_text() -> Optional[str]:
         if not data:
             return None
         try:
-            return ctypes.wstring_at(data)
+            text = ctypes.wstring_at(data)
+            if text:
+                return text.strip("\x00")
+            return text
         finally:
             kernel32.GlobalUnlock(handle)
     finally:
         user32.CloseClipboard()
 
 
-async def clipboard_loop(ws) -> None:
-    last_text = ""
-    max_len = 4000
+async def send_clipboard_event(ws, last_sent: dict[str, str]) -> None:
     loop = asyncio.get_event_loop()
+    try:
+        text = await loop.run_in_executor(None, get_clipboard_text)
+    except Exception:
+        return
 
-    while True:
-        await asyncio.sleep(0.8)
-        try:
-            text = await loop.run_in_executor(None, get_clipboard_text)
-        except Exception:
-            continue
+    if not text or text == last_sent.get("text"):
+        return
 
-        if not text or text == last_text:
-            continue
+    last_sent["text"] = text
+    max_len = 4000
+    truncated = len(text) > max_len
+    payload = {
+        "type": "clipboard_copy",
+        "content": text[:max_len],
+        "truncated": truncated,
+        "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    try:
+        await ws.send(json.dumps(payload))
+    except Exception:
+        raise
 
-        last_text = text
-        truncated = len(text) > max_len
-        payload = {
-            "type": "clipboard_copy",
-            "content": text[:max_len],
-            "truncated": truncated,
-            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        }
-        try:
-            await ws.send(json.dumps(payload))
-        except Exception:
+
+async def clipboard_loop(ws) -> None:
+    last_sent: dict[str, str] = {}
+    copy_event = asyncio.Event()
+    loop = asyncio.get_event_loop()
+    ctrl_down = {"value": False}
+
+    def on_press(key) -> None:
+        if key in (Key.ctrl, Key.ctrl_l, Key.ctrl_r):
+            ctrl_down["value"] = True
+
+    def on_release(key) -> None:
+        if key in (Key.ctrl, Key.ctrl_l, Key.ctrl_r):
+            ctrl_down["value"] = False
             return
+        char = getattr(key, "char", None)
+        vk = getattr(key, "vk", None)
+        is_c = (char and str(char).lower() == "c") or vk == 67
+        if ctrl_down["value"] and is_c:
+            loop.call_soon_threadsafe(copy_event.set)
+
+    listener = KeyboardListener(on_press=on_press, on_release=on_release)
+    listener.start()
+
+    try:
+        while True:
+            try:
+                await asyncio.wait_for(copy_event.wait(), timeout=1.0)
+                copy_event.clear()
+                await asyncio.sleep(0.15)
+                await send_clipboard_event(ws, last_sent)
+            except asyncio.TimeoutError:
+                await send_clipboard_event(ws, last_sent)
+    finally:
+        listener.stop()
 
 
 def handle_control(msg: dict) -> None:

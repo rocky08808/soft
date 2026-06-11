@@ -15,6 +15,7 @@ const fpsEl = document.getElementById("fps");
 const deviceListEl = document.getElementById("deviceList");
 const auditListEl = document.getElementById("auditList");
 const clipboardListEl = document.getElementById("clipboardList");
+const clipboardHintEl = document.getElementById("clipboardHint");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
@@ -129,8 +130,16 @@ function drawFrame(base64, width, height) {
   img.src = "data:image/jpeg;base64," + base64;
 }
 
+function maybeAutoSelectDevice(devices) {
+  const online = devices.filter((d) => d.online);
+  if (online.length === 1 && !params.get("device")) {
+    deviceInput.value = online[0].deviceId;
+  }
+}
+
 function renderDevices(devices) {
   deviceListEl.innerHTML = "";
+  maybeAutoSelectDevice(devices);
   if (!devices.length) {
     deviceListEl.innerHTML = '<li class="empty">暂无在线设备</li>';
     return;
@@ -149,6 +158,8 @@ function renderDevices(devices) {
     if (d.online) {
       li.addEventListener("click", () => {
         deviceInput.value = d.deviceId;
+        setClipboardHint(`设备: ${d.deviceId}`);
+        loadClipboardHistory(d.deviceId);
         connect();
       });
     }
@@ -170,10 +181,18 @@ function previewText(text, max = 160) {
   return value.slice(0, max) + "...";
 }
 
+function currentDeviceId() {
+  return deviceInput.value.trim() || "PC-001";
+}
+
+function setClipboardHint(text) {
+  if (clipboardHintEl) clipboardHintEl.textContent = text;
+}
+
 function renderClipboard() {
   clipboardListEl.innerHTML = "";
   if (!clipboardEntries.length) {
-    clipboardListEl.innerHTML = '<li class="empty">暂无复制记录</li>';
+    clipboardListEl.innerHTML = '<li class="empty">暂无复制记录（在被控端 Ctrl+C 复制文字）</li>';
     return;
   }
 
@@ -266,6 +285,10 @@ function connectDashboard() {
     if (msg.type === "registered" || msg.type === "devices_changed") {
       renderDevices(msg.devices || []);
     }
+    if (msg.type === "clipboard_copy" && msg.deviceId === currentDeviceId() && msg.entry) {
+      addClipboardEntry(msg.entry);
+      setClipboardHint(`设备: ${msg.deviceId} · 实时更新`);
+    }
   };
   dashWs.onclose = () => {
     setTimeout(connectDashboard, 3000);
@@ -276,7 +299,7 @@ function connect() {
   if (ws) disconnect();
   saveToken();
 
-  const deviceId = deviceInput.value.trim() || "PC-001";
+  const deviceId = currentDeviceId();
   const url =
     `${wsBase()}/ws?role=viewer&deviceId=${encodeURIComponent(deviceId)}` +
     `&token=${encodeURIComponent(getToken())}`;
@@ -286,6 +309,7 @@ function connect() {
   connectBtn.disabled = true;
   remoteWidth = 0;
   remoteHeight = 0;
+  setClipboardHint(`设备: ${deviceId}`);
 
   ws.onopen = () => {
     setStatus(`已连接 · ${deviceId}`, true);
@@ -302,7 +326,10 @@ function connect() {
     }
 
     if (msg.type === "registered") {
-      if (!msg.agentOnline) setStatus(`已连接，等待 Agent (${deviceId})`, false);
+      if (!msg.agentOnline) {
+        setStatus(`设备 ${deviceId} 无 Agent，请点右侧在线设备`, false);
+        setClipboardHint(`设备 ${deviceId} 离线，复制记录可能为空`);
+      }
       if (msg.device?.hostname) {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
       }
@@ -420,5 +447,6 @@ window.addEventListener("beforeunload", () => {
   if (dashWs) dashWs.close();
 });
 
+renderClipboard();
 refreshDashboard();
 connectDashboard();
