@@ -73,7 +73,7 @@ app.get("/download/uninstall.bat", (req, res) => {
     "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/uninstall.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "& $f";
+    "& $f; exit $LASTEXITCODE";
   const body = [
     "@echo off",
     "chcp 65001 >nul",
@@ -83,7 +83,15 @@ app.get("/download/uninstall.bat", (req, res) => {
     "echo.",
     `set "BASE=${base}"`,
     `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
-    "exit /b %ERRORLEVEL%",
+    "set RC=%ERRORLEVEL%",
+    "echo.",
+    "if %RC% NEQ 0 (",
+    "  echo [错误] 卸载未完全成功，请关闭 ReSA 后重试，或以管理员身份运行。",
+    ") else (",
+    "  echo 卸载已完成。",
+    ")",
+    "pause",
+    "exit /b %RC%",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Uninstall.bat"');

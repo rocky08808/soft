@@ -3,7 +3,7 @@ param(
     [switch]$Quiet
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $AgentProfiles = @(
     @{
@@ -24,6 +24,9 @@ $AgentProfiles = @(
     }
 )
 
+$RunKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+$failures = New-Object System.Collections.Generic.List[string]
+
 function Write-Step {
     param(
         [string]$Text,
@@ -34,56 +37,156 @@ function Write-Step {
     }
 }
 
+function Test-ScheduledTaskExists {
+    param([string]$TaskName)
+
+    try {
+        if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+            return $true
+        }
+    } catch {}
+
+    schtasks /Query /TN $TaskName 1>$null 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Remove-AgentScheduledTask {
+    param([string]$TaskName)
+
+    if (-not (Test-ScheduledTaskExists -TaskName $TaskName)) {
+        return $false
+    }
+
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    } catch {}
+
+    if (Test-ScheduledTaskExists -TaskName $TaskName) {
+        schtasks /Delete /TN $TaskName /F 1>$null 2>$null
+    }
+
+    if (Test-ScheduledTaskExists -TaskName $TaskName) {
+        $failures.Add("计划任务仍存在: $TaskName")
+        return $false
+    }
+
+    Write-Step "已删除计划任务: $TaskName"
+    return $true
+}
+
+function Stop-AgentProcess {
+    param([string]$ProcessName)
+
+    $exeName = "$ProcessName.exe"
+    if (-not (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
+    for ($i = 0; $i -lt 8; $i++) {
+        Get-Process -Name $ProcessName -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 300
+        if (-not (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
+            Write-Step "已停止进程: $ProcessName"
+            return $true
+        }
+    }
+
+    cmd /c "taskkill /F /T /IM $exeName" 1>$null 2>$null
+    Start-Sleep -Milliseconds 500
+
+    if (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue) {
+        $failures.Add("进程仍在运行: $ProcessName")
+        return $false
+    }
+
+    Write-Step "已停止进程: $ProcessName"
+    return $true
+}
+
+function Remove-AgentRunKey {
+    param([string]$Name)
+
+    try {
+        $value = Get-ItemProperty -Path $RunKeyPath -Name $Name -ErrorAction SilentlyContinue
+        if (-not $value) { return $false }
+        Remove-ItemProperty -Path $RunKeyPath -Name $Name -ErrorAction SilentlyContinue
+        Write-Step "已删除注册表自启: $Name"
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Remove-AgentStartupLink {
+    param([string]$LinkName)
+
+    $startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) $LinkName
+    if (-not (Test-Path -LiteralPath $startupLink)) {
+        return $false
+    }
+
+    try {
+        Remove-Item -LiteralPath $startupLink -Force -ErrorAction Stop
+        Write-Step "已删除启动快捷方式: $LinkName"
+        return $true
+    } catch {
+        $failures.Add("启动快捷方式删除失败: $LinkName")
+        return $false
+    }
+}
+
+function Remove-AgentDirectory {
+    param([string]$InstallDir)
+
+    if (-not (Test-Path -LiteralPath $InstallDir)) {
+        return $false
+    }
+
+    for ($i = 0; $i -lt 6; $i++) {
+        try {
+            Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.Attributes = "Normal" }
+            Remove-Item -LiteralPath $InstallDir -Recurse -Force -ErrorAction Stop
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+
+        if (-not (Test-Path -LiteralPath $InstallDir)) {
+            Write-Step "已删除安装目录: $InstallDir"
+            return $true
+        }
+    }
+
+    cmd /c "rd /s /q `"$InstallDir`"" 1>$null 2>$null
+    Start-Sleep -Milliseconds 300
+
+    if (Test-Path -LiteralPath $InstallDir) {
+        $failures.Add("安装目录仍存在: $InstallDir")
+        return $false
+    }
+
+    Write-Step "已删除安装目录: $InstallDir"
+    return $true
+}
+
 function Remove-AgentProfile {
-    param(
-        [hashtable]$Profile
-    )
+    param([hashtable]$Profile)
 
-    $removed = $false
-    $label = $Profile.Label
+    $changed = $false
     $installDir = Join-Path $env:LOCALAPPDATA $Profile.InstallDirName
-    $startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) $Profile.StartupLinkName
 
-    $process = Get-Process -Name $Profile.ProcessName -ErrorAction SilentlyContinue
-    if ($process) {
-        $process | Stop-Process -Force -ErrorAction SilentlyContinue
-        Write-Step "已停止进程: $($Profile.ProcessName)"
-        $removed = $true
+    if (Remove-AgentScheduledTask -TaskName $Profile.TaskName) { $changed = $true }
+    if (Remove-AgentRunKey -Name $Profile.RunKeyName) { $changed = $true }
+    if (Remove-AgentStartupLink -LinkName $Profile.StartupLinkName) { $changed = $true }
+    if (Stop-AgentProcess -ProcessName $Profile.ProcessName) { $changed = $true }
+    if (Remove-AgentDirectory -InstallDir $installDir) { $changed = $true }
+
+    if (-not $changed -and -not $Quiet) {
+        Write-Step "未发现 $($Profile.Label) 相关项"
     }
 
-    $task = Get-ScheduledTask -TaskName $Profile.TaskName -ErrorAction SilentlyContinue
-    if ($task) {
-        Unregister-ScheduledTask -TaskName $Profile.TaskName -Confirm:$false | Out-Null
-        Write-Step "已删除计划任务: $($Profile.TaskName)"
-        $removed = $true
-    }
-
-    $runKey = Get-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
-        -Name $Profile.RunKeyName -ErrorAction SilentlyContinue
-    if ($runKey) {
-        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" `
-            -Name $Profile.RunKeyName -ErrorAction SilentlyContinue
-        Write-Step "已删除注册表自启: $($Profile.RunKeyName)"
-        $removed = $true
-    }
-
-    if (Test-Path $startupLink) {
-        Remove-Item -Force $startupLink
-        Write-Step "已删除启动快捷方式: $($Profile.StartupLinkName)"
-        $removed = $true
-    }
-
-    if (Test-Path $installDir) {
-        Remove-Item -Recurse -Force $installDir
-        Write-Step "已删除安装目录: $installDir"
-        $removed = $true
-    }
-
-    if (-not $removed -and -not $Quiet) {
-        Write-Step "未发现 $label 相关文件"
-    }
-
-    return $removed
+    return $changed
 }
 
 Write-Step ""
@@ -91,27 +194,33 @@ Write-Step "=== ReSA 卸载 ===" Cyan
 Write-Step "将清理 ReSA 及旧版 RemoteScreenAgent（如存在）"
 Write-Step ""
 
-$anyRemoved = $false
+$anyFound = $false
 foreach ($profile in $AgentProfiles) {
     if (-not $Quiet) {
         Write-Step "-- $($profile.Label) --" Cyan
     }
     if (Remove-AgentProfile -Profile $profile) {
-        $anyRemoved = $true
+        $anyFound = $true
     }
     if (-not $Quiet) {
         Write-Step ""
     }
 }
 
-if ($anyRemoved) {
+Write-Step ""
+if ($failures.Count -gt 0) {
+    Write-Step "卸载未完全成功，请关闭相关程序后重试，或以管理员身份运行。" Yellow
+    foreach ($item in $failures) {
+        Write-Step "  - $item" Yellow
+    }
+    exit 1
+}
+
+if ($anyFound) {
     Write-Step "卸载完成。" Green
 } else {
     Write-Step "未发现已安装的 ReSA / RemoteScreenAgent。" Yellow
 }
 
 Write-Step ""
-
-if (-not $Quiet) {
-    Read-Host "按 Enter 键关闭"
-}
+exit 0
