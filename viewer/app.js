@@ -38,6 +38,8 @@ let clipboardEntries = [];
 let keyboardEntries = [];
 let screenshotEntries = [];
 let screenshotModalEntry = null;
+let screenshotPendingTimer = null;
+let screenshotPendingId = "";
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
@@ -413,6 +415,14 @@ function renderScreenshots() {
   }
 }
 
+function clearScreenshotPending() {
+  if (screenshotPendingTimer) {
+    clearTimeout(screenshotPendingTimer);
+    screenshotPendingTimer = null;
+  }
+  screenshotPendingId = "";
+}
+
 function addScreenshotEntry(entry) {
   if (!entry || !entry.id) return;
   if (screenshotEntries.some((e) => e.id === entry.id)) return;
@@ -421,6 +431,10 @@ function addScreenshotEntry(entry) {
     screenshotEntries.length = MAX_SCREENSHOT_UI;
   }
   renderScreenshots();
+  if (screenshotPendingTimer) {
+    clearScreenshotPending();
+    setScreenshotHint(`设备: ${currentDeviceId()} · 截屏已更新`);
+  }
 }
 
 async function loadScreenshotHistory(deviceId) {
@@ -441,8 +455,25 @@ function requestScreenshot() {
     setScreenshotHint("请先连接设备");
     return;
   }
+  clearScreenshotPending();
+  screenshotPendingId = screenshotEntries[0]?.id || "";
   sendControl({ action: "screenshot" });
   setScreenshotHint("已请求截屏，等待被控端响应...");
+  screenshotPendingTimer = setTimeout(async () => {
+    screenshotPendingTimer = null;
+    const deviceId = currentDeviceId();
+    try {
+      await loadScreenshotHistory(deviceId);
+      const latest = screenshotEntries[0];
+      if (latest && latest.id !== screenshotPendingId) {
+        setScreenshotHint(`设备: ${deviceId} · 截屏已更新`);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    setScreenshotHint("截屏超时：请更新 Agent 后重试，或查看 agent.log");
+  }, 12000);
 }
 
 function renderAudit(entries) {

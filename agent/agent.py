@@ -679,6 +679,10 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
     return frame
 
 
+SCREENSHOT_MAX_WIDTH = 1920
+SCREENSHOT_MAX_JPEG_BYTES = 900_000
+
+
 async def capture_and_send_screenshot(
     ws,
     monitor_index: int,
@@ -690,22 +694,45 @@ async def capture_and_send_screenshot(
         region = monitors[idx]
         img = np.array(sct.grab(region))
         frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        ok, encoded = cv2.imencode(
-            ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-        )
-        if not ok:
+        frame = prepare_stream_frame(frame, SCREENSHOT_MAX_WIDTH)
+
+        encoded = None
+        used_q = quality
+        for try_q in range(min(quality, 85), 39, -10):
+            ok, candidate = cv2.imencode(
+                ".jpg",
+                frame,
+                [int(cv2.IMWRITE_JPEG_QUALITY), try_q],
+            )
+            if not ok:
+                continue
+            used_q = try_q
+            encoded = candidate
+            if len(encoded.tobytes()) <= SCREENSHOT_MAX_JPEG_BYTES:
+                break
+
+        if encoded is None:
             agent_log("screenshot encode failed")
             return
 
+        out_h, out_w = frame.shape[:2]
+        jpeg_bytes = encoded.tobytes()
         payload = {
             "type": "screenshot",
-            "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
-            "width": region["width"],
-            "height": region["height"],
+            "data": base64.b64encode(jpeg_bytes).decode("ascii"),
+            "width": out_w,
+            "height": out_h,
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
-        await ws.send(json.dumps(payload))
-        agent_log(f"screenshot sent: {region['width']}x{region['height']}")
+        raw = json.dumps(payload)
+        try:
+            await ws.send(raw)
+        except Exception as exc:
+            agent_log(f"screenshot send error: {exc} ({len(raw)} bytes)")
+            return
+        agent_log(
+            f"screenshot sent: {out_w}x{out_h} q={used_q} size={len(jpeg_bytes)}"
+        )
 
 
 def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
@@ -804,11 +831,15 @@ async def receive_loop(
                 agent_log("viewer disconnected")
         elif msg_type == "control":
             if msg.get("action") == "screenshot":
-                try:
-                    shot_quality = min(max(quality + 20, 70), 95)
-                    await capture_and_send_screenshot(ws, monitor, shot_quality)
-                except Exception as exc:
-                    agent_log(f"screenshot error: {exc}")
+                shot_quality = min(max(quality + 15, 65), 85)
+
+                async def run_screenshot() -> None:
+                    try:
+                        await capture_and_send_screenshot(ws, monitor, shot_quality)
+                    except Exception as exc:
+                        agent_log(f"screenshot error: {exc}")
+
+                asyncio.create_task(run_screenshot())
                 continue
             try:
                 handle_control(msg)
@@ -833,7 +864,12 @@ async def run_agent(
     while True:
         try:
             agent_log(f"Connecting to {url.split('token=')[0]}token=***")
-            async with websockets.connect(url, ping_interval=20, ping_timeout=20) as ws:
+            async with websockets.connect(
+                url,
+                ping_interval=20,
+                ping_timeout=20,
+                max_size=16 * 1024 * 1024,
+            ) as ws:
                 await ws.send(
                     json.dumps(
                         {

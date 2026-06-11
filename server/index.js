@@ -212,7 +212,11 @@ app.get("/api/screenshots", authMiddleware, (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
+const wss = new WebSocketServer({
+  server,
+  path: "/ws",
+  maxPayload: 16 * 1024 * 1024,
+});
 
 wss.on("connection", (ws, req) => {
   const q = parseQuery(req.url || "");
