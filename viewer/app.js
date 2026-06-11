@@ -120,6 +120,17 @@ function mapCoords(clientX, clientY) {
   };
 }
 
+function parseBinaryFrame(buffer) {
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 5) return null;
+  const view = new DataView(buffer);
+  if (view.getUint8(0) !== 0x01) return null;
+  return {
+    width: view.getUint16(1),
+    height: view.getUint16(3),
+    bytes: buffer.slice(5),
+  };
+}
+
 function renderPendingFrame() {
   frameRafId = 0;
   const frame = pendingFrame;
@@ -131,7 +142,9 @@ function renderPendingFrame() {
   metaEl.textContent = `分辨率: ${frame.width} x ${frame.height}`;
 
   const img = new Image();
+  let objectUrl = "";
   img.onload = () => {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
     if (canvas.width !== img.width) canvas.width = img.width;
     if (canvas.height !== img.height) canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
@@ -145,12 +158,24 @@ function renderPendingFrame() {
     }
     if (pendingFrame) scheduleFrameRender();
   };
-  img.src = "data:image/jpeg;base64," + frame.base64;
+  if (frame.bytes) {
+    objectUrl = URL.createObjectURL(new Blob([frame.bytes], { type: "image/jpeg" }));
+    img.src = objectUrl;
+  } else {
+    img.src = "data:image/jpeg;base64," + frame.base64;
+  }
 }
 
 function scheduleFrameRender() {
   if (frameRafId) return;
   frameRafId = requestAnimationFrame(renderPendingFrame);
+}
+
+function drawFrameBinary(buffer) {
+  const parsed = parseBinaryFrame(buffer);
+  if (!parsed) return;
+  pendingFrame = parsed;
+  scheduleFrameRender();
 }
 
 function drawFrame(base64, width, height) {
@@ -473,6 +498,7 @@ function connect() {
     `&token=${encodeURIComponent(getToken())}`;
 
   ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
   setStatus("连接中...", false);
   connectBtn.disabled = true;
   remoteWidth = 0;
@@ -490,6 +516,12 @@ function connect() {
   };
 
   ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      drawFrameBinary(event.data);
+      setStatus(`远程控制中 · ${deviceId}`, true);
+      return;
+    }
+
     let msg;
     try {
       msg = JSON.parse(event.data);

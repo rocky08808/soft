@@ -31,6 +31,17 @@ function send(ws, payload) {
   }
 }
 
+function sendBinary(ws, payload) {
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(payload);
+  }
+}
+
+function isBinaryFrame(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  return buf.length >= 5 && buf[0] === 0x01;
+}
+
 function parseQuery(url) {
   const query = {};
   const idx = url.indexOf("?");
@@ -268,6 +279,17 @@ wss.on("connection", (ws, req) => {
   }
 
   ws.on("message", (raw) => {
+    if (ws.role === "agent" && isBinaryFrame(raw)) {
+      const meta = agentMeta.get(deviceId) || {};
+      meta.lastSeen = new Date().toISOString();
+      agentMeta.set(deviceId, meta);
+      const set = viewers.get(deviceId);
+      if (!set || set.size === 0) return;
+      const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+      for (const viewer of set) sendBinary(viewer, buf);
+      return;
+    }
+
     let msg;
     try {
       msg = JSON.parse(raw.toString());

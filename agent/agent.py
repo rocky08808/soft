@@ -12,9 +12,11 @@ import os
 import platform
 import re
 import socket
+import struct
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -379,12 +381,12 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "device_id": device_id,
         "token": args.token or cfg.get("token") or "remote-screen-dev",
         "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
-        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 15)),
-        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 45)),
+        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 12)),
+        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 38)),
         "stream_width": (
             args.stream_width
             if args.stream_width is not None
-            else int(cfg.get("streamWidth", cfg.get("stream_width", 1280)))
+            else int(cfg.get("streamWidth", cfg.get("stream_width", 960)))
         ),
     }
 
@@ -665,7 +667,8 @@ def handle_control(msg: dict) -> None:
             keyboard.release(key)
 
 
-STREAM_BUFFER_LIMIT = 512 * 1024
+STREAM_BUFFER_LIMIT = 256 * 1024
+FRAME_MAGIC = 0x01
 
 
 def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
@@ -677,9 +680,42 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
         return cv2.resize(
             frame,
             (new_width, new_height),
-            interpolation=cv2.INTER_AREA,
+            interpolation=cv2.INTER_LINEAR,
         )
     return frame
+
+
+def pack_frame_packet(jpeg_bytes: bytes, width: int, height: int) -> bytes:
+    header = struct.pack(">BHH", FRAME_MAGIC, int(width), int(height))
+    return header + jpeg_bytes
+
+
+class StreamCapturer:
+    def __init__(self, monitor_index: int, stream_width: int, quality: int) -> None:
+        self.sct = mss.mss()
+        monitors = self.sct.monitors
+        idx = monitor_index if monitor_index < len(monitors) else 1
+        self.region = monitors[idx]
+        self.stream_width = stream_width
+        self.quality = max(20, min(quality, 95))
+
+    def capture_jpeg(self, quality: Optional[int] = None) -> Optional[tuple[bytes, int, int]]:
+        img = np.array(self.sct.grab(self.region))
+        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        frame = prepare_stream_frame(frame, self.stream_width)
+        q = max(20, min(quality or self.quality, 95))
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), q],
+        )
+        if not ok:
+            return None
+        out_h, out_w = frame.shape[:2]
+        return encoded.tobytes(), out_w, out_h
+
+    def close(self) -> None:
+        self.sct.close()
 
 
 def ws_write_backlog(ws) -> int:
@@ -730,55 +766,60 @@ async def capture_loop(
     viewer_count: asyncio.Event,
 ) -> None:
     interval = 1.0 / max(fps, 1)
-    encode_params = [
-        int(cv2.IMWRITE_JPEG_QUALITY),
-        max(20, min(quality, 95)),
-        int(cv2.IMWRITE_JPEG_OPTIMIZE),
-        1,
-    ]
+    loop = asyncio.get_event_loop()
+    capturer = StreamCapturer(monitor_index, stream_width, quality)
     skipped = 0
-    with mss.mss() as sct:
-        monitors = sct.monitors
-        idx = monitor_index if monitor_index < len(monitors) else 1
-        region = monitors[idx]
+    dynamic_quality = quality
 
-        while True:
-            if not viewer_count.is_set():
-                await asyncio.sleep(0.2)
-                continue
+    try:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="capture") as executor:
+            while True:
+                if not viewer_count.is_set():
+                    await asyncio.sleep(0.2)
+                    continue
 
-            loop_start = time.perf_counter()
-            if ws_write_backlog(ws) > STREAM_BUFFER_LIMIT:
-                skipped += 1
-                await asyncio.sleep(interval)
-                continue
+                loop_start = time.perf_counter()
+                backlog = ws_write_backlog(ws)
+                if backlog > STREAM_BUFFER_LIMIT:
+                    skipped += 1
+                    dynamic_quality = max(22, dynamic_quality - 8)
+                    await asyncio.sleep(interval)
+                    continue
 
-            img = np.array(sct.grab(region))
-            frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-            frame = prepare_stream_frame(frame, stream_width)
-            ok, encoded = cv2.imencode(".jpg", frame, encode_params)
-            if not ok:
-                await asyncio.sleep(interval)
-                continue
+                if backlog > STREAM_BUFFER_LIMIT // 2:
+                    dynamic_quality = max(25, dynamic_quality - 3)
+                elif dynamic_quality < quality:
+                    dynamic_quality = min(quality, dynamic_quality + 1)
 
-            out_h, out_w = frame.shape[:2]
-            payload = {
-                "type": "frame",
-                "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
-                "width": out_w,
-                "height": out_h,
-            }
-            try:
-                await ws.send(json.dumps(payload))
-            except Exception as exc:
-                agent_log(f"frame send error: {exc}")
-                return
+                try:
+                    result = await loop.run_in_executor(
+                        executor,
+                        capturer.capture_jpeg,
+                        dynamic_quality,
+                    )
+                except Exception as exc:
+                    agent_log(f"capture error: {exc}")
+                    await asyncio.sleep(interval)
+                    continue
 
-            if skipped and skipped % 30 == 0:
-                agent_log(f"stream skipped {skipped} frames due to backlog")
+                if not result:
+                    await asyncio.sleep(interval)
+                    continue
 
-            elapsed = time.perf_counter() - loop_start
-            await asyncio.sleep(max(0.0, interval - elapsed))
+                jpeg_bytes, out_w, out_h = result
+                try:
+                    await ws.send(pack_frame_packet(jpeg_bytes, out_w, out_h))
+                except Exception as exc:
+                    agent_log(f"frame send error: {exc}")
+                    return
+
+                if skipped and skipped % 30 == 0:
+                    agent_log(f"stream skipped {skipped} frames due to backlog")
+
+                elapsed = time.perf_counter() - loop_start
+                await asyncio.sleep(max(0.0, interval - elapsed))
+    finally:
+        capturer.close()
 
 
 async def receive_loop(

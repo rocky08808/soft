@@ -70,9 +70,9 @@ begin
       '  "deviceId": "' + ServerPage.Values[1] + '",' + #13#10 +
       '  "token": "' + TokenPage.Values[0] + '",' + #13#10 +
       '  "monitor": 1,' + #13#10 +
-      '  "fps": 15,' + #13#10 +
-      '  "quality": 45,' + #13#10 +
-      '  "streamWidth": 1280' + #13#10 +
+      '  "fps": 12,' + #13#10 +
+      '  "quality": 38,' + #13#10 +
+      '  "streamWidth": 960' + #13#10 +
       '}';
     SaveStringToFile(SettingsPath, ConfigContent, False);
   end;
