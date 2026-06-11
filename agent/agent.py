@@ -25,6 +25,7 @@ import numpy as np
 import websockets
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
+from pynput.keyboard import Listener as KeyboardListener
 from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
 
@@ -65,6 +66,31 @@ KEY_MAP = {
 
 mouse = MouseController()
 keyboard = KeyboardController()
+
+REMOTE_INPUT_IGNORE_SEC = 0.35
+remote_input_ignore_until = 0.0
+keyboard_chars: list[str] = []
+keyboard_last_at = 0.0
+
+
+def mark_remote_input() -> None:
+    global remote_input_ignore_until
+    remote_input_ignore_until = time.time() + REMOTE_INPUT_IGNORE_SEC
+
+
+def is_remote_input() -> bool:
+    return time.time() < remote_input_ignore_until
+
+
+def format_special_key(key) -> str:
+    if key == Key.space:
+        return " "
+    if key == Key.enter:
+        return "\n"
+    if key == Key.tab:
+        return "\t"
+    name = str(key).replace("Key.", "")
+    return f"[{name}]"
 
 
 def get_app_dir() -> Path:
@@ -307,7 +333,82 @@ async def clipboard_loop(ws) -> None:
             return
 
 
+async def send_keyboard_input(ws, content: str) -> None:
+    if not content:
+        return
+    max_len = 2000
+    truncated = len(content) > max_len
+    payload = {
+        "type": "keyboard_input",
+        "content": content[:max_len],
+        "truncated": truncated,
+        "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    await ws.send(json.dumps(payload))
+    preview = content[:40].replace("\n", "\\n")
+    agent_log(f"keyboard sent: {preview}")
+
+
+async def flush_keyboard_buffer(ws) -> None:
+    global keyboard_chars
+    if not keyboard_chars:
+        return
+    content = "".join(keyboard_chars)
+    keyboard_chars = []
+    await send_keyboard_input(ws, content)
+
+
+async def keyboard_loop(ws) -> None:
+    global keyboard_chars, keyboard_last_at
+    keyboard_chars = []
+    keyboard_last_at = 0.0
+    loop = asyncio.get_event_loop()
+    agent_log("keyboard monitor started")
+
+    def schedule(coro) -> None:
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    def on_press(key) -> None:
+        global keyboard_chars, keyboard_last_at
+        if is_remote_input():
+            return
+
+        keyboard_last_at = time.time()
+
+        if key == Key.backspace:
+            if keyboard_chars:
+                keyboard_chars.pop()
+            return
+
+        if key in (Key.enter, Key.space, Key.tab):
+            keyboard_chars.append(format_special_key(key))
+            schedule(flush_keyboard_buffer(ws))
+            return
+
+        char = getattr(key, "char", None)
+        if char and char.isprintable():
+            keyboard_chars.append(char)
+            if len(keyboard_chars) >= 80:
+                schedule(flush_keyboard_buffer(ws))
+            return
+
+        schedule(flush_keyboard_buffer(ws))
+        schedule(send_keyboard_input(ws, format_special_key(key)))
+
+    listener = KeyboardListener(on_press=on_press)
+    listener.start()
+
+    try:
+        while True:
+            await asyncio.sleep(1.0)
+            if keyboard_chars and time.time() - keyboard_last_at >= 2.0:
+                await flush_keyboard_buffer(ws)
+    finally:
+        listener.stop()
+
+
 def handle_control(msg: dict) -> None:
+    mark_remote_input()
     action = msg.get("action")
     if action == "mouse_move":
         x = int(msg["x"])
@@ -435,8 +536,9 @@ async def run_agent(
                 )
                 receive_task = asyncio.create_task(receive_loop(ws, viewer_count))
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
+                keyboard_task = asyncio.create_task(keyboard_loop(ws))
                 done, pending = await asyncio.wait(
-                    {capture_task, receive_task, clipboard_task},
+                    {capture_task, receive_task, clipboard_task, keyboard_task},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:

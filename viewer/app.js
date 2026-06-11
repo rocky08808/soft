@@ -17,11 +17,15 @@ const auditListEl = document.getElementById("auditList");
 const clipboardListEl = document.getElementById("clipboardList");
 const clipboardHintEl = document.getElementById("clipboardHint");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
+const keyboardListEl = document.getElementById("keyboardList");
+const clearKeyboardBtn = document.getElementById("clearKeyboardBtn");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
+const MAX_KEYBOARD_UI = 300;
 let clipboardEntries = [];
+let keyboardEntries = [];
 
 const params = new URLSearchParams(window.location.search);
 if (params.get("device")) deviceInput.value = params.get("device");
@@ -160,6 +164,7 @@ function renderDevices(devices) {
         deviceInput.value = d.deviceId;
         setClipboardHint(`设备: ${d.deviceId}`);
         loadClipboardHistory(d.deviceId);
+        loadKeyboardHistory(d.deviceId);
         connect();
       });
     }
@@ -243,6 +248,60 @@ async function loadClipboardHistory(deviceId) {
   }
 }
 
+function renderKeyboard() {
+  keyboardListEl.innerHTML = "";
+  if (!keyboardEntries.length) {
+    keyboardListEl.innerHTML = '<li class="empty">暂无键盘记录</li>';
+    return;
+  }
+
+  for (const entry of keyboardEntries.slice(0, MAX_KEYBOARD_UI)) {
+    const li = document.createElement("li");
+    li.className = "clipboard-item";
+    const time = new Date(entry.time).toLocaleString();
+    li.innerHTML = `
+      <div class="clipboard-time">${time}</div>
+      <div class="clipboard-text">${escapeHtml(previewText(entry.content))}</div>
+      ${entry.truncated ? '<span class="clipboard-tag">内容已截断</span>' : ""}
+      <span class="clipboard-tag">点击复制到本机</span>
+    `;
+    li.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(entry.content);
+        li.style.borderColor = "#22c55e";
+        setTimeout(() => {
+          li.style.borderColor = "";
+        }, 800);
+      } catch {
+        window.prompt("复制以下内容:", entry.content);
+      }
+    });
+    keyboardListEl.appendChild(li);
+  }
+}
+
+function addKeyboardEntry(entry) {
+  if (!entry || !entry.content) return;
+  keyboardEntries.unshift(entry);
+  if (keyboardEntries.length > MAX_KEYBOARD_UI) {
+    keyboardEntries.length = MAX_KEYBOARD_UI;
+  }
+  renderKeyboard();
+}
+
+async function loadKeyboardHistory(deviceId) {
+  try {
+    const data = await apiFetch(
+      `/api/keyboard?deviceId=${encodeURIComponent(deviceId)}&limit=${MAX_KEYBOARD_UI}`
+    );
+    keyboardEntries = data.entries || [];
+    renderKeyboard();
+  } catch {
+    keyboardEntries = [];
+    keyboardListEl.innerHTML = '<li class="empty">无法加载键盘记录</li>';
+  }
+}
+
 function renderAudit(entries) {
   auditListEl.innerHTML = "";
   if (!entries.length) {
@@ -289,6 +348,9 @@ function connectDashboard() {
       addClipboardEntry(msg.entry);
       setClipboardHint(`设备: ${msg.deviceId} · 实时更新`);
     }
+    if (msg.type === "keyboard_input" && msg.deviceId === currentDeviceId() && msg.entry) {
+      addKeyboardEntry(msg.entry);
+    }
   };
   dashWs.onclose = () => {
     setTimeout(connectDashboard, 3000);
@@ -315,6 +377,7 @@ function connect() {
     setStatus(`已连接 · ${deviceId}`, true);
     disconnectBtn.disabled = false;
     loadClipboardHistory(deviceId);
+    loadKeyboardHistory(deviceId);
   };
 
   ws.onmessage = (event) => {
@@ -334,12 +397,19 @@ function connect() {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
       }
       clipboardEntries = msg.clipboard || [];
+      keyboardEntries = msg.keyboard || [];
       renderClipboard();
+      renderKeyboard();
       return;
     }
 
     if (msg.type === "clipboard_copy" && msg.entry) {
       addClipboardEntry(msg.entry);
+      return;
+    }
+
+    if (msg.type === "keyboard_input" && msg.entry) {
+      addKeyboardEntry(msg.entry);
       return;
     }
 
@@ -427,6 +497,10 @@ clearClipboardBtn.addEventListener("click", () => {
   clipboardEntries = [];
   renderClipboard();
 });
+clearKeyboardBtn.addEventListener("click", () => {
+  keyboardEntries = [];
+  renderKeyboard();
+});
 function updateMouseTrackUi() {
   canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
 }
@@ -448,5 +522,6 @@ window.addEventListener("beforeunload", () => {
 });
 
 renderClipboard();
+renderKeyboard();
 refreshDashboard();
 connectDashboard();

