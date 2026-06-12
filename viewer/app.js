@@ -1,5 +1,6 @@
 const TOKEN_KEY = "remoteScreenToken";
 const MOUSE_TRACK_KEY = "remoteScreenMouseTrack";
+const AUTO_SCREENSHOT_KEY_PREFIX = "autoScreenshot:";
 
 const tokenInput = document.getElementById("accessToken");
 const deviceInput = document.getElementById("deviceId");
@@ -28,6 +29,8 @@ const screenshotModalImgEl = document.getElementById("screenshotModalImg");
 const screenshotModalTitleEl = document.getElementById("screenshotModalTitle");
 const screenshotModalCloseBtn = document.getElementById("screenshotModalClose");
 const screenshotModalDownloadBtn = document.getElementById("screenshotModalDownload");
+const autoScreenshotToggle = document.getElementById("autoScreenshotToggle");
+const autoScreenshotIntervalInput = document.getElementById("autoScreenshotInterval");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
@@ -109,6 +112,59 @@ function setStatus(text, online) {
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
+}
+
+function autoScreenshotStorageKey(deviceId) {
+  return `${AUTO_SCREENSHOT_KEY_PREFIX}${deviceId}`;
+}
+
+function loadAutoScreenshotPrefs(deviceId) {
+  try {
+    const raw = localStorage.getItem(autoScreenshotStorageKey(deviceId));
+    if (!raw) return { enabled: false, interval: 60 };
+    const data = JSON.parse(raw);
+    const interval = Math.max(10, Math.min(3600, Number(data.interval) || 60));
+    return { enabled: !!data.enabled, interval };
+  } catch {
+    return { enabled: false, interval: 60 };
+  }
+}
+
+function saveAutoScreenshotPrefs(deviceId, enabled, interval) {
+  localStorage.setItem(
+    autoScreenshotStorageKey(deviceId),
+    JSON.stringify({ enabled: !!enabled, interval })
+  );
+}
+
+function applyAutoScreenshotUi(prefs) {
+  if (!autoScreenshotToggle || !autoScreenshotIntervalInput) return;
+  autoScreenshotToggle.checked = !!prefs.enabled;
+  autoScreenshotIntervalInput.value = String(prefs.interval);
+  autoScreenshotIntervalInput.disabled = !prefs.enabled;
+}
+
+function syncAutoScreenshotUi(deviceId) {
+  applyAutoScreenshotUi(loadAutoScreenshotPrefs(deviceId));
+}
+
+function sendAutoScreenshotSetting(deviceId, enabled, interval) {
+  const seconds = enabled ? Math.max(10, Math.min(3600, Number(interval) || 60)) : 0;
+  saveAutoScreenshotPrefs(deviceId, enabled, seconds);
+  sendControl({ action: "set_auto_screenshot", interval: seconds });
+  if (enabled) {
+    setScreenshotHint(`设备: ${deviceId} · 自动截屏已开启（每 ${seconds} 秒）`);
+  } else {
+    setScreenshotHint(`设备: ${deviceId} · 自动截屏已关闭`);
+  }
+}
+
+function pushAutoScreenshotToAgent(deviceId) {
+  const prefs = loadAutoScreenshotPrefs(deviceId);
+  applyAutoScreenshotUi(prefs);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const seconds = prefs.enabled ? prefs.interval : 0;
+  sendControl({ action: "set_auto_screenshot", interval: seconds });
 }
 
 function isMouseTrackEnabled() {
@@ -577,6 +633,8 @@ function connect() {
   remoteHeight = 0;
   setClipboardHint(`设备: ${deviceId}`);
 
+  syncAutoScreenshotUi(deviceId);
+
   ws.onopen = () => {
     setStatus(`已连接 · ${deviceId}`, true);
     disconnectBtn.disabled = false;
@@ -584,7 +642,13 @@ function connect() {
     loadKeyboardHistory(deviceId);
     loadScreenshotHistory(deviceId);
     screenshotBtn.disabled = false;
-    setScreenshotHint(`设备: ${deviceId}`);
+    pushAutoScreenshotToAgent(deviceId);
+    const prefs = loadAutoScreenshotPrefs(deviceId);
+    if (prefs.enabled) {
+      setScreenshotHint(`设备: ${deviceId} · 自动截屏每 ${prefs.interval} 秒`);
+    } else {
+      setScreenshotHint(`设备: ${deviceId}`);
+    }
   };
 
   ws.onmessage = (event) => {
@@ -631,6 +695,11 @@ function connect() {
       setStatus(`Agent 离线 · ${deviceId}`, false);
       placeholder.style.display = "block";
       placeholder.textContent = "Agent 已离线";
+      return;
+    }
+
+    if (msg.type === "agent_online" && msg.deviceId === deviceId) {
+      pushAutoScreenshotToAgent(deviceId);
       return;
     }
 
@@ -735,6 +804,35 @@ clearKeyboardBtn.addEventListener("click", async () => {
   }
 });
 screenshotBtn.addEventListener("click", requestScreenshot);
+autoScreenshotToggle?.addEventListener("change", () => {
+  const deviceId = currentDeviceId();
+  const enabled = autoScreenshotToggle.checked;
+  const interval = Number(autoScreenshotIntervalInput?.value) || 60;
+  if (autoScreenshotIntervalInput) {
+    autoScreenshotIntervalInput.disabled = !enabled;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    saveAutoScreenshotPrefs(deviceId, enabled, interval);
+    setScreenshotHint(enabled ? "连接后将自动应用自动截屏设置" : "自动截屏已关闭（连接后生效）");
+    return;
+  }
+  sendAutoScreenshotSetting(deviceId, enabled, interval);
+});
+autoScreenshotIntervalInput?.addEventListener("change", () => {
+  const deviceId = currentDeviceId();
+  let interval = Math.max(10, Math.min(3600, Number(autoScreenshotIntervalInput.value) || 60));
+  autoScreenshotIntervalInput.value = String(interval);
+  if (!autoScreenshotToggle?.checked) {
+    saveAutoScreenshotPrefs(deviceId, false, interval);
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    saveAutoScreenshotPrefs(deviceId, true, interval);
+    setScreenshotHint("连接后将应用新的截屏间隔");
+    return;
+  }
+  sendAutoScreenshotSetting(deviceId, true, interval);
+});
 clearScreenshotsBtn.addEventListener("click", async () => {
   const deviceId = currentDeviceId();
   try {
@@ -778,6 +876,8 @@ window.addEventListener("beforeunload", () => {
   if (dashWs) dashWs.close();
 });
 
+syncAutoScreenshotUi(currentDeviceId());
+deviceInput.addEventListener("change", () => syncAutoScreenshotUi(currentDeviceId()));
 renderClipboard();
 renderKeyboard();
 renderScreenshots();

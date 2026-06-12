@@ -52,6 +52,15 @@
         <button id="screenshotBtn" class="btn-small" type="button" disabled>截屏</button>
         <button id="clearScreenshotsBtn" class="btn-small" type="button">清空</button>
       </div>
+      <label class="toggle-row">
+        <input id="autoScreenshotToggle" type="checkbox" />
+        <span>自动截屏</span>
+      </label>
+      <div class="interval-row">
+        <label for="autoScreenshotInterval">间隔（秒）</label>
+        <input id="autoScreenshotInterval" type="number" min="10" max="3600" step="10" value="60" disabled />
+      </div>
+      <p class="toggle-hint">仅在控制端设置，默认关闭；连接设备后生效（10–3600 秒）</p>
       <p id="screenshotHint" class="clipboard-hint">连接后点击截屏，向被控端请求高清截图</p>
       <ul id="screenshotList" class="screenshot-list"></ul>
 

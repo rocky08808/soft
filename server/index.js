@@ -300,6 +300,14 @@ function notifyAgentViewerCount(deviceId) {
   send(agent, { type: "viewer_count", count });
 }
 
+function notifyViewersAgentOnline(deviceId) {
+  const set = viewers.get(deviceId);
+  if (!set) return;
+  for (const viewer of set) {
+    send(viewer, { type: "agent_online", deviceId });
+  }
+}
+
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query.token;
   if (!verifyToken(token)) {
@@ -432,6 +440,7 @@ wss.on("connection", (ws, req) => {
 
     send(ws, { type: "registered", role: "agent", deviceId });
     notifyAgentViewerCount(deviceId);
+    notifyViewersAgentOnline(deviceId);
     addAudit("agent_online", { deviceId, ip: clientIp });
     broadcastDashboard("devices_changed", { devices: listDevices() });
     console.log(`[agent] online: ${deviceId} (${clientIp})`);

@@ -351,6 +351,27 @@ def read_json_file(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+def normalize_auto_screenshot_interval(value: Any) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return 0
+    if seconds <= 0:
+        return 0
+    return max(10, min(seconds, 3600))
+
+
+class AutoScreenshotState:
+    def __init__(self, interval: int = 0) -> None:
+        self.interval = normalize_auto_screenshot_interval(interval)
+        self.changed = asyncio.Event()
+
+    def update(self, interval: int) -> int:
+        self.interval = normalize_auto_screenshot_interval(interval)
+        self.changed.set()
+        return self.interval
+
+
 def load_bundled_config() -> dict[str, Any]:
     candidates = []
     meipass = getattr(sys, "_MEIPASS", "")
@@ -792,6 +813,34 @@ async def capture_and_send_screenshot(
             agent_log(f"screenshot send error: {exc} ({len(raw)} bytes)")
 
 
+async def auto_screenshot_loop(
+    ws,
+    server: str,
+    device_id: str,
+    token: str,
+    monitor: int,
+    quality: int,
+    state: AutoScreenshotState,
+) -> None:
+    shot_quality = min(max(quality + 10, 60), 75)
+    while True:
+        state.changed.clear()
+        interval = state.interval
+        if interval <= 0:
+            await state.changed.wait()
+            continue
+        try:
+            await capture_and_send_screenshot(
+                ws, server, device_id, token, monitor, shot_quality
+            )
+        except Exception as exc:
+            agent_log(f"auto screenshot error: {exc}")
+        try:
+            await asyncio.wait_for(state.changed.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
+
+
 def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
     ok, encoded = cv2.imencode(
         ".jpg",
@@ -873,6 +922,7 @@ async def receive_loop(
     token: str,
     monitor: int,
     quality: int,
+    auto_screenshot_state: AutoScreenshotState,
 ) -> None:
     async for raw in ws:
         try:
@@ -904,6 +954,15 @@ async def receive_loop(
 
                 asyncio.create_task(run_screenshot())
                 continue
+            if msg.get("action") == "set_auto_screenshot":
+                interval = auto_screenshot_state.update(
+                    msg.get("interval", 0)
+                )
+                if interval > 0:
+                    agent_log(f"auto screenshot enabled: every {interval}s")
+                else:
+                    agent_log("auto screenshot disabled")
+                continue
             try:
                 handle_control(msg)
             except Exception as exc:
@@ -921,6 +980,7 @@ async def run_agent(
 ) -> None:
     url = build_ws_url(server, device_id, token)
     viewer_count = asyncio.Event()
+    auto_screenshot_state = AutoScreenshotState(0)
     hostname = socket.gethostname()
     platform_name = platform.platform()
 
@@ -949,13 +1009,37 @@ async def run_agent(
                 )
                 receive_task = asyncio.create_task(
                     receive_loop(
-                        ws, viewer_count, server, device_id, token, monitor, quality
+                        ws,
+                        viewer_count,
+                        server,
+                        device_id,
+                        token,
+                        monitor,
+                        quality,
+                        auto_screenshot_state,
+                    )
+                )
+                auto_screenshot_task = asyncio.create_task(
+                    auto_screenshot_loop(
+                        ws,
+                        server,
+                        device_id,
+                        token,
+                        monitor,
+                        quality,
+                        auto_screenshot_state,
                     )
                 )
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 keyboard_task = asyncio.create_task(keyboard_loop(ws))
                 done, pending = await asyncio.wait(
-                    {capture_task, receive_task, clipboard_task, keyboard_task},
+                    {
+                        capture_task,
+                        receive_task,
+                        auto_screenshot_task,
+                        clipboard_task,
+                        keyboard_task,
+                    },
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:

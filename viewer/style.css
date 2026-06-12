@@ -386,6 +386,27 @@ main {
   color: #64748b;
 }
 
+.interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.interval-row input {
+  width: 72px;
+  padding: 4px 8px;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: #0f1117;
+  color: inherit;
+}
+
+.interval-row input:disabled {
+  opacity: 0.5;
+}
+
 .meta {
   margin: 8px 0 0;
   font-size: 13px;
