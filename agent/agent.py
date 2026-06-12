@@ -13,6 +13,7 @@ import platform
 import re
 import socket
 import sys
+import tempfile
 import time
 import uuid
 import urllib.error
@@ -701,6 +702,30 @@ def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
 
 SCREENSHOT_MAX_WIDTH = 1280
 SCREENSHOT_MAX_JPEG_BYTES = 450_000
+RECORD_FPS = 5
+RECORD_MAX_WIDTH = 960
+RECORD_SEGMENT_DEFAULT = 60
+
+
+def normalize_record_segment_seconds(value: Any) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return RECORD_SEGMENT_DEFAULT
+    return max(30, min(seconds, 600))
+
+
+class ScreenRecordingState:
+    def __init__(self) -> None:
+        self.enabled = False
+        self.segment_seconds = RECORD_SEGMENT_DEFAULT
+        self.changed = asyncio.Event()
+
+    def set_recording(self, enabled: bool, segment_seconds: int = RECORD_SEGMENT_DEFAULT) -> tuple[bool, int]:
+        self.enabled = bool(enabled)
+        self.segment_seconds = normalize_record_segment_seconds(segment_seconds)
+        self.changed.set()
+        return self.enabled, self.segment_seconds
 
 
 def server_http_base(server: str) -> str:
@@ -841,6 +866,184 @@ async def auto_screenshot_loop(
             pass
 
 
+async def upload_recording_http(
+    server: str,
+    device_id: str,
+    token: str,
+    file_path: Path,
+    duration: float,
+    width: int,
+    height: int,
+) -> bool:
+    url = f"{server_http_base(server)}/api/recordings/upload"
+
+    def read_file() -> bytes:
+        return file_path.read_bytes()
+
+    loop = asyncio.get_event_loop()
+    try:
+        raw = await loop.run_in_executor(None, read_file)
+    except OSError as exc:
+        agent_log(f"recording read error: {exc}")
+        return False
+
+    body = json.dumps(
+        {
+            "deviceId": device_id,
+            "data": base64.b64encode(raw).decode("ascii"),
+            "duration": round(duration, 1),
+            "width": width,
+            "height": height,
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    def do_upload() -> None:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            response.read()
+
+    try:
+        await loop.run_in_executor(None, do_upload)
+        return True
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        agent_log(f"recording http upload error: {exc}")
+        return False
+
+
+async def finalize_recording_segment(
+    writer: Optional[cv2.VideoWriter],
+    path: Optional[Path],
+    duration: float,
+    width: int,
+    height: int,
+    server: str,
+    device_id: str,
+    token: str,
+) -> None:
+    if writer is not None:
+        writer.release()
+    if path is None or not path.is_file():
+        return
+    try:
+        size = path.stat().st_size
+        if size < 128:
+            return
+        if await upload_recording_http(
+            server, device_id, token, path, duration, width, height
+        ):
+            agent_log(
+                f"recording uploaded: {width}x{height} {duration:.0f}s size={size}"
+            )
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+async def screen_record_loop(
+    server: str,
+    device_id: str,
+    token: str,
+    monitor_index: int,
+    state: ScreenRecordingState,
+) -> None:
+    interval = 1.0 / RECORD_FPS
+    writer: Optional[cv2.VideoWriter] = None
+    segment_path: Optional[Path] = None
+    segment_start = 0.0
+    frame_w = 0
+    frame_h = 0
+    loop = asyncio.get_event_loop()
+
+    async def close_segment(duration: float) -> None:
+        nonlocal writer, segment_path, frame_w, frame_h
+        current_writer = writer
+        current_path = segment_path
+        current_w = frame_w
+        current_h = frame_h
+        writer = None
+        segment_path = None
+        frame_w = 0
+        frame_h = 0
+        await finalize_recording_segment(
+            current_writer,
+            current_path,
+            duration,
+            current_w,
+            current_h,
+            server,
+            device_id,
+            token,
+        )
+
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        idx = monitor_index if monitor_index < len(monitors) else 1
+        region = monitors[idx]
+
+        while True:
+            if not state.enabled:
+                if writer is not None:
+                    duration = max(0.1, time.monotonic() - segment_start)
+                    await close_segment(duration)
+                state.changed.clear()
+                await state.changed.wait()
+                continue
+
+            loop_start = time.monotonic()
+            try:
+                img = await loop.run_in_executor(None, lambda: np.array(sct.grab(region)))
+                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                frame = prepare_stream_frame(frame, RECORD_MAX_WIDTH)
+                h, w = frame.shape[:2]
+
+                if writer is None:
+                    segment_path = Path(tempfile.gettempdir()) / (
+                        f"ReSA-rec-{int(time.time())}.mp4"
+                    )
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    new_writer = cv2.VideoWriter(
+                        str(segment_path), fourcc, RECORD_FPS, (w, h)
+                    )
+                    if not new_writer.isOpened():
+                        agent_log("recording writer open failed")
+                        segment_path.unlink(missing_ok=True)
+                        segment_path = None
+                        await asyncio.sleep(1)
+                        continue
+                    writer = new_writer
+                    segment_start = time.monotonic()
+                    frame_w = w
+                    frame_h = h
+                    agent_log(f"recording segment started: {w}x{h}")
+
+                await loop.run_in_executor(None, writer.write, frame)
+
+                elapsed_segment = time.monotonic() - segment_start
+                if elapsed_segment >= state.segment_seconds:
+                    await close_segment(elapsed_segment)
+            except Exception as exc:
+                agent_log(f"recording capture error: {exc}")
+                if writer is not None:
+                    duration = max(0.1, time.monotonic() - segment_start)
+                    await close_segment(duration)
+                await asyncio.sleep(1)
+                continue
+
+            spent = time.monotonic() - loop_start
+            await asyncio.sleep(max(0.0, interval - spent))
+
+
 def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
     ok, encoded = cv2.imencode(
         ".jpg",
@@ -923,6 +1126,7 @@ async def receive_loop(
     monitor: int,
     quality: int,
     auto_screenshot_state: AutoScreenshotState,
+    screen_recording_state: ScreenRecordingState,
 ) -> None:
     async for raw in ws:
         try:
@@ -963,6 +1167,16 @@ async def receive_loop(
                 else:
                     agent_log("auto screenshot disabled")
                 continue
+            if msg.get("action") == "set_screen_recording":
+                enabled, segment = screen_recording_state.set_recording(
+                    msg.get("enabled", False),
+                    msg.get("segmentSeconds", RECORD_SEGMENT_DEFAULT),
+                )
+                if enabled:
+                    agent_log(f"screen recording enabled: segment {segment}s")
+                else:
+                    agent_log("screen recording disabled")
+                continue
             try:
                 handle_control(msg)
             except Exception as exc:
@@ -981,6 +1195,7 @@ async def run_agent(
     url = build_ws_url(server, device_id, token)
     viewer_count = asyncio.Event()
     auto_screenshot_state = AutoScreenshotState(0)
+    screen_recording_state = ScreenRecordingState()
     hostname = socket.gethostname()
     platform_name = platform.platform()
 
@@ -1017,6 +1232,16 @@ async def run_agent(
                         monitor,
                         quality,
                         auto_screenshot_state,
+                        screen_recording_state,
+                    )
+                )
+                screen_record_task = asyncio.create_task(
+                    screen_record_loop(
+                        server,
+                        device_id,
+                        token,
+                        monitor,
+                        screen_recording_state,
                     )
                 )
                 auto_screenshot_task = asyncio.create_task(
@@ -1036,6 +1261,7 @@ async def run_agent(
                     {
                         capture_task,
                         receive_task,
+                        screen_record_task,
                         auto_screenshot_task,
                         clipboard_task,
                         keyboard_task,

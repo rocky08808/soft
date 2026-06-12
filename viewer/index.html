@@ -65,6 +65,22 @@
       <ul id="screenshotList" class="screenshot-list"></ul>
 
       <div class="panel-head">
+        <h2 class="section-title inline-title">录屏记录</h2>
+        <button id="clearRecordingsBtn" class="btn-small" type="button">清空</button>
+      </div>
+      <label class="toggle-row">
+        <input id="screenRecordingToggle" type="checkbox" />
+        <span>录屏</span>
+      </label>
+      <div class="interval-row">
+        <label for="screenRecordingSegment">分段（秒）</label>
+        <input id="screenRecordingSegment" type="number" min="30" max="600" step="30" value="60" disabled />
+      </div>
+      <p class="toggle-hint">仅在控制端设置，默认关闭；按分段上传 MP4（30–600 秒）</p>
+      <p id="recordingHint" class="clipboard-hint">连接设备后可开启录屏</p>
+      <ul id="recordingList" class="recording-list"></ul>
+
+      <div class="panel-head">
         <h2 class="section-title inline-title">复制记录</h2>
         <button id="clearClipboardBtn" class="btn-small" type="button">清空</button>
       </div>
@@ -81,6 +97,21 @@
       <ul id="auditList" class="audit-list"></ul>
     </aside>
   </main>
+
+  <div id="recordingModal" class="screenshot-modal" hidden>
+    <div class="screenshot-modal-panel">
+      <div class="screenshot-modal-head">
+        <span id="recordingModalTitle">录屏预览</span>
+        <div class="screenshot-modal-actions">
+          <button id="recordingModalDownload" class="btn-small" type="button">下载</button>
+          <button id="recordingModalClose" class="btn-small" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="screenshot-modal-body">
+        <video id="recordingModalVideo" controls playsinline></video>
+      </div>
+    </div>
+  </div>
 
   <div id="screenshotModal" class="screenshot-modal" hidden>
     <div class="screenshot-modal-panel">

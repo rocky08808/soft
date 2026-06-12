@@ -1,6 +1,7 @@
 const TOKEN_KEY = "remoteScreenToken";
 const MOUSE_TRACK_KEY = "remoteScreenMouseTrack";
 const AUTO_SCREENSHOT_KEY_PREFIX = "autoScreenshot:";
+const SCREEN_RECORDING_KEY_PREFIX = "screenRecording:";
 
 const tokenInput = document.getElementById("accessToken");
 const deviceInput = document.getElementById("deviceId");
@@ -31,15 +32,28 @@ const screenshotModalCloseBtn = document.getElementById("screenshotModalClose");
 const screenshotModalDownloadBtn = document.getElementById("screenshotModalDownload");
 const autoScreenshotToggle = document.getElementById("autoScreenshotToggle");
 const autoScreenshotIntervalInput = document.getElementById("autoScreenshotInterval");
+const clearRecordingsBtn = document.getElementById("clearRecordingsBtn");
+const screenRecordingToggle = document.getElementById("screenRecordingToggle");
+const screenRecordingSegmentInput = document.getElementById("screenRecordingSegment");
+const recordingListEl = document.getElementById("recordingList");
+const recordingHintEl = document.getElementById("recordingHint");
+const recordingModalEl = document.getElementById("recordingModal");
+const recordingModalVideoEl = document.getElementById("recordingModalVideo");
+const recordingModalTitleEl = document.getElementById("recordingModalTitle");
+const recordingModalCloseBtn = document.getElementById("recordingModalClose");
+const recordingModalDownloadBtn = document.getElementById("recordingModalDownload");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
 const MAX_KEYBOARD_UI = 300;
 const MAX_SCREENSHOT_UI = 80;
+const MAX_RECORDING_UI = 20;
 let clipboardEntries = [];
 let keyboardEntries = [];
 let screenshotEntries = [];
+let recordingEntries = [];
+let recordingModalEntry = null;
 let screenshotModalEntry = null;
 let screenshotPendingTimer = null;
 let screenshotPendingId = "";
@@ -167,6 +181,70 @@ function pushAutoScreenshotToAgent(deviceId) {
   sendControl({ action: "set_auto_screenshot", interval: seconds });
 }
 
+function screenRecordingStorageKey(deviceId) {
+  return `${SCREEN_RECORDING_KEY_PREFIX}${deviceId}`;
+}
+
+function loadScreenRecordingPrefs(deviceId) {
+  try {
+    const raw = localStorage.getItem(screenRecordingStorageKey(deviceId));
+    if (!raw) return { enabled: false, segmentSeconds: 60 };
+    const data = JSON.parse(raw);
+    const segmentSeconds = Math.max(30, Math.min(600, Number(data.segmentSeconds) || 60));
+    return { enabled: !!data.enabled, segmentSeconds };
+  } catch {
+    return { enabled: false, segmentSeconds: 60 };
+  }
+}
+
+function saveScreenRecordingPrefs(deviceId, enabled, segmentSeconds) {
+  localStorage.setItem(
+    screenRecordingStorageKey(deviceId),
+    JSON.stringify({ enabled: !!enabled, segmentSeconds })
+  );
+}
+
+function applyScreenRecordingUi(prefs) {
+  if (!screenRecordingToggle || !screenRecordingSegmentInput) return;
+  screenRecordingToggle.checked = !!prefs.enabled;
+  screenRecordingSegmentInput.value = String(prefs.segmentSeconds);
+  screenRecordingSegmentInput.disabled = !prefs.enabled;
+}
+
+function syncScreenRecordingUi(deviceId) {
+  applyScreenRecordingUi(loadScreenRecordingPrefs(deviceId));
+}
+
+function setRecordingHint(text) {
+  if (recordingHintEl) recordingHintEl.textContent = text;
+}
+
+function sendScreenRecordingSetting(deviceId, enabled, segmentSeconds) {
+  const seconds = Math.max(30, Math.min(600, Number(segmentSeconds) || 60));
+  saveScreenRecordingPrefs(deviceId, enabled, seconds);
+  sendControl({
+    action: "set_screen_recording",
+    enabled: !!enabled,
+    segmentSeconds: seconds,
+  });
+  if (enabled) {
+    setRecordingHint(`设备: ${deviceId} · 录屏中（每 ${seconds} 秒上传一段）`);
+  } else {
+    setRecordingHint(`设备: ${deviceId} · 录屏已关闭`);
+  }
+}
+
+function pushScreenRecordingToAgent(deviceId) {
+  const prefs = loadScreenRecordingPrefs(deviceId);
+  applyScreenRecordingUi(prefs);
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  sendControl({
+    action: "set_screen_recording",
+    enabled: prefs.enabled,
+    segmentSeconds: prefs.segmentSeconds,
+  });
+}
+
 function isMouseTrackEnabled() {
   return mouseTrackToggle.checked;
 }
@@ -255,6 +333,8 @@ function renderDevices(devices) {
         loadClipboardHistory(d.deviceId);
         loadKeyboardHistory(d.deviceId);
         loadScreenshotHistory(d.deviceId);
+        loadRecordingHistory(d.deviceId);
+        syncScreenRecordingUi(d.deviceId);
         connect();
       });
     }
@@ -511,6 +591,117 @@ async function loadScreenshotHistory(deviceId) {
   }
 }
 
+function formatFileSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (!size) return "—";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds) {
+  const total = Math.round(Number(seconds) || 0);
+  const minutes = Math.floor(total / 60);
+  const remain = total % 60;
+  return minutes > 0 ? `${minutes}分${remain}秒` : `${total}秒`;
+}
+
+function recordingFileUrl(entry) {
+  return `${httpBase()}/api/recordings/${encodeURIComponent(entry.id)}/file?token=${encodeURIComponent(getToken())}`;
+}
+
+function downloadRecording(entry) {
+  if (!entry?.id) return;
+  const link = document.createElement("a");
+  link.href = recordingFileUrl(entry);
+  link.download = `recording-${entry.id || Date.now()}.mp4`;
+  link.click();
+}
+
+function closeRecordingModal() {
+  if (!recordingModalEl) return;
+  recordingModalEl.hidden = true;
+  recordingModalEntry = null;
+  if (recordingModalVideoEl) {
+    recordingModalVideoEl.pause();
+    recordingModalVideoEl.removeAttribute("src");
+    recordingModalVideoEl.load();
+  }
+}
+
+function openRecordingModal(entry) {
+  if (!entry?.id || !recordingModalEl || !recordingModalVideoEl) return;
+  recordingModalEntry = entry;
+  const time = new Date(entry.time).toLocaleString();
+  const size =
+    entry.width && entry.height ? `${entry.width}×${entry.height}` : "";
+  if (recordingModalTitleEl) {
+    recordingModalTitleEl.textContent = size
+      ? `录屏预览 · ${time} · ${size} · ${formatDuration(entry.duration)}`
+      : `录屏预览 · ${time}`;
+  }
+  recordingModalVideoEl.src = recordingFileUrl(entry);
+  recordingModalEl.hidden = false;
+  recordingModalVideoEl.play().catch(() => {});
+}
+
+function renderRecordings() {
+  if (!recordingListEl) return;
+  recordingListEl.innerHTML = "";
+  if (!recordingEntries.length) {
+    recordingListEl.innerHTML = '<li class="empty">暂无录屏记录</li>';
+    return;
+  }
+
+  for (const entry of recordingEntries.slice(0, MAX_RECORDING_UI)) {
+    const li = document.createElement("li");
+    li.className = "recording-item";
+    const time = new Date(entry.time).toLocaleString();
+    const size =
+      entry.width && entry.height ? `${entry.width}×${entry.height}` : "—";
+    li.innerHTML = `
+      <div class="recording-badge">MP4 · ${formatDuration(entry.duration)}</div>
+      <div class="screenshot-meta">
+        <span>${time}</span>
+        <span>${size} · ${formatFileSize(entry.size)}</span>
+      </div>
+      <span class="clipboard-tag">点击播放 · 右键下载</span>
+    `;
+    li.addEventListener("click", () => openRecordingModal(entry));
+    li.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      downloadRecording(entry);
+    });
+    recordingListEl.appendChild(li);
+  }
+}
+
+function addRecordingEntry(entry) {
+  if (!entry || !entry.id) return;
+  if (recordingEntries.some((e) => e.id === entry.id)) return;
+  recordingEntries.unshift(entry);
+  if (recordingEntries.length > MAX_RECORDING_UI) {
+    recordingEntries.length = MAX_RECORDING_UI;
+  }
+  renderRecordings();
+  setRecordingHint(`设备: ${currentDeviceId()} · 新录屏已上传`);
+}
+
+async function loadRecordingHistory(deviceId) {
+  try {
+    const data = await apiFetch(
+      `/api/recordings?deviceId=${encodeURIComponent(deviceId)}&limit=${MAX_RECORDING_UI}`
+    );
+    recordingEntries = data.entries || [];
+    renderRecordings();
+  } catch {
+    recordingEntries = [];
+    if (recordingListEl) {
+      recordingListEl.innerHTML = '<li class="empty">无法加载录屏记录</li>';
+    }
+  }
+}
+
 function pollScreenshotResult(attempt, startId) {
   const deviceId = currentDeviceId();
 
@@ -610,6 +801,9 @@ function connectDashboard() {
     if (!ws && msg.type === "screenshot_capture" && msg.deviceId === currentDeviceId() && msg.entry) {
       addScreenshotEntry(msg.entry);
     }
+    if (!ws && msg.type === "recording_uploaded" && msg.deviceId === currentDeviceId() && msg.entry) {
+      addRecordingEntry(msg.entry);
+    }
   };
   dashWs.onclose = () => {
     setTimeout(connectDashboard, 3000);
@@ -634,6 +828,7 @@ function connect() {
   setClipboardHint(`设备: ${deviceId}`);
 
   syncAutoScreenshotUi(deviceId);
+  syncScreenRecordingUi(deviceId);
 
   ws.onopen = () => {
     setStatus(`已连接 · ${deviceId}`, true);
@@ -641,13 +836,21 @@ function connect() {
     loadClipboardHistory(deviceId);
     loadKeyboardHistory(deviceId);
     loadScreenshotHistory(deviceId);
+    loadRecordingHistory(deviceId);
     screenshotBtn.disabled = false;
     pushAutoScreenshotToAgent(deviceId);
+    pushScreenRecordingToAgent(deviceId);
     const prefs = loadAutoScreenshotPrefs(deviceId);
     if (prefs.enabled) {
       setScreenshotHint(`设备: ${deviceId} · 自动截屏每 ${prefs.interval} 秒`);
     } else {
       setScreenshotHint(`设备: ${deviceId}`);
+    }
+    const recPrefs = loadScreenRecordingPrefs(deviceId);
+    if (recPrefs.enabled) {
+      setRecordingHint(`设备: ${deviceId} · 录屏中（每 ${recPrefs.segmentSeconds} 秒上传）`);
+    } else {
+      setRecordingHint(`设备: ${deviceId}`);
     }
   };
 
@@ -672,6 +875,7 @@ function connect() {
       renderClipboard();
       renderKeyboard();
       loadScreenshotHistory(deviceId);
+      loadRecordingHistory(deviceId);
       return;
     }
 
@@ -691,6 +895,11 @@ function connect() {
       return;
     }
 
+    if (msg.type === "recording_uploaded" && msg.entry) {
+      addRecordingEntry(msg.entry);
+      return;
+    }
+
     if (msg.type === "agent_offline") {
       setStatus(`Agent 离线 · ${deviceId}`, false);
       placeholder.style.display = "block";
@@ -700,6 +909,7 @@ function connect() {
 
     if (msg.type === "agent_online" && msg.deviceId === deviceId) {
       pushAutoScreenshotToAgent(deviceId);
+      pushScreenRecordingToAgent(deviceId);
       return;
     }
 
@@ -844,6 +1054,58 @@ clearScreenshotsBtn.addEventListener("click", async () => {
     setScreenshotHint("清空截屏记录失败");
   }
 });
+screenRecordingToggle?.addEventListener("change", () => {
+  const deviceId = currentDeviceId();
+  const enabled = screenRecordingToggle.checked;
+  const segmentSeconds = Number(screenRecordingSegmentInput?.value) || 60;
+  if (screenRecordingSegmentInput) {
+    screenRecordingSegmentInput.disabled = !enabled;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    saveScreenRecordingPrefs(deviceId, enabled, segmentSeconds);
+    setRecordingHint(enabled ? "连接后将自动开启录屏" : "录屏已关闭（连接后生效）");
+    return;
+  }
+  sendScreenRecordingSetting(deviceId, enabled, segmentSeconds);
+});
+screenRecordingSegmentInput?.addEventListener("change", () => {
+  const deviceId = currentDeviceId();
+  let segmentSeconds = Math.max(
+    30,
+    Math.min(600, Number(screenRecordingSegmentInput.value) || 60)
+  );
+  screenRecordingSegmentInput.value = String(segmentSeconds);
+  if (!screenRecordingToggle?.checked) {
+    saveScreenRecordingPrefs(deviceId, false, segmentSeconds);
+    return;
+  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    saveScreenRecordingPrefs(deviceId, true, segmentSeconds);
+    setRecordingHint("连接后将应用新的录屏分段");
+    return;
+  }
+  sendScreenRecordingSetting(deviceId, true, segmentSeconds);
+});
+clearRecordingsBtn?.addEventListener("click", async () => {
+  const deviceId = currentDeviceId();
+  try {
+    await apiFetch(`/api/recordings?deviceId=${encodeURIComponent(deviceId)}`, {
+      method: "DELETE",
+    });
+    recordingEntries = [];
+    renderRecordings();
+    setRecordingHint(`设备: ${deviceId} · 已清空`);
+  } catch {
+    setRecordingHint("清空录屏记录失败");
+  }
+});
+recordingModalCloseBtn?.addEventListener("click", closeRecordingModal);
+recordingModalDownloadBtn?.addEventListener("click", () => {
+  if (recordingModalEntry) downloadRecording(recordingModalEntry);
+});
+recordingModalEl?.addEventListener("click", (e) => {
+  if (e.target === recordingModalEl) closeRecordingModal();
+});
 screenshotModalCloseBtn?.addEventListener("click", closeScreenshotModal);
 screenshotModalDownloadBtn?.addEventListener("click", () => {
   if (screenshotModalEntry) downloadScreenshot(screenshotModalEntry);
@@ -852,8 +1114,9 @@ screenshotModalEl?.addEventListener("click", (e) => {
   if (e.target === screenshotModalEl) closeScreenshotModal();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && screenshotModalEl && !screenshotModalEl.hidden) {
-    closeScreenshotModal();
+  if (e.key === "Escape") {
+    if (recordingModalEl && !recordingModalEl.hidden) closeRecordingModal();
+    else if (screenshotModalEl && !screenshotModalEl.hidden) closeScreenshotModal();
   }
 });
 function updateMouseTrackUi() {
@@ -877,9 +1140,16 @@ window.addEventListener("beforeunload", () => {
 });
 
 syncAutoScreenshotUi(currentDeviceId());
-deviceInput.addEventListener("change", () => syncAutoScreenshotUi(currentDeviceId()));
+syncScreenRecordingUi(currentDeviceId());
+deviceInput.addEventListener("change", () => {
+  const deviceId = currentDeviceId();
+  syncAutoScreenshotUi(deviceId);
+  syncScreenRecordingUi(deviceId);
+  loadRecordingHistory(deviceId);
+});
 renderClipboard();
 renderKeyboard();
 renderScreenshots();
+renderRecordings();
 refreshDashboard();
 connectDashboard();

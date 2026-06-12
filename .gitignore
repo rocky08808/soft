@@ -33,3 +33,6 @@ desktop.ini
 
 # Logs
 *.log
+
+# Server runtime data
+data/recordings/

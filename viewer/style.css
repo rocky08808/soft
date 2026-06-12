@@ -259,7 +259,8 @@ main {
   color: #94a3b8;
 }
 
-.screenshot-list {
+.screenshot-list,
+.recording-list {
   list-style: none;
   margin: 0 0 8px;
   padding: 0;
@@ -267,7 +268,8 @@ main {
   overflow: auto;
 }
 
-.screenshot-item {
+.screenshot-item,
+.recording-item {
   padding: 8px;
   border: 1px solid #2a2f3a;
   border-radius: 8px;
@@ -276,8 +278,21 @@ main {
   cursor: pointer;
 }
 
-.screenshot-item:hover {
+.screenshot-item:hover,
+.recording-item:hover {
   border-color: #3b82f6;
+}
+
+.recording-item .recording-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 72px;
+  border-radius: 4px;
+  background: #0a0c10;
+  color: #94a3b8;
+  font-size: 13px;
 }
 
 .screenshot-item img {
@@ -345,7 +360,8 @@ main {
   background: #0a0c10;
 }
 
-.screenshot-modal-body img {
+.screenshot-modal-body img,
+.screenshot-modal-body video {
   max-width: 100%;
   height: auto;
   border-radius: 4px;
