@@ -39,73 +39,73 @@ function publicBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
-function escapeBatEchoLine(line) {
-  return String(line).replace(/[%^&|<>]/g, (ch) => {
-    if (ch === "%") return "%%";
-    return `^${ch}`;
-  });
+function sendPs1Download(res, filename, body) {
+  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(Buffer.concat([bom, Buffer.from(body, "utf8")]));
 }
 
-function vbsWriteLine(line) {
-  return `ts.WriteLine "${String(line).replace(/"/g, '""')}"`;
-}
-
-function buildInstallBootstrapPs1(base) {
+function buildInstallWrapperPs1(base) {
   const safeBase = base.replace(/'/g, "''");
   return [
+    "# ReSA one-click install wrapper - ASCII only",
+    "param(",
+    "    [switch]$Silent = $true",
+    ")",
+    "$ErrorActionPreference = 'Continue'",
+    "$scriptPath = $MyInvocation.MyCommand.Path",
+    "if ($scriptPath) {",
+    "    Unblock-File -LiteralPath $scriptPath -ErrorAction SilentlyContinue",
+    "}",
     `$env:RESA_INSTALL_BASE='${safeBase}'`,
     "$log = Join-Path $env:TEMP 'ReSA-install.log'",
-    "Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' bootstrap start')",
+    "Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' wrapper start')",
     "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}",
     "$f = Join-Path $env:TEMP 'ReSA-install.ps1'",
+    "$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'",
     "try {",
-    "  Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing",
-    "  Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
-    "  & $f -Silent",
-    "  exit $LASTEXITCODE",
+    "    if (Test-Path -LiteralPath $curl) {",
+    "        & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/install.ps1')",
+    "    }",
+    "    if (-not (Test-Path -LiteralPath $f)) {",
+    "        Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing",
+    "    }",
+    "    Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
+    "    if ($Silent) {",
+    "        & $f -Silent",
+    "    } else {",
+    "        & $f",
+    "    }",
+    "    exit $LASTEXITCODE",
     "} catch {",
-    "  $m = $_.Exception.Message",
-    "  Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' bootstrap error: ' + $m)",
-    "  (New-Object -ComObject WScript.Shell).Popup(('ReSA install failed: ' + $m + [char]10 + [char]10 + 'Log: ' + $log), 0, 'ReSA', 16) | Out-Null",
-    "  exit 1",
+    "    $m = $_.Exception.Message",
+    "    Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' wrapper error: ' + $m)",
+    "    (New-Object -ComObject WScript.Shell).Popup(('ReSA install failed: ' + $m + [char]10 + [char]10 + 'Log: ' + $log), 0, 'ReSA', 16) | Out-Null",
+    "    exit 1",
     "}",
-  ];
-}
-
-function buildInstallLauncherVbs(base) {
-  const psLines = buildInstallBootstrapPs1(base);
-  return [
-    "Option Explicit",
-    "Dim sh, fso, ts, logFile, bootstrap, rc",
-    'Set sh = CreateObject("WScript.Shell")',
-    'Set fso = CreateObject("Scripting.FileSystemObject")',
-    'logFile = sh.ExpandEnvironmentStrings("%TEMP%") & "\\ReSA-install.log"',
-    'Set ts = fso.OpenTextFile(logFile, 8, True)',
-    'ts.WriteLine Replace(CStr(Now), "/", "-") & " vbs launcher start"',
-    "ts.Close",
-    'bootstrap = sh.ExpandEnvironmentStrings("%TEMP%") & "\\ReSA-bootstrap.ps1"',
-    "Set ts = fso.CreateTextFile(bootstrap, True)",
-    ...psLines.map(vbsWriteLine),
-    "ts.Close",
-    'rc = sh.Run("powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File """ & bootstrap & """", 0, True)',
-    "If rc <> 0 Then",
-    '  sh.Popup "ReSA install failed (exit " & rc & "). See %TEMP%\\ReSA-install.log", 0, "ReSA", 16',
-    "End If",
   ].join("\r\n");
 }
 
+function buildInstallRunCommand(base) {
+  const safeBase = base.replace(/'/g, "''");
+  return (
+    `$b='${safeBase}'; $f=Join-Path $env:TEMP 'ReSA-Install.ps1'; ` +
+    `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'; ` +
+    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/ReSA-Install.ps1') }; ` +
+    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/ReSA-Install.ps1') -OutFile $f -UseBasicParsing }; ` +
+    `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; ` +
+    `& $f -Silent`
+  );
+}
+
 function buildInstallBat(base) {
-  const vbsLines = buildInstallLauncherVbs(base).split("\r\n");
-  const batLines = [
+  const cmd = buildInstallRunCommand(base).replace(/"/g, '\\"');
+  return [
     "@echo off",
-    "set \"VBS=%TEMP%\\ReSA-launch.vbs\"",
-    `> "%VBS%" echo ${escapeBatEchoLine(vbsLines[0])}`,
-    ...vbsLines.slice(1).map((line) => `>> "%VBS%" echo ${escapeBatEchoLine(line)}`),
-    "wscript //nologo \"%VBS%\"",
-    "del \"%VBS%\" 2>nul",
-    "exit /b 0",
-  ];
-  return batLines.join("\r\n");
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
+    "exit /b %ERRORLEVEL%",
+  ].join("\r\n");
 }
 
 function sendDownloadAsset(res, filename, contentType) {
@@ -132,7 +132,12 @@ app.get("/download/install", (req, res) => {
   if (accept.includes("text/html")) {
     return res.redirect("/install.html");
   }
-  res.redirect("/download/install.bat");
+  res.redirect("/download/ReSA-Install.ps1");
+});
+
+app.get("/download/ReSA-Install.ps1", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendPs1Download(res, "ReSA-Install.ps1", buildInstallWrapperPs1(base));
 });
 
 app.get("/download/install.bat", (req, res) => {
@@ -140,13 +145,6 @@ app.get("/download/install.bat", (req, res) => {
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.bat"');
   res.send(buildInstallBat(base));
-});
-
-app.get("/download/install.vbs", (req, res) => {
-  const base = `${publicBaseUrl(req)}/download`;
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.vbs"');
-  res.send(buildInstallLauncherVbs(base));
 });
 
 app.get("/download/uninstall.bat", (req, res) => {

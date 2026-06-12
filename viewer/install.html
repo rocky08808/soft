@@ -3,116 +3,90 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>一键安装 Agent</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>ReSA 安装</title>
   <style>
-    .install-page { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-    .install-page h1 { margin-bottom: 0.5rem; }
-    .hero {
-      background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%);
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 1.5rem;
-      margin: 1.25rem 0;
-      text-align: center;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0f1117;
+      color: #e8eaed;
+      line-height: 1.5;
     }
-    .hero p { color: #cbd5e1; margin: 0.5rem 0 1.25rem; line-height: 1.6; }
-    .hero .btn-primary {
+    .install-page { max-width: 720px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+    h1 { margin: 0 0 0.5rem; font-size: 1.6rem; }
+    h2 { margin: 0 0 0.75rem; font-size: 1.1rem; }
+    .hero, .install-card {
+      background: #1a1d27;
+      border: 1px solid #2a2f3a;
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-top: 1.25rem;
+    }
+    .hero { text-align: center; }
+    .hero p { margin: 0 0 1rem; color: #cbd5e1; }
+    .btn-primary {
       display: inline-block;
-      padding: 0.85rem 1.75rem;
+      padding: 0.75rem 1.25rem;
       background: #2563eb;
       color: #fff;
-      text-decoration: none;
       border-radius: 8px;
-      font-size: 1.1rem;
+      text-decoration: none;
       font-weight: 600;
     }
-    .hero .btn-primary:hover { background: #1d4ed8; }
-    .steps {
-      display: grid;
-      gap: 0.75rem;
-      margin-top: 1.25rem;
-      text-align: left;
-    }
-    .step {
+    .btn-primary:hover { background: #1d4ed8; }
+    .hero-actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 0.75rem;
-      align-items: flex-start;
-      color: #e2e8f0;
-      font-size: 0.95rem;
-    }
-    .step-num {
-      flex-shrink: 0;
-      width: 1.5rem;
-      height: 1.5rem;
-      border-radius: 50%;
-      background: #334155;
-      display: flex;
-      align-items: center;
       justify-content: center;
-      font-size: 0.8rem;
+      margin-top: 0.75rem;
     }
-    .install-card {
-      background: #1e293b;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      margin: 1rem 0;
-    }
-    .install-card h2 { margin: 0 0 0.75rem; font-size: 1.05rem; color: #94a3b8; }
-    .install-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
-    .install-actions a, .install-actions button {
-      display: inline-block;
+    .hero-actions button, .hero-actions a, .install-actions button {
       padding: 0.55rem 1rem;
-      background: #475569;
+      background: #334155;
       color: #fff;
-      text-decoration: none;
       border: none;
       border-radius: 6px;
       cursor: pointer;
       font-size: 0.9rem;
+      text-decoration: none;
     }
-    .install-actions button:hover, .install-actions a:hover { background: #64748b; }
-    .cmd-box {
-      margin-top: 0.75rem;
-      padding: 0.75rem;
-      background: #0f172a;
+    .hero-actions button:hover, .hero-actions a:hover, .install-actions button:hover { background: #475569; }
+    .steps { text-align: left; margin-top: 1rem; }
+    .step { display: flex; gap: 0.75rem; margin-bottom: 0.6rem; color: #cbd5e1; font-size: 0.95rem; }
+    .step-num {
+      flex: 0 0 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      background: #2563eb;
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    .warn-card {
+      border-color: #854d0e;
+      background: #1c1912;
+    }
+    .warn-card h2 { color: #fbbf24; }
+    .link-row { margin-top: 0.9rem; }
+    .link-row label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.35rem; }
+    .link-row-inner { display: flex; gap: 0.5rem; }
+    .link-box {
+      flex: 1;
+      padding: 0.55rem 0.7rem;
+      background: #0f1117;
+      border: 1px solid #334155;
       border-radius: 6px;
-      font-family: Consolas, monospace;
       font-size: 0.82rem;
       word-break: break-all;
-      user-select: all;
-    }
-    .link-box {
-      padding: 0.6rem 0.75rem;
-      background: #0f172a;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      word-break: break-all;
-      user-select: all;
-    }
-    .link-row {
-      margin-top: 0.75rem;
-    }
-    .link-row label {
-      display: block;
-      font-size: 0.85rem;
-      color: #94a3b8;
-      margin-bottom: 0.35rem;
-    }
-    .link-row-inner {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      align-items: stretch;
-    }
-    .link-row-inner .link-box {
-      flex: 1 1 220px;
-      margin-top: 0;
+      color: #cbd5e1;
     }
     .link-row-inner button {
-      flex: 0 0 auto;
-      padding: 0.55rem 0.85rem;
+      padding: 0.45rem 0.8rem;
       background: #475569;
       color: #fff;
       border: none;
@@ -121,35 +95,18 @@
       font-size: 0.85rem;
       white-space: nowrap;
     }
-    .link-row-inner button:hover { background: #64748b; }
-    .hero-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.75rem;
-      justify-content: center;
+    .cmd-box {
       margin-top: 0.5rem;
+      padding: 0.75rem;
+      background: #0f1117;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-family: Consolas, monospace;
+      font-size: 0.78rem;
+      word-break: break-all;
+      color: #e2e8f0;
     }
-    .hero-actions button {
-      padding: 0.55rem 1rem;
-      background: #334155;
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
-    .hero-actions button:hover { background: #475569; }
-    .hero-actions a {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.55rem 1rem;
-      background: #334155;
-      color: #fff;
-      border-radius: 6px;
-      text-decoration: none;
-      font-size: 0.9rem;
-    }
-    .hero-actions a:hover { background: #475569; }
+    .install-actions { margin-top: 0.75rem; }
     .note { font-size: 0.9rem; color: #94a3b8; }
     .back { margin-top: 1.5rem; }
     .back a { color: #60a5fa; }
@@ -158,9 +115,9 @@
       bottom: 1.5rem;
       left: 50%;
       transform: translateX(-50%);
-      background: #166534;
+      background: #1e293b;
       color: #fff;
-      padding: 0.6rem 1.2rem;
+      padding: 0.6rem 1rem;
       border-radius: 8px;
       opacity: 0;
       transition: opacity 0.2s;
@@ -175,28 +132,41 @@
     <p class="note">把本页链接发给被控电脑用户即可。服务器地址和令牌已内置，设备 ID 默认为电脑名。</p>
 
     <div class="hero">
-      <p>在被控 Windows 电脑上打开此页，下载 <code>ReSA-Install.vbs</code> 并<strong>双击运行</strong>，全程无命令行窗口。</p>
-      <a id="installVbsLink" class="btn-primary" href="/download/install.vbs" download>下载一键安装脚本（VBS）</a>
+      <p><strong>推荐：</strong>按 Win+R，粘贴下方一行命令并回车。无需下载 vbs/bat，较少触发 Windows 安全中心。</p>
+      <div class="cmd-box" id="cmdOneLiner"></div>
       <div class="hero-actions">
-        <button type="button" id="copyInstallVbsBtn">复制安装 vbs 地址</button>
-        <a href="/download/install.bat" download>备用 bat</a>
-      </div>
-      <div class="link-row" style="text-align:left;">
-        <label>安装 vbs 下载地址</label>
-        <div class="link-box" id="installVbsUrl"></div>
+        <button type="button" id="copyCmdBtn">复制 Win+R 命令</button>
+        <a id="installPsLink" class="btn-primary" href="/download/ReSA-Install.ps1" download>下载 PS1 安装脚本</a>
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.vbs</code></span></div>
-        <div class="step"><span class="step-num">2</span><span>双击运行（静默安装，无终端窗口）</span></div>
-        <div class="step"><span class="step-num">3</span><span>安装完成后程序会自动启动，设备 ID 见下方路径说明</span></div>
+        <div class="step"><span class="step-num">1</span><span>复制上方命令，在被控电脑按 Win+R 粘贴回车</span></div>
+        <div class="step"><span class="step-num">2</span><span>若出现 Windows 安全提示，点「更多信息」→「仍要运行」</span></div>
+        <div class="step"><span class="step-num">3</span><span>安装完成后程序自动启动，日志见 <code>%TEMP%\ReSA-install.log</code></span></div>
       </div>
-      <p class="note" style="margin-top:1rem;">双击没反应？先看日志 <code>%TEMP%\ReSA-install.log</code>。若日志为空，右键 vbs → <strong>打开</strong>（不要只双击）；或在文件属性里勾选「解除锁定」。</p>
+    </div>
+
+    <div class="install-card warn-card">
+      <h2>关于 Windows 安全中心</h2>
+      <p class="note">ReSA 未做代码签名，首次安装时 Windows 可能提示「已保护你的电脑」或拦截脚本，这是正常现象。</p>
+      <p class="note">处理方法：</p>
+      <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>SmartScreen 蓝窗：点「更多信息」→「仍要运行」</span></div>
+        <div class="step"><span class="step-num">2</span><span>下载的 ps1：右键文件 → 属性 → 勾选「解除锁定」→ 确定</span></div>
+        <div class="step"><span class="step-num">3</span><span>不要使用 vbs 安装（更容易被安全中心拦截）</span></div>
+      </div>
+    </div>
+
+    <div class="install-card">
+      <h2>下载 PS1 后安装</h2>
+      <p class="note">下载 <code>ReSA-Install.ps1</code> 后，在 PowerShell 中运行（先解除锁定）：</p>
+      <div class="cmd-box" id="psCmd"></div>
+      <div class="install-actions">
+        <button type="button" id="copyPsBtn">复制 PowerShell 命令</button>
+      </div>
     </div>
 
     <div class="install-card">
       <h2>下载链接</h2>
-      <p class="note">可直接复制以下地址，在被控电脑浏览器中打开或发给对方。</p>
-
       <div class="link-row">
         <label>安装页</label>
         <div class="link-row-inner">
@@ -204,61 +174,33 @@
           <button type="button" id="copyLinkBtn">复制</button>
         </div>
       </div>
-
       <div class="link-row">
-        <label>安装 vbs（ReSA-Install.vbs，推荐）</label>
+        <label>安装脚本（ReSA-Install.ps1，推荐）</label>
         <div class="link-row-inner">
-          <div class="link-box" id="installVbsUrl2"></div>
-          <button type="button" id="copyVbsBtn">复制</button>
+          <div class="link-box" id="installPsUrl"></div>
+          <button type="button" id="copyPsUrlBtn">复制</button>
         </div>
       </div>
-
       <div class="link-row">
-        <label>安装 bat（ReSA-Install.bat，备用）</label>
+        <label>安装 bat（备用）</label>
         <div class="link-row-inner">
-          <div class="link-box" id="installBatUrl2"></div>
+          <div class="link-box" id="installBatUrl"></div>
           <button type="button" id="copyBatBtn">复制</button>
         </div>
       </div>
-
       <div class="link-row">
-        <label>卸载 bat（ReSA-Uninstall.bat）</label>
+        <label>卸载 bat</label>
         <div class="link-row-inner">
           <div class="link-box" id="uninstallBatUrl"></div>
           <button type="button" id="copyUninstallBatBtn">复制</button>
         </div>
       </div>
-
       <div class="link-row">
         <label>程序包（ReSA.exe）</label>
         <div class="link-row-inner">
           <div class="link-box" id="exeUrl"></div>
           <button type="button" id="copyExeBtn">复制</button>
         </div>
-      </div>
-    </div>
-
-    <div class="install-card">
-      <h2>直接打开 bat 链接？</h2>
-      <p class="note">浏览器打开 <code>…/download/install.bat</code> 只会<strong>下载文件</strong>，不会自动运行（Windows 安全限制）。下载后需双击 bat，或使用下方 Win+R 一行命令。</p>
-    </div>
-
-    <div class="install-card">
-      <h2>Win+R 静默安装</h2>
-      <p class="note">按 Win+R，粘贴下面整行并回车（无窗口，自动下载并安装）：</p>
-      <div class="cmd-box" id="cmdOneLiner"></div>
-      <div class="install-actions">
-        <button type="button" id="copyCmdBtn">复制命令</button>
-      </div>
-      <p class="note">安装日志：<code>%TEMP%\ReSA-install.log</code></p>
-    </div>
-
-    <div class="install-card">
-      <h2>PowerShell 静默安装</h2>
-      <p class="note">无法下载 bat 时，在被控电脑 PowerShell 中粘贴运行：</p>
-      <div class="cmd-box" id="psCmd"></div>
-      <div class="install-actions">
-        <button type="button" id="copyPsBtn">复制命令</button>
       </div>
     </div>
 
@@ -271,7 +213,6 @@
 
     <div class="install-card">
       <h2>卸载 ReSA</h2>
-      <p class="note">在被控电脑上运行卸载脚本，会停止进程、删除计划任务/自启，并清除安装目录（含旧版 RemoteScreenAgent）。</p>
       <div class="install-actions">
         <a href="/download/uninstall.bat" download>下载一键卸载脚本</a>
         <button type="button" id="copyUninstallBatBtn2">复制卸载 bat 地址</button>
@@ -283,27 +224,29 @@
       </div>
     </div>
 
+    <p class="back"><a href="/">返回控制端</a></p>
   </div>
 
   <div id="toast" class="toast">已复制</div>
 
   <script>
     const origin = location.origin;
+    const base = origin + "/download";
     const pageUrl = origin + "/install.html";
-    const vbsUrl = origin + "/download/install.vbs";
-    const batUrl = origin + "/download/install.bat";
-    const uninstallBatUrl = origin + "/download/uninstall.bat";
-    const exeUrl = origin + "/download/ReSA.exe";
+    const installPsUrl = base + "/ReSA-Install.ps1";
+    const batUrl = base + "/install.bat";
+    const uninstallBatUrl = base + "/uninstall.bat";
+    const exeUrl = base + "/ReSA.exe";
     const cmdOneLiner =
-      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$env:RESA_INSTALL_BASE=\'' + origin + '/download\'; $f=Join-Path $env:TEMP \'ReSA-install.ps1\'; Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+\'/install.ps1\') -OutFile $f -UseBasicParsing; & $f -Silent"';
-    const psOneLiner = cmdOneLiner;
+      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReSA-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReSA-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReSA-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
+    const psOneLiner =
+      'powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\\Downloads\\ReSA-Install.ps1" -Silent';
     const uninstallOneLiner =
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${base}/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
 
     document.getElementById("pageLink").textContent = pageUrl;
-    document.getElementById("installVbsUrl").textContent = vbsUrl;
-    document.getElementById("installVbsUrl2").textContent = vbsUrl;
-    document.getElementById("installBatUrl2").textContent = batUrl;
+    document.getElementById("installPsUrl").textContent = installPsUrl;
+    document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("uninstallBatUrl").textContent = uninstallBatUrl;
     document.getElementById("exeUrl").textContent = exeUrl;
     document.getElementById("cmdOneLiner").textContent = cmdOneLiner;
@@ -326,15 +269,14 @@
       }
     }
 
-    document.getElementById("copyInstallVbsBtn").addEventListener("click", () => copyText(vbsUrl, "安装 vbs 地址"));
-    document.getElementById("copyVbsBtn").addEventListener("click", () => copyText(vbsUrl, "安装 vbs 地址"));
+    document.getElementById("copyCmdBtn").addEventListener("click", () => copyText(cmdOneLiner, "Win+R 命令"));
+    document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner, "PowerShell 命令"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
+    document.getElementById("copyPsUrlBtn").addEventListener("click", () => copyText(installPsUrl, "安装 PS1 地址"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "安装 bat 地址"));
     document.getElementById("copyUninstallBatBtn").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
     document.getElementById("copyUninstallBatBtn2").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
     document.getElementById("copyExeBtn").addEventListener("click", () => copyText(exeUrl, "ReSA.exe 地址"));
-    document.getElementById("copyCmdBtn").addEventListener("click", () => copyText(cmdOneLiner, "Win+R 命令"));
-    document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner, "PowerShell 命令"));
     document.getElementById("copyUninstallBtn").addEventListener("click", () => copyText(uninstallOneLiner, "卸载命令"));
   </script>
 </body>

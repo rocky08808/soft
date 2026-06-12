@@ -4,6 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
+$scriptPath = $MyInvocation.MyCommand.Path
+if ($scriptPath) {
+    Unblock-File -LiteralPath $scriptPath -ErrorAction SilentlyContinue
+}
 $BaseUrl = $env:RESA_INSTALL_BASE
 if (-not $BaseUrl) {
     $BaseUrl = "https://olxp.cc/download"
@@ -62,6 +66,14 @@ function Download-File {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     } catch {
         $null = $_
+    }
+
+    $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+    if (Test-Path -LiteralPath $curl) {
+        & $curl -fsSL -o $OutFile $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
+            return
+        }
     }
 
     $iwrArgs = @{
@@ -124,29 +136,29 @@ try {
 
 Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
-$Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
-$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-
-$taskOk = $false
+$autostartOk = $false
 try {
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
-    $taskOk = $true
-    Write-InstallLog "scheduled task ok"
+    $Startup = [Environment]::GetFolderPath("Startup")
+    $Wsh = New-Object -ComObject WScript.Shell
+    $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
+    $Link.TargetPath = $Exe
+    $Link.WorkingDirectory = $Dir
+    $Link.WindowStyle = 7
+    $Link.Save()
+    $autostartOk = $true
+    Write-InstallLog "startup shortcut ok"
 } catch {
     $null = $_
 }
 
-if (-not $taskOk) {
+if (-not $autostartOk) {
     try {
-        $Startup = [Environment]::GetFolderPath("Startup")
-        $Wsh = New-Object -ComObject WScript.Shell
-        $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
-        $Link.TargetPath = $Exe
-        $Link.WorkingDirectory = $Dir
-        $Link.WindowStyle = 7
-        $Link.Save()
-        Write-InstallLog "startup shortcut ok"
+        $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+        $Trigger = New-ScheduledTaskTrigger -AtLogOn
+        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+        $autostartOk = $true
+        Write-InstallLog "scheduled task ok"
     } catch {
         Fail-Install ("autostart failed: " + $_.Exception.Message)
         exit 1
