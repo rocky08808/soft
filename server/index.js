@@ -70,16 +70,8 @@ app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const body = [
     "@echo off",
-    "if /i \"%~1\"==\"run\" goto doinstall",
-    "set \"SELF=%~f0\"",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath $env:SELF -ArgumentList 'run' -WindowStyle Hidden -Wait; exit $LASTEXITCODE\"",
-    "exit /b %ERRORLEVEL%",
-    ":doinstall",
     `set "RESA_INSTALL_BASE=${base}"`,
-    "set \"PS1=%TEMP%\\ReSA-install.ps1\"",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri '%RESA_INSTALL_BASE%/install.ps1' -OutFile '%PS1%' -UseBasicParsing\"",
-    "if errorlevel 1 exit /b 1",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\" -Silent",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"$env:RESA_INSTALL_BASE='%RESA_INSTALL_BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+'/install.ps1') -OutFile $f -UseBasicParsing; & $f -Silent; exit $LASTEXITCODE\"",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
