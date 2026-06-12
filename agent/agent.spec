@@ -7,7 +7,7 @@ a = Analysis(
     ['agent.py'],
     pathex=[],
     binaries=[],
-    datas=[('embedded.defaults.json', '.')],
+    datas=[('agent.config.json', '.')],
     hiddenimports=[
         'mss',
         'mss.windows',

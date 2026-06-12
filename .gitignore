@@ -5,7 +5,6 @@ npm-debug.log*
 # Secrets & local config
 server/.env
 agent/agent.config.json
-agent/embedded.defaults.json
 agent/device.id
 
 # Python / Agent build

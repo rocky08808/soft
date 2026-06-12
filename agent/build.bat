@@ -10,16 +10,13 @@ python -m pip install "pyinstaller>=6.0" -q
 
 
 
-echo Preparing embedded config...
-
-if exist agent.config.json (
-
-    python -c "import json; c=json.load(open('agent.config.json',encoding='utf-8')); json.dump({k:c[k] for k in ('server','token','monitor','fps','quality','streamWidth') if k in c}, open('embedded.defaults.json','w',encoding='utf-8'), indent=2)"
-
-) else (
-
-    copy /Y embedded.defaults.template.json embedded.defaults.json >nul
-
+if not exist agent.config.json (
+    echo.
+    echo [错误] 未找到 agent.config.json
+    echo 请复制 agent.config.example.json 为 agent.config.json 并填写 server / token
+    echo.
+    pause
+    exit /b 1
 )
 
 
@@ -42,7 +39,7 @@ echo.
 
 echo Done: dist\ReSA.exe
 
-echo Server/token are built into the exe. Device ID = computer name.
+echo Config from agent.config.json is built into the exe. Device ID = computer name.
 
 echo.
 

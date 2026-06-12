@@ -351,11 +351,12 @@ def read_json_file(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
-def load_embedded_defaults() -> dict[str, Any]:
-    candidates = [
-        Path(getattr(sys, "_MEIPASS", "")) / "embedded.defaults.json",
-        get_app_dir() / "embedded.defaults.json",
-    ]
+def load_bundled_config() -> dict[str, Any]:
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        candidates.append(Path(meipass) / "agent.config.json")
+    candidates.append(get_app_dir() / "agent.config.json")
     for path in candidates:
         if path.is_file():
             return read_json_file(path)
@@ -364,15 +365,11 @@ def load_embedded_defaults() -> dict[str, Any]:
 
 def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
     cfg: dict[str, Any] = {}
-    cfg.update(load_embedded_defaults())
+    cfg.update(load_bundled_config())
     cfg.update(read_json_file(get_settings_path()))
 
     if args.config:
         cfg.update(read_json_file(Path(args.config)))
-    else:
-        legacy = get_app_dir() / "agent.config.json"
-        if legacy.is_file():
-            cfg.update(read_json_file(legacy))
 
     explicit_device_id = args.device_id or cfg.get("deviceId") or ""
     device_id = ensure_device_id(explicit_device_id or None)
