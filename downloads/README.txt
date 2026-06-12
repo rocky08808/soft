@@ -7,6 +7,5 @@ Online install files (upload entire downloads/ folder to server):
 
 Public URLs:
   https://olxp.cc/install.html
-  https://olxp.cc/go
   https://olxp.cc/download/install.bat
   https://olxp.cc/download/ReSA.exe

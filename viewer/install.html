@@ -219,14 +219,7 @@
 
     <div class="install-card">
       <h2>直接打开 bat 链接？</h2>
-      <p class="note">浏览器打开 <code>…/download/install.bat</code> 只会<strong>下载文件</strong>，不会自动运行（Windows 安全限制）。下载后需双击 bat，或使用下方真正一键命令。</p>
-      <div class="link-row">
-        <label>快捷安装页（自动触发下载）</label>
-        <div class="link-row-inner">
-          <div class="link-box" id="goUrl"></div>
-          <button type="button" id="copyGoBtn">复制</button>
-        </div>
-      </div>
+      <p class="note">浏览器打开 <code>…/download/install.bat</code> 只会<strong>下载文件</strong>，不会自动运行（Windows 安全限制）。下载后需双击 bat，或使用下方 Win+R 一行命令。</p>
     </div>
 
     <div class="install-card">
@@ -279,7 +272,6 @@
     const batUrl = origin + "/download/install.bat";
     const uninstallBatUrl = origin + "/download/uninstall.bat";
     const exeUrl = origin + "/download/ReSA.exe";
-    const goUrl = origin + "/go";
     const cmdOneLiner =
       'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$env:RESA_INSTALL_BASE=\'' + origin + '/download\'; Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+\'/install.ps1\') -OutFile $env:TEMP\\ReSA-install.ps1 -UseBasicParsing; powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\\ReSA-install.ps1 -Silent"';
     const psOneLiner = cmdOneLiner;
@@ -291,7 +283,6 @@
     document.getElementById("installBatUrl2").textContent = batUrl;
     document.getElementById("uninstallBatUrl").textContent = uninstallBatUrl;
     document.getElementById("exeUrl").textContent = exeUrl;
-    document.getElementById("goUrl").textContent = goUrl;
     document.getElementById("cmdOneLiner").textContent = cmdOneLiner;
     document.getElementById("psCmd").textContent = psOneLiner;
     document.getElementById("uninstallCmd").textContent = uninstallOneLiner;
@@ -318,7 +309,6 @@
     document.getElementById("copyUninstallBatBtn").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
     document.getElementById("copyUninstallBatBtn2").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
     document.getElementById("copyExeBtn").addEventListener("click", () => copyText(exeUrl, "ReSA.exe 地址"));
-    document.getElementById("copyGoBtn").addEventListener("click", () => copyText(goUrl, "快捷安装页"));
     document.getElementById("copyCmdBtn").addEventListener("click", () => copyText(cmdOneLiner, "Win+R 命令"));
     document.getElementById("copyPsBtn").addEventListener("click", () => copyText(psOneLiner, "PowerShell 命令"));
     document.getElementById("copyUninstallBtn").addEventListener("click", () => copyText(uninstallOneLiner, "卸载命令"));
