@@ -1,41 +1,43 @@
-﻿# ReSA remote one-click install
+﻿# ReSA remote install - ASCII only for PowerShell 5.1 compatibility
 param(
     [string]$BaseUrl = "https://olxp.cc/download",
     [switch]$Silent
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
 $TempExe = Join-Path $env:TEMP "ReSA-download.exe"
 $TaskName = "ReSA"
 $Url = ($BaseUrl.TrimEnd("/") + "/ReSA.exe")
 $LogFile = Join-Path $env:TEMP "ReSA-install.log"
+$script:HadError = $false
 
 function Write-InstallLog {
     param([string]$Text)
-    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Text"
+    $line = (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " " + $Text
     try {
         Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8
-    } catch {}
+    } catch {
+        $null = $_
+    }
     if (-not $Silent) {
         Write-Host $Text
     }
 }
 
-function Show-InstallError {
+function Fail-Install {
     param([string]$Text)
+    $script:HadError = $true
     Write-InstallLog $Text
     if ($Silent) {
         try {
             $shell = New-Object -ComObject WScript.Shell
-            $shell.Popup(
-                "ReSA install failed.`n$Text`n`nLog: $LogFile",
-                0,
-                "ReSA",
-                16
-            ) | Out-Null
-        } catch {}
+            $msg = "ReSA install failed.`n" + $Text + "`n`nLog: " + $LogFile
+            $shell.Popup($msg, 0, "ReSA", 16) | Out-Null
+        } catch {
+            $null = $_
+        }
     } else {
         Write-Host $Text -ForegroundColor Red
     }
@@ -50,64 +52,85 @@ function Download-File {
     $ProgressPreference = "SilentlyContinue"
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    } catch {}
+    } catch {
+        $null = $_
+    }
 
-    $params = @{
+    $iwrArgs = @{
         Uri = $Url
         OutFile = $OutFile
         UseBasicParsing = $true
     }
     if ($PSVersionTable.PSVersion.Major -lt 6) {
-        $params.UserAgent = "ReSA-Installer/1.0"
+        $iwrArgs.UserAgent = "ReSA-Installer/1.0"
     }
-    Invoke-WebRequest @params
+    Invoke-WebRequest @iwrArgs
+}
+
+Write-InstallLog "install start"
+Write-InstallLog ("download: " + $Url)
+Write-InstallLog ("target: " + $Dir)
+
+try {
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+} catch {
+    $null = $_
+}
+
+Get-Process -Name "ReSA" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+
+if (Test-Path -LiteralPath $TempExe) {
+    Remove-Item -LiteralPath $TempExe -Force -ErrorAction SilentlyContinue
 }
 
 try {
-    Write-InstallLog "install start"
-    Write-InstallLog "download: $Url"
-    Write-InstallLog "target: $Dir"
-
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-
-    Get-Process -Name "ReSA" -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 500
-
-    if (Test-Path -LiteralPath $TempExe) {
-        Remove-Item -LiteralPath $TempExe -Force -ErrorAction SilentlyContinue
-    }
-
     Download-File -Url $Url -OutFile $TempExe
     Write-InstallLog "download ok"
+} catch {
+    Fail-Install ("download failed: " + $_.Exception.Message)
+    exit 1
+}
 
-    if (-not (Test-Path -LiteralPath $TempExe)) {
-        throw "ReSA.exe missing after download"
-    }
+if (-not (Test-Path -LiteralPath $TempExe)) {
+    Fail-Install "missing file after download"
+    exit 1
+}
 
-    $length = (Get-Item -LiteralPath $TempExe).Length
-    if ($length -lt 1MB) {
-        throw "Downloaded file too small ($length bytes). Check server uploads ReSA.exe"
-    }
+$length = (Get-Item -LiteralPath $TempExe).Length
+if ($length -lt 1048576) {
+    Fail-Install ("file too small: " + $length + " bytes")
+    exit 1
+}
 
-    if (Test-Path -LiteralPath $Exe) {
-        Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
-    }
+if (Test-Path -LiteralPath $Exe) {
+    Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
+}
+
+try {
     Move-Item -LiteralPath $TempExe -Destination $Exe -Force
+} catch {
+    Fail-Install ("copy failed: " + $_.Exception.Message)
+    exit 1
+}
 
-    Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
-    $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-    $Trigger = New-ScheduledTaskTrigger -AtLogOn
-    $Settings = New-ScheduledTaskSettingsSet `
-        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-        -StartWhenAvailable -RestartCount 3 `
-        -RestartInterval (New-TimeSpan -Minutes 1)
+$Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+$Trigger = New-ScheduledTaskTrigger -AtLogOn
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
+$taskOk = $false
+try {
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+    $taskOk = $true
+    Write-InstallLog "scheduled task ok"
+} catch {
+    $null = $_
+}
+
+if (-not $taskOk) {
     try {
-        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
-        Write-InstallLog "scheduled task ok"
-    } catch {
         $Startup = [Environment]::GetFolderPath("Startup")
         $Wsh = New-Object -ComObject WScript.Shell
         $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReSA.lnk"))
@@ -116,12 +139,17 @@ try {
         $Link.WindowStyle = 7
         $Link.Save()
         Write-InstallLog "startup shortcut ok"
+    } catch {
+        Fail-Install ("autostart failed: " + $_.Exception.Message)
+        exit 1
     }
+}
 
+try {
     Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
     Write-InstallLog "install complete"
     exit 0
 } catch {
-    Show-InstallError $_.Exception.Message
+    Fail-Install ("start failed: " + $_.Exception.Message)
     exit 1
 }

@@ -37,6 +37,12 @@ function sendDownloadAsset(res, filename, contentType) {
   if (!fs.existsSync(filePath)) {
     return res.status(404).send(`${filename} not found on server`);
   }
+  if (filename.endsWith(".ps1")) {
+    const text = fs.readFileSync(filePath, "utf8");
+    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    res.setHeader("Content-Type", contentType);
+    return res.send(Buffer.concat([bom, Buffer.from(text, "utf8")]));
+  }
   res.setHeader("Content-Type", contentType);
   res.sendFile(filePath);
 }
@@ -59,12 +65,6 @@ app.get("/download/install", (req, res) => {
 
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
-  const psCmd =
-    "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; " +
-    "Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; " +
-    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "$t=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $true)); " +
-    "& $f -BaseUrl $b -Silent; exit $LASTEXITCODE";
   const body = [
     "@echo off",
     "if /i not \"%~1\"==\"run\" (",
@@ -79,7 +79,10 @@ app.get("/download/install.bat", (req, res) => {
     "  exit /b 0",
     ")",
     `set "BASE=${base}"`,
-    `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+    "set \"PS1=%TEMP%\\ReSA-install.ps1\"",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri '%BASE%/install.ps1' -OutFile '%PS1%' -UseBasicParsing\"",
+    "if errorlevel 1 exit /b 1",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\" -BaseUrl \"%BASE%\" -Silent",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
