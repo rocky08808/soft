@@ -132,7 +132,15 @@ app.get("/download/install", (req, res) => {
   if (accept.includes("text/html")) {
     return res.redirect("/install.html");
   }
-  res.redirect("/download/ReSA-Install.ps1");
+  res.redirect("/download/ReSA-Setup.exe");
+});
+
+app.get("/download/ReSA-Setup.exe", (req, res) => {
+  const setupPath = path.join(downloadsDir, "ReSA-Setup.exe");
+  if (!fs.existsSync(setupPath)) {
+    return res.redirect("/download/install.bat");
+  }
+  sendDownloadAsset(res, "ReSA-Setup.exe", "application/octet-stream");
 });
 
 app.get("/download/ReSA-Install.ps1", (req, res) => {
@@ -142,8 +150,15 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
 
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
+  const setupPath = path.join(downloadsDir, "ReSA-Setup.exe");
+  if (fs.existsSync(setupPath)) {
+    return res.redirect("/download/ReSA-Setup.exe");
+  }
   res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.bat"');
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ReSA-Install.bat"; filename*=UTF-8\'\'ReSA%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85.bat'
+  );
   res.send(buildInstallBat(base));
 });
 
