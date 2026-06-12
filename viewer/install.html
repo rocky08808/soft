@@ -164,7 +164,7 @@
     <p class="note">把本页链接发给被控电脑用户即可。服务器地址和令牌已内置，设备 ID 默认为电脑名。</p>
 
     <div class="hero">
-      <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可完成安装与开机自启。</p>
+      <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可静默完成安装（无黑窗口）。</p>
       <a id="installBatLink" class="btn-primary" href="/download/install.bat" download>下载一键安装脚本</a>
       <div class="hero-actions">
         <button type="button" id="copyInstallBatBtn">复制安装 bat 地址</button>
@@ -175,7 +175,7 @@
       </div>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.bat</code></span></div>
-        <div class="step"><span class="step-num">2</span><span>双击运行（若 SmartScreen 提示，选「更多信息」→「仍要运行」，仅首次）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击运行（静默安装，无命令行窗口）</span></div>
         <div class="step"><span class="step-num">3</span><span>安装完成后程序会自动启动，设备 ID 见下方路径说明</span></div>
       </div>
     </div>
@@ -230,16 +230,17 @@
     </div>
 
     <div class="install-card">
-      <h2>Win+R 真正一键安装</h2>
-      <p class="note">按 Win+R，粘贴下面整行并回车（自动下载 bat 并运行，无需手动双击）：</p>
+      <h2>Win+R 静默安装</h2>
+      <p class="note">按 Win+R，粘贴下面整行并回车（无窗口，自动下载并安装）：</p>
       <div class="cmd-box" id="cmdOneLiner"></div>
       <div class="install-actions">
         <button type="button" id="copyCmdBtn">复制命令</button>
       </div>
+      <p class="note">安装日志：<code>%TEMP%\ReSA-install.log</code></p>
     </div>
 
     <div class="install-card">
-      <h2>PowerShell 一行命令</h2>
+      <h2>PowerShell 静默安装</h2>
       <p class="note">无法下载 bat 时，在被控电脑 PowerShell 中粘贴运行：</p>
       <div class="cmd-box" id="psCmd"></div>
       <div class="install-actions">
@@ -280,9 +281,8 @@
     const exeUrl = origin + "/download/ReSA.exe";
     const goUrl = origin + "/go";
     const cmdOneLiner =
-      'cmd /c curl -L -o "%TEMP%\\ReSA-Install.bat" "' + batUrl + '" && call "%TEMP%\\ReSA-Install.bat"';
-    const psOneLiner =
-      `powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='${origin}/download'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b"`;
+      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + origin + '/download\'; $f=Join-Path $env:TEMP \'ReSA-install.ps1\'; Invoke-WebRequest -Uri ($b+\'/install.ps1\') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b -Silent"';
+    const psOneLiner = cmdOneLiner;
     const uninstallOneLiner =
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
 

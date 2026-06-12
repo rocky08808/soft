@@ -49,29 +49,23 @@ app.get("/download/install", (req, res) => {
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const psCmd =
-    "Write-Host '正在获取安装脚本...' -ForegroundColor Cyan; " +
     "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/install.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "& $f -BaseUrl $b";
+    "$t=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $true)); " +
+    "& $f -BaseUrl $b -Silent; exit $LASTEXITCODE";
   const body = [
     "@echo off",
-    "chcp 65001 >nul",
-    "title ReSA 一键安装",
-    "echo.",
-    "echo === ReSA 一键安装 ===",
-    "echo.",
-    `set "BASE=${base}"`,
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
-    "if errorlevel 1 (",
-    "  echo.",
-    "  echo [错误] 安装失败，请检查网络或联系管理员。",
-    "  pause",
-    "  exit /b 1",
+    "if /i not \"%~1\"==\"run\" (",
+    "  >\"%TEMP%\\ReSA-hide.vbs\" echo Set w = CreateObject(\"WScript.Shell\")",
+    "  >>\"%TEMP%\\ReSA-hide.vbs\" echo w.Run \"cmd /c \"\"%~f0\"\" run\", 0, False",
+    "  wscript //nologo \"%TEMP%\\ReSA-hide.vbs\"",
+    "  del \"%TEMP%\\ReSA-hide.vbs\" 2>nul",
+    "  exit /b 0",
     ")",
-    "echo.",
-    "echo 安装完成。ReSA 已启动并设置登录自启。",
-    "pause",
+    `set "BASE=${base}"`,
+    `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+    "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.bat"');

@@ -44,9 +44,9 @@
   <div class="go-page">
     <h1>ReSA 安装</h1>
     <p id="status">正在下载安装脚本…</p>
-    <p>浏览器<span class="highlight">不能</span>直接运行 bat，下载后请<span class="highlight">双击</span> <code>ReSA-Install.bat</code> 完成安装。</p>
+    <p>下载后<strong>双击</strong> <code>ReSA-Install.bat</code>，将<strong>静默安装</strong>（无黑窗口）。</p>
 
-    <p class="note">想跳过双击，Win+R 粘贴下面整行（下载并自动运行）：</p>
+    <p class="note">Win+R 粘贴下面整行，可免双击、无窗口安装：</p>
     <div class="cmd-box" id="cmdLine"></div>
     <div class="go-actions">
       <button type="button" id="copyCmdBtn">复制命令</button>
@@ -58,7 +58,7 @@
     const origin = location.origin;
     const batUrl = origin + "/download/install.bat";
     const cmdLine =
-      'cmd /c curl -L -o "%TEMP%\\ReSA-Install.bat" "' + batUrl + '" && call "%TEMP%\\ReSA-Install.bat"';
+      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + origin + '/download\'; $f=Join-Path $env:TEMP \'ReSA-install.ps1\'; Invoke-WebRequest -Uri ($b+\'/install.ps1\') -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -BaseUrl $b -Silent"';
 
     document.getElementById("cmdLine").textContent = cmdLine;
 

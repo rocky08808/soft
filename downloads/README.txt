@@ -1,13 +1,12 @@
-Put built agent files here for URL install:
+Online install files (upload entire downloads/ folder to server):
 
-  ReSA.exe          — required (from agent\dist\ReSA.exe)
-  ReSA-Setup.exe    — optional (Inno Setup from installer.iss)
-  install.ps1                    — already included
+  ReSA.exe       — built by agent\build.bat
+  install.ps1    — silent install script
+  uninstall.ps1  — uninstall script
+  uninstall.bat  — local uninstall wrapper (optional; server also generates ReSA-Uninstall.bat)
 
-After build, run from repo root:
-  copy agent\dist\ReSA.exe downloads\
-
-Public URLs (after server deploy):
+Public URLs:
   https://olxp.cc/install.html
+  https://olxp.cc/go
+  https://olxp.cc/download/install.bat
   https://olxp.cc/download/ReSA.exe
-  https://olxp.cc/download/install.ps1
