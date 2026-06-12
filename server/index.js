@@ -39,6 +39,41 @@ function publicBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
+function escapeBatEchoLine(line) {
+  return String(line).replace(/[%^&|<>]/g, (ch) => {
+    if (ch === "%") return "%%";
+    return `^${ch}`;
+  });
+}
+
+function buildInstallLauncherVbs(base) {
+  const psCommand =
+    `$env:RESA_INSTALL_BASE='${base}'; ` +
+    `$f=Join-Path $env:TEMP 'ReSA-install.ps1'; ` +
+    `Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+'/install.ps1') -OutFile $f -UseBasicParsing; ` +
+    `& $f -Silent; exit $LASTEXITCODE`;
+  return [
+    "Dim sh, ps",
+    'Set sh = CreateObject("WScript.Shell")',
+    `ps = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command ""${psCommand.replace(/"/g, '""')}"""`,
+    "sh.Run ps, 0, False",
+  ].join("\r\n");
+}
+
+function buildInstallBat(base) {
+  const vbsLines = buildInstallLauncherVbs(base).split("\r\n");
+  const batLines = [
+    "@echo off",
+    "set \"VBS=%TEMP%\\ReSA-launch.vbs\"",
+    `> "%VBS%" echo ${escapeBatEchoLine(vbsLines[0])}`,
+    ...vbsLines.slice(1).map((line) => `>> "%VBS%" echo ${escapeBatEchoLine(line)}`),
+    "wscript //nologo \"%VBS%\"",
+    "del \"%VBS%\" 2>nul",
+    "exit /b 0",
+  ];
+  return batLines.join("\r\n");
+}
+
 function sendDownloadAsset(res, filename, contentType) {
   const filePath = path.join(downloadsDir, filename);
   if (!fs.existsSync(filePath)) {
@@ -68,15 +103,16 @@ app.get("/download/install", (req, res) => {
 
 app.get("/download/install.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
-  const body = [
-    "@echo off",
-    `set "RESA_INSTALL_BASE=${base}"`,
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"$env:RESA_INSTALL_BASE='%RESA_INSTALL_BASE%'; $f=Join-Path $env:TEMP 'ReSA-install.ps1'; Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+'/install.ps1') -OutFile $f -UseBasicParsing; & $f -Silent; exit $LASTEXITCODE\"",
-    "exit /b %ERRORLEVEL%",
-  ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.bat"');
-  res.send(body);
+  res.send(buildInstallBat(base));
+});
+
+app.get("/download/install.vbs", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Install.vbs"');
+  res.send(buildInstallLauncherVbs(base));
 });
 
 app.get("/download/uninstall.bat", (req, res) => {

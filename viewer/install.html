@@ -139,6 +139,17 @@
       font-size: 0.9rem;
     }
     .hero-actions button:hover { background: #475569; }
+    .hero-actions a {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.55rem 1rem;
+      background: #334155;
+      color: #fff;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .hero-actions a:hover { background: #475569; }
     .note { font-size: 0.9rem; color: #94a3b8; }
     .back { margin-top: 1.5rem; }
     .back a { color: #60a5fa; }
@@ -164,18 +175,19 @@
     <p class="note">把本页链接发给被控电脑用户即可。服务器地址和令牌已内置，设备 ID 默认为电脑名。</p>
 
     <div class="hero">
-      <p>在被控 Windows 电脑上打开此页，点击下方按钮下载安装脚本，<strong>双击运行</strong>即可静默完成安装（无黑窗口）。</p>
-      <a id="installBatLink" class="btn-primary" href="/download/install.bat" download>下载一键安装脚本</a>
+      <p>在被控 Windows 电脑上打开此页，下载 <code>ReSA-Install.vbs</code> 并<strong>双击运行</strong>，全程无命令行窗口。</p>
+      <a id="installVbsLink" class="btn-primary" href="/download/install.vbs" download>下载一键安装脚本（VBS）</a>
       <div class="hero-actions">
-        <button type="button" id="copyInstallBatBtn">复制安装 bat 地址</button>
+        <button type="button" id="copyInstallVbsBtn">复制安装 vbs 地址</button>
+        <a href="/download/install.bat" download>备用 bat</a>
       </div>
       <div class="link-row" style="text-align:left;">
-        <label>安装 bat 下载地址</label>
-        <div class="link-box" id="installBatUrl"></div>
+        <label>安装 vbs 下载地址</label>
+        <div class="link-box" id="installVbsUrl"></div>
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.bat</code></span></div>
-        <div class="step"><span class="step-num">2</span><span>双击运行（静默安装，无命令行窗口）</span></div>
+        <div class="step"><span class="step-num">1</span><span>点击上方按钮，下载 <code>ReSA-Install.vbs</code></span></div>
+        <div class="step"><span class="step-num">2</span><span>双击运行（静默安装，无终端窗口）</span></div>
         <div class="step"><span class="step-num">3</span><span>安装完成后程序会自动启动，设备 ID 见下方路径说明</span></div>
       </div>
     </div>
@@ -193,7 +205,15 @@
       </div>
 
       <div class="link-row">
-        <label>安装 bat（ReSA-Install.bat）</label>
+        <label>安装 vbs（ReSA-Install.vbs，推荐）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="installVbsUrl2"></div>
+          <button type="button" id="copyVbsBtn">复制</button>
+        </div>
+      </div>
+
+      <div class="link-row">
+        <label>安装 bat（ReSA-Install.bat，备用）</label>
         <div class="link-row-inner">
           <div class="link-box" id="installBatUrl2"></div>
           <button type="button" id="copyBatBtn">复制</button>
@@ -269,6 +289,7 @@
   <script>
     const origin = location.origin;
     const pageUrl = origin + "/install.html";
+    const vbsUrl = origin + "/download/install.vbs";
     const batUrl = origin + "/download/install.bat";
     const uninstallBatUrl = origin + "/download/uninstall.bat";
     const exeUrl = origin + "/download/ReSA.exe";
@@ -279,7 +300,8 @@
       `powershell -NoProfile -ExecutionPolicy Bypass -Command "$f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; Invoke-WebRequest -Uri '${origin}/download/uninstall.ps1' -OutFile $f -UseBasicParsing; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f"`;
 
     document.getElementById("pageLink").textContent = pageUrl;
-    document.getElementById("installBatUrl").textContent = batUrl;
+    document.getElementById("installVbsUrl").textContent = vbsUrl;
+    document.getElementById("installVbsUrl2").textContent = vbsUrl;
     document.getElementById("installBatUrl2").textContent = batUrl;
     document.getElementById("uninstallBatUrl").textContent = uninstallBatUrl;
     document.getElementById("exeUrl").textContent = exeUrl;
@@ -303,7 +325,8 @@
       }
     }
 
-    document.getElementById("copyInstallBatBtn").addEventListener("click", () => copyText(batUrl, "安装 bat 地址"));
+    document.getElementById("copyInstallVbsBtn").addEventListener("click", () => copyText(vbsUrl, "安装 vbs 地址"));
+    document.getElementById("copyVbsBtn").addEventListener("click", () => copyText(vbsUrl, "安装 vbs 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "安装 bat 地址"));
     document.getElementById("copyUninstallBatBtn").addEventListener("click", () => copyText(uninstallBatUrl, "卸载 bat 地址"));
