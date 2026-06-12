@@ -46,17 +46,51 @@ function escapeBatEchoLine(line) {
   });
 }
 
-function buildInstallLauncherVbs(base) {
-  const psCommand =
-    `$env:RESA_INSTALL_BASE='${base}'; ` +
-    `$f=Join-Path $env:TEMP 'ReSA-install.ps1'; ` +
-    `Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE+'/install.ps1') -OutFile $f -UseBasicParsing; ` +
-    `& $f -Silent; exit $LASTEXITCODE`;
+function vbsWriteLine(line) {
+  return `ts.WriteLine "${String(line).replace(/"/g, '""')}"`;
+}
+
+function buildInstallBootstrapPs1(base) {
+  const safeBase = base.replace(/'/g, "''");
   return [
-    "Dim sh, ps",
+    `$env:RESA_INSTALL_BASE='${safeBase}'`,
+    "$log = Join-Path $env:TEMP 'ReSA-install.log'",
+    "Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' bootstrap start')",
+    "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}",
+    "$f = Join-Path $env:TEMP 'ReSA-install.ps1'",
+    "try {",
+    "  Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing",
+    "  Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
+    "  & $f -Silent",
+    "  exit $LASTEXITCODE",
+    "} catch {",
+    "  $m = $_.Exception.Message",
+    "  Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' bootstrap error: ' + $m)",
+    "  (New-Object -ComObject WScript.Shell).Popup(('ReSA install failed: ' + $m + [char]10 + [char]10 + 'Log: ' + $log), 0, 'ReSA', 16) | Out-Null",
+    "  exit 1",
+    "}",
+  ];
+}
+
+function buildInstallLauncherVbs(base) {
+  const psLines = buildInstallBootstrapPs1(base);
+  return [
+    "Option Explicit",
+    "Dim sh, fso, ts, logFile, bootstrap, rc",
     'Set sh = CreateObject("WScript.Shell")',
-    `ps = "powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command ""${psCommand.replace(/"/g, '""')}"""`,
-    "sh.Run ps, 0, False",
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    'logFile = sh.ExpandEnvironmentStrings("%TEMP%") & "\\ReSA-install.log"',
+    'Set ts = fso.OpenTextFile(logFile, 8, True)',
+    'ts.WriteLine Replace(CStr(Now), "/", "-") & " vbs launcher start"',
+    "ts.Close",
+    'bootstrap = sh.ExpandEnvironmentStrings("%TEMP%") & "\\ReSA-bootstrap.ps1"',
+    "Set ts = fso.CreateTextFile(bootstrap, True)",
+    ...psLines.map(vbsWriteLine),
+    "ts.Close",
+    'rc = sh.Run("powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File """ & bootstrap & """", 0, True)',
+    "If rc <> 0 Then",
+    '  sh.Popup "ReSA install failed (exit " & rc & "). See %TEMP%\\ReSA-install.log", 0, "ReSA", 16',
+    "End If",
   ].join("\r\n");
 }
 
