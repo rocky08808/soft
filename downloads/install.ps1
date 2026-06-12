@@ -1,15 +1,23 @@
 ﻿# ReSA remote install - ASCII only for PowerShell 5.1 compatibility
 param(
-    [string]$BaseUrl = "https://olxp.cc/download",
     [switch]$Silent
 )
 
 $ErrorActionPreference = "Continue"
+$BaseUrl = $env:RESA_INSTALL_BASE
+if (-not $BaseUrl) {
+    $BaseUrl = "https://olxp.cc/download"
+}
+$BaseUrl = $BaseUrl.Trim().TrimEnd("/")
+if ($BaseUrl -match "\s") {
+    $BaseUrl = ($BaseUrl -split "\s+")[0]
+}
+
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
 $TempExe = Join-Path $env:TEMP "ReSA-download.exe"
 $TaskName = "ReSA"
-$Url = ($BaseUrl.TrimEnd("/") + "/ReSA.exe")
+$Url = ($BaseUrl + "/ReSA.exe")
 $LogFile = Join-Path $env:TEMP "ReSA-install.log"
 $script:HadError = $false
 

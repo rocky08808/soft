@@ -72,11 +72,11 @@ app.get("/download/install.bat", (req, res) => {
     "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Start-Process -FilePath $env:SELF -ArgumentList 'run' -WindowStyle Hidden -Wait; exit $LASTEXITCODE\"",
     "exit /b %ERRORLEVEL%",
     ":doinstall",
-    `set "BASE=${base}"`,
+    `set "RESA_INSTALL_BASE=${base}"`,
     "set \"PS1=%TEMP%\\ReSA-install.ps1\"",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri '%BASE%/install.ps1' -OutFile '%PS1%' -UseBasicParsing\"",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri '%RESA_INSTALL_BASE%/install.ps1' -OutFile '%PS1%' -UseBasicParsing\"",
     "if errorlevel 1 exit /b 1",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\" -BaseUrl \"%BASE%\" -Silent",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File \"%PS1%\" -Silent",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   res.setHeader("Content-Type", "application/octet-stream");
