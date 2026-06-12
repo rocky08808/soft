@@ -2,6 +2,8 @@ const TOKEN_KEY = "remoteScreenToken";
 const MOUSE_TRACK_KEY = "remoteScreenMouseTrack";
 const AUTO_SCREENSHOT_KEY_PREFIX = "autoScreenshot:";
 const SCREEN_RECORDING_KEY_PREFIX = "screenRecording:";
+const DEFAULT_AUTO_SCREENSHOT_INTERVAL = 60;
+const DEFAULT_RECORDING_SEGMENT = 30;
 
 const tokenInput = document.getElementById("accessToken");
 const deviceInput = document.getElementById("deviceId");
@@ -135,12 +137,15 @@ function autoScreenshotStorageKey(deviceId) {
 function loadAutoScreenshotPrefs(deviceId) {
   try {
     const raw = localStorage.getItem(autoScreenshotStorageKey(deviceId));
-    if (!raw) return { enabled: false, interval: 60 };
+    if (!raw) return { enabled: false, interval: DEFAULT_AUTO_SCREENSHOT_INTERVAL };
     const data = JSON.parse(raw);
-    const interval = Math.max(10, Math.min(3600, Number(data.interval) || 60));
+    const interval = Math.max(
+      10,
+      Math.min(3600, Number(data.interval) || DEFAULT_AUTO_SCREENSHOT_INTERVAL)
+    );
     return { enabled: !!data.enabled, interval };
   } catch {
-    return { enabled: false, interval: 60 };
+    return { enabled: false, interval: DEFAULT_AUTO_SCREENSHOT_INTERVAL };
   }
 }
 
@@ -163,7 +168,9 @@ function syncAutoScreenshotUi(deviceId) {
 }
 
 function sendAutoScreenshotSetting(deviceId, enabled, interval) {
-  const seconds = enabled ? Math.max(10, Math.min(3600, Number(interval) || 60)) : 0;
+  const seconds = enabled
+    ? Math.max(10, Math.min(3600, Number(interval) || DEFAULT_AUTO_SCREENSHOT_INTERVAL))
+    : 0;
   saveAutoScreenshotPrefs(deviceId, enabled, seconds);
   sendControl({ action: "set_auto_screenshot", interval: seconds });
   if (enabled) {
@@ -188,12 +195,15 @@ function screenRecordingStorageKey(deviceId) {
 function loadScreenRecordingPrefs(deviceId) {
   try {
     const raw = localStorage.getItem(screenRecordingStorageKey(deviceId));
-    if (!raw) return { enabled: false, segmentSeconds: 60 };
+    if (!raw) return { enabled: false, segmentSeconds: DEFAULT_RECORDING_SEGMENT };
     const data = JSON.parse(raw);
-    const segmentSeconds = Math.max(30, Math.min(600, Number(data.segmentSeconds) || 60));
+    const segmentSeconds = Math.max(
+      30,
+      Math.min(600, Number(data.segmentSeconds) || DEFAULT_RECORDING_SEGMENT)
+    );
     return { enabled: !!data.enabled, segmentSeconds };
   } catch {
-    return { enabled: false, segmentSeconds: 60 };
+    return { enabled: false, segmentSeconds: DEFAULT_RECORDING_SEGMENT };
   }
 }
 
@@ -220,7 +230,7 @@ function setRecordingHint(text) {
 }
 
 function sendScreenRecordingSetting(deviceId, enabled, segmentSeconds) {
-  const seconds = Math.max(30, Math.min(600, Number(segmentSeconds) || 60));
+  const seconds = Math.max(30, Math.min(600, Number(segmentSeconds) || DEFAULT_RECORDING_SEGMENT));
   saveScreenRecordingPrefs(deviceId, enabled, seconds);
   sendControl({
     action: "set_screen_recording",
@@ -1017,7 +1027,7 @@ screenshotBtn.addEventListener("click", requestScreenshot);
 autoScreenshotToggle?.addEventListener("change", () => {
   const deviceId = currentDeviceId();
   const enabled = autoScreenshotToggle.checked;
-  const interval = Number(autoScreenshotIntervalInput?.value) || 60;
+  const interval = Number(autoScreenshotIntervalInput?.value) || DEFAULT_AUTO_SCREENSHOT_INTERVAL;
   if (autoScreenshotIntervalInput) {
     autoScreenshotIntervalInput.disabled = !enabled;
   }
@@ -1030,7 +1040,10 @@ autoScreenshotToggle?.addEventListener("change", () => {
 });
 autoScreenshotIntervalInput?.addEventListener("change", () => {
   const deviceId = currentDeviceId();
-  let interval = Math.max(10, Math.min(3600, Number(autoScreenshotIntervalInput.value) || 60));
+  let interval = Math.max(
+    10,
+    Math.min(3600, Number(autoScreenshotIntervalInput.value) || DEFAULT_AUTO_SCREENSHOT_INTERVAL)
+  );
   autoScreenshotIntervalInput.value = String(interval);
   if (!autoScreenshotToggle?.checked) {
     saveAutoScreenshotPrefs(deviceId, false, interval);
@@ -1057,7 +1070,7 @@ clearScreenshotsBtn.addEventListener("click", async () => {
 screenRecordingToggle?.addEventListener("change", () => {
   const deviceId = currentDeviceId();
   const enabled = screenRecordingToggle.checked;
-  const segmentSeconds = Number(screenRecordingSegmentInput?.value) || 60;
+  const segmentSeconds = Number(screenRecordingSegmentInput?.value) || DEFAULT_RECORDING_SEGMENT;
   if (screenRecordingSegmentInput) {
     screenRecordingSegmentInput.disabled = !enabled;
   }
@@ -1072,7 +1085,7 @@ screenRecordingSegmentInput?.addEventListener("change", () => {
   const deviceId = currentDeviceId();
   let segmentSeconds = Math.max(
     30,
-    Math.min(600, Number(screenRecordingSegmentInput.value) || 60)
+    Math.min(600, Number(screenRecordingSegmentInput.value) || DEFAULT_RECORDING_SEGMENT)
   );
   screenRecordingSegmentInput.value = String(segmentSeconds);
   if (!screenRecordingToggle?.checked) {
