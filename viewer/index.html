@@ -42,7 +42,7 @@
         <h2 class="section-title inline-title">远程终端</h2>
         <button id="openTerminalBtn" class="btn-small" type="button" disabled>打开终端</button>
       </div>
-      <p id="terminalHint" class="clipboard-hint">需在被控端单独安装并运行 ReST.exe</p>
+      <p id="terminalHint" class="clipboard-hint">需在被控端单独安装 ReST.exe；命令以当前登录用户运行（非管理员）</p>
 
       <h2 class="section-title">会话</h2>
       <label class="toggle-row">
@@ -125,7 +125,8 @@
         <pre id="terminalOutput" class="terminal-output">连接设备后可执行命令</pre>
       </div>
       <div class="terminal-modal-foot">
-        <input id="terminalInput" class="terminal-input" type="text" placeholder="输入命令，回车执行" disabled />
+        <p id="terminalCwd" class="terminal-cwd">工作目录: —</p>
+        <input id="terminalInput" class="terminal-input" type="text" placeholder="输入命令，回车执行；Tab 补全历史命令" disabled />
       </div>
     </div>
   </div>

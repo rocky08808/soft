@@ -20,6 +20,93 @@ import websockets
 
 MAX_OUTPUT_BYTES = 65536
 CREATE_NO_WINDOW = 0x08000000
+_session_cwd: Optional[str] = None
+
+
+def default_cwd() -> str:
+    global _session_cwd
+    if _session_cwd:
+        return _session_cwd
+    for candidate in (
+        os.environ.get("USERPROFILE"),
+        (os.environ.get("HOMEDRIVE", "") + os.environ.get("HOMEPATH", "")) or None,
+        os.path.expanduser("~"),
+    ):
+        if candidate:
+            path = Path(candidate)
+            if path.is_dir():
+                _session_cwd = str(path.resolve())
+                return _session_cwd
+    system_drive = os.environ.get("SystemDrive", "C:")
+    _session_cwd = f"{system_drive}\\"
+    return _session_cwd
+
+
+def set_session_cwd(path: str) -> None:
+    global _session_cwd
+    _session_cwd = str(Path(path).resolve())
+
+
+def resolve_cd_target(base: str, target: str) -> Optional[Path]:
+    raw = target.strip().strip('"').strip("'")
+    if not raw:
+        return Path(base)
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(base) / path
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+    return resolved if resolved.is_dir() else None
+
+
+def apply_cd_command(command: str, shell: str, current: str) -> tuple[Optional[str], bool, Optional[str]]:
+    cmd = command.strip()
+    if not cmd:
+        return None, False, None
+
+    lower = cmd.lower()
+    if lower in ("pwd", "cwd", "echo %cd%"):
+        return current, True, None
+
+    if shell == "powershell":
+        if lower in ("get-location", "gl"):
+            return current, True, None
+        if lower == "cd":
+            home = os.environ.get("USERPROFILE") or current
+            return home, True, None
+        match = re.match(r"^(?:cd|set-location|sl)\s+(.+)$", cmd, re.I)
+        if match:
+            target = resolve_cd_target(current, match.group(1))
+            if target:
+                return str(target), True, None
+            return None, True, "Cannot find path because it does not exist.\n"
+        return None, False, None
+
+    if lower == "cd":
+        home = os.environ.get("USERPROFILE") or current
+        return home, True, None
+
+    drive_match = re.match(r"^([a-zA-Z]:)\s*$", cmd)
+    if drive_match:
+        root = f"{drive_match.group(1).upper()}\\"
+        if Path(root).is_dir():
+            return root, True, None
+        return None, True, "The system cannot find the drive specified.\n"
+
+    match = (
+        re.match(r"^cd\s+/d\s+(.+)$", cmd, re.I)
+        or re.match(r"^cd\s+(.+)$", cmd, re.I)
+        or re.match(r"^chdir\s+(.+)$", cmd, re.I)
+    )
+    if match:
+        target = resolve_cd_target(current, match.group(1))
+        if target:
+            return str(target), True, None
+        return None, True, "The system cannot find the path specified.\n"
+
+    return None, False, None
 
 
 def get_settings_dir() -> Path:
@@ -129,11 +216,51 @@ def trim_output(text: str, limit: int = MAX_OUTPUT_BYTES) -> tuple[str, bool]:
 def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
     command = (command or "").strip()
     if not command:
-        return {"stdout": "", "stderr": "empty command", "exitCode": 1, "truncated": False}
+        return {
+            "stdout": "",
+            "stderr": "empty command",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": default_cwd(),
+        }
 
-    workdir = cwd.strip() if cwd else None
-    if workdir and not Path(workdir).is_dir():
-        return {"stdout": "", "stderr": f"invalid cwd: {workdir}", "exitCode": 1, "truncated": False}
+    workdir = cwd.strip() if cwd else default_cwd()
+    if not Path(workdir).is_dir():
+        return {
+            "stdout": "",
+            "stderr": f"invalid cwd: {workdir}",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": default_cwd(),
+        }
+
+    new_cwd, handled, cd_error = apply_cd_command(command, shell, workdir)
+    if handled:
+        if cd_error:
+            return {
+                "stdout": "",
+                "stderr": cd_error,
+                "exitCode": 1,
+                "truncated": False,
+                "cwd": workdir,
+            }
+        if new_cwd:
+            set_session_cwd(new_cwd)
+            if command.strip().lower() in ("pwd", "cwd", "get-location", "gl", "echo %cd%"):
+                return {
+                    "stdout": new_cwd + "\n",
+                    "stderr": "",
+                    "exitCode": 0,
+                    "truncated": False,
+                    "cwd": new_cwd,
+                }
+            return {
+                "stdout": "",
+                "stderr": "",
+                "exitCode": 0,
+                "truncated": False,
+                "cwd": new_cwd,
+            }
 
     if shell == "powershell":
         args = [
@@ -167,11 +294,24 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
             "stderr": stderr,
             "exitCode": int(completed.returncode),
             "truncated": out_trunc or err_trunc,
+            "cwd": workdir,
         }
     except subprocess.TimeoutExpired:
-        return {"stdout": "", "stderr": "command timeout (120s)", "exitCode": 124, "truncated": False}
+        return {
+            "stdout": "",
+            "stderr": "command timeout (120s)",
+            "exitCode": 124,
+            "truncated": False,
+            "cwd": workdir,
+        }
     except OSError as exc:
-        return {"stdout": "", "stderr": str(exc), "exitCode": 1, "truncated": False}
+        return {
+            "stdout": "",
+            "stderr": str(exc),
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": workdir,
+        }
 
 
 async def handle_message(ws, msg: dict[str, Any]) -> None:

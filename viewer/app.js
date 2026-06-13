@@ -55,6 +55,7 @@ const terminalShellEl = document.getElementById("terminalShell");
 const terminalRunBtn = document.getElementById("terminalRunBtn");
 const terminalOutputEl = document.getElementById("terminalOutput");
 const terminalInputEl = document.getElementById("terminalInput");
+const terminalCwdEl = document.getElementById("terminalCwd");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
@@ -84,6 +85,10 @@ let lastFpsAt = performance.now();
 let lastMoveAt = 0;
 let termOnline = false;
 let terminalReqSeq = 0;
+let terminalSessionCwd = "";
+const MAX_TERMINAL_HISTORY = 100;
+let terminalHistory = [];
+let terminalTabCycle = { basePrefix: "", list: [], index: -1 };
 
 function getToken() {
   return tokenInput.value.trim();
@@ -154,6 +159,16 @@ function updateTerminalUi() {
   if (terminalInputEl) terminalInputEl.disabled = !enabled;
 }
 
+function setTerminalCwd(path) {
+  terminalSessionCwd = path ? String(path) : "";
+  if (terminalCwdEl) {
+    terminalCwdEl.textContent = terminalSessionCwd
+      ? `工作目录: ${terminalSessionCwd}`
+      : "工作目录: —";
+  }
+  updateTerminalModalTitle();
+}
+
 function updateTerminalModalTitle() {
   if (!terminalModalTitleEl) return;
   const deviceId = currentDeviceId();
@@ -180,9 +195,89 @@ function closeTerminalModal() {
   if (terminalModalEl) terminalModalEl.hidden = true;
 }
 
+function resetTerminalTabCycle() {
+  terminalTabCycle = { basePrefix: "", list: [], index: -1 };
+}
+
+function pushTerminalHistory(command) {
+  const cmd = String(command || "").trim();
+  if (!cmd) return;
+  terminalHistory = terminalHistory.filter((item) => item !== cmd);
+  terminalHistory.unshift(cmd);
+  if (terminalHistory.length > MAX_TERMINAL_HISTORY) {
+    terminalHistory.length = MAX_TERMINAL_HISTORY;
+  }
+}
+
+function longestCommonPrefix(items) {
+  if (!items.length) return "";
+  let prefix = items[0];
+  for (let i = 1; i < items.length; i += 1) {
+    const item = items[i];
+    while (prefix && !item.toLowerCase().startsWith(prefix.toLowerCase())) {
+      prefix = prefix.slice(0, -1);
+    }
+    if (!prefix) return "";
+  }
+  return prefix;
+}
+
+function getTerminalHistoryMatches(prefix) {
+  const needle = String(prefix || "").toLowerCase();
+  const seen = new Set();
+  const matches = [];
+  for (const cmd of terminalHistory) {
+    if (!cmd.toLowerCase().startsWith(needle)) continue;
+    if (seen.has(cmd)) continue;
+    seen.add(cmd);
+    matches.push(cmd);
+  }
+  return matches;
+}
+
+function handleTerminalTabCompletion() {
+  if (!terminalInputEl || terminalInputEl.disabled) return false;
+
+  const prefix = terminalInputEl.value;
+  const matches = getTerminalHistoryMatches(prefix);
+  if (!matches.length) return true;
+
+  const sameCycle =
+    terminalTabCycle.basePrefix === prefix &&
+    terminalTabCycle.list.length === matches.length &&
+    terminalTabCycle.list.every((item, index) => item === matches[index]);
+
+  if (sameCycle) {
+    terminalTabCycle.index = (terminalTabCycle.index + 1) % matches.length;
+    terminalInputEl.value = matches[terminalTabCycle.index];
+  } else {
+    terminalTabCycle.basePrefix = prefix;
+    terminalTabCycle.list = matches;
+    const shared = longestCommonPrefix(matches);
+    if (shared.length > prefix.length) {
+      terminalInputEl.value = shared;
+      terminalTabCycle.index = -1;
+    } else if (matches.length === 1) {
+      terminalInputEl.value = matches[0];
+      terminalTabCycle.index = 0;
+    } else {
+      terminalTabCycle.index = 0;
+      terminalInputEl.value = matches[0];
+      appendTerminalBlock("", `[Tab 补全] ${matches.join("  ")}\n`);
+    }
+  }
+
+  const end = terminalInputEl.value.length;
+  terminalInputEl.setSelectionRange(end, end);
+  return true;
+}
+
 function clearTerminalOutput() {
   if (!terminalOutputEl) return;
   terminalOutputEl.textContent = "连接设备后可执行命令";
+  setTerminalCwd("");
+  terminalHistory = [];
+  resetTerminalTabCycle();
 }
 
 function appendTerminalBlock(title, text) {
@@ -212,6 +307,8 @@ function sendTerminalCommand(command) {
   const shell = terminalShellEl?.value || "cmd";
   const id = `t-${Date.now()}-${++terminalReqSeq}`;
   appendTerminalBlock(`> [${shell}] ${cmd}\n`, "");
+  pushTerminalHistory(cmd);
+  resetTerminalTabCycle();
   ws.send(JSON.stringify({ type: "terminal", id, command: cmd, shell }));
   setTerminalHint(`设备: ${currentDeviceId()} · 命令已发送`);
 }
@@ -1040,6 +1137,7 @@ function connect() {
     }
 
     if (msg.type === "terminal_result") {
+      if (msg.cwd) setTerminalCwd(msg.cwd);
       if (msg.stdout) appendTerminalBlock("", msg.stdout);
       if (msg.stderr) appendTerminalBlock("", msg.stderr);
       if (!msg.stdout && !msg.stderr) appendTerminalBlock("(no output)\n", "");
@@ -1067,6 +1165,9 @@ function connect() {
     screenshotBtn.disabled = true;
     termOnline = false;
     updateTerminalUi();
+    setTerminalCwd("");
+    terminalHistory = [];
+    resetTerminalTabCycle();
     closeTerminalModal();
     ws = null;
   };
@@ -1272,10 +1373,22 @@ terminalRunBtn?.addEventListener("click", () => {
   if (terminalInputEl) terminalInputEl.value = "";
 });
 terminalInputEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Tab") {
+    e.preventDefault();
+    handleTerminalTabCompletion();
+    return;
+  }
   if (e.key === "Enter") {
     e.preventDefault();
     sendTerminalCommand(terminalInputEl.value);
     terminalInputEl.value = "";
+    resetTerminalTabCycle();
+    return;
+  }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    resetTerminalTabCycle();
+  } else if (e.key === "Backspace" || e.key === "Delete") {
+    resetTerminalTabCycle();
   }
 });
 function updateMouseTrackUi() {
