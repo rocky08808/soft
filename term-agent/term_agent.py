@@ -51,6 +51,9 @@ def resolve_cd_target(base: str, target: str) -> Optional[Path]:
     raw = target.strip().strip('"').strip("'")
     if not raw:
         return Path(base)
+    if re.match(r"^[a-zA-Z]:$", raw):
+        root = f"{raw[0].upper()}:\\"
+        return Path(root) if Path(root).is_dir() else None
     path = Path(raw)
     if not path.is_absolute():
         path = Path(base) / path
@@ -61,9 +64,24 @@ def resolve_cd_target(base: str, target: str) -> Optional[Path]:
     return resolved if resolved.is_dir() else None
 
 
+def split_command_lines(command: str) -> list[str]:
+    normalized = (command or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+    return [line.strip() for line in normalized.split("\n") if line.strip()]
+
+
+def resolve_initial_workdir(cwd: Optional[str]) -> str:
+    if cwd and str(cwd).strip():
+        path = str(cwd).strip()
+        if Path(path).is_dir():
+            set_session_cwd(path)
+    return default_cwd()
+
+
 def apply_cd_command(command: str, shell: str, current: str) -> tuple[Optional[str], bool, Optional[str]]:
     cmd = command.strip()
-    if not cmd:
+    if not cmd or "\n" in cmd or "\r" in cmd:
         return None, False, None
 
     lower = cmd.lower()
@@ -213,8 +231,8 @@ def trim_output(text: str, limit: int = MAX_OUTPUT_BYTES) -> tuple[str, bool]:
     return clipped + "\n...[truncated]", True
 
 
-def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
-    command = (command or "").strip()
+def run_single_line(line: str, shell: str) -> dict[str, Any]:
+    command = (line or "").strip()
     if not command:
         return {
             "stdout": "",
@@ -224,7 +242,7 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
             "cwd": default_cwd(),
         }
 
-    workdir = cwd.strip() if cwd else default_cwd()
+    workdir = default_cwd()
     if not Path(workdir).is_dir():
         return {
             "stdout": "",
@@ -262,6 +280,7 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
                 "cwd": new_cwd,
             }
 
+    workdir = default_cwd()
     if shell == "powershell":
         args = [
             "powershell.exe",
@@ -294,7 +313,7 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
             "stderr": stderr,
             "exitCode": int(completed.returncode),
             "truncated": out_trunc or err_trunc,
-            "cwd": workdir,
+            "cwd": default_cwd(),
         }
     except subprocess.TimeoutExpired:
         return {
@@ -302,7 +321,7 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
             "stderr": "command timeout (120s)",
             "exitCode": 124,
             "truncated": False,
-            "cwd": workdir,
+            "cwd": default_cwd(),
         }
     except OSError as exc:
         return {
@@ -310,8 +329,55 @@ def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
             "stderr": str(exc),
             "exitCode": 1,
             "truncated": False,
-            "cwd": workdir,
+            "cwd": default_cwd(),
         }
+
+
+def run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
+    resolve_initial_workdir(cwd)
+    lines = split_command_lines(command)
+    if not lines:
+        return {
+            "stdout": "",
+            "stderr": "empty command",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": default_cwd(),
+        }
+
+    if len(lines) == 1:
+        return run_single_line(lines[0], shell)
+
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    exit_code = 0
+    truncated = False
+    final = default_cwd()
+
+    for index, line in enumerate(lines, start=1):
+        result = run_single_line(line, shell)
+        final = result.get("cwd") or final
+        exit_code = int(result.get("exitCode", 1))
+        truncated = truncated or bool(result.get("truncated"))
+
+        if result.get("stdout"):
+            stdout_parts.append(result["stdout"])
+        if result.get("stderr"):
+            stderr_parts.append(result["stderr"])
+        if exit_code != 0:
+            if index < len(lines):
+                stderr_parts.append(f"[line {index}] command failed, stopped.\n")
+            break
+
+    stdout, out_trunc = trim_output("".join(stdout_parts))
+    stderr, err_trunc = trim_output("".join(stderr_parts))
+    return {
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": exit_code,
+        "truncated": truncated or out_trunc or err_trunc,
+        "cwd": final,
+    }
 
 
 async def handle_message(ws, msg: dict[str, Any]) -> None:

@@ -10,6 +10,8 @@ agent/device.id
 # Python / Agent build
 agent/dist/
 agent/build/
+term-agent/dist/
+term-agent/build/
 *.spec.bak
 
 # Python
