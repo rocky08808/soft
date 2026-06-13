@@ -137,6 +137,11 @@
       word-break: break-all;
       color: #e2e8f0;
     }
+    .cmd-box.multiline {
+      white-space: pre-wrap;
+      text-align: left;
+      word-break: break-word;
+    }
     .note { font-size: 0.9rem; color: #94a3b8; }
     .back { margin-top: 1.5rem; }
     .back a { color: #60a5fa; }
@@ -175,6 +180,14 @@
         <div class="step"><span class="step-num">1</span><span>下载 ReSA 安装脚本（约 1KB）</span></div>
         <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReSA.exe 并加入开机自启</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的屏幕画面</span></div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>PowerShell 安装</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">打开 PowerShell，粘贴运行以下命令（效果同 bat）：</p>
+        <div class="cmd-box multiline" id="cmdResaPs1"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdResaPs1Btn">复制 PowerShell 命令</button>
+        </div>
       </div>
     </div>
 
@@ -297,6 +310,25 @@
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.exe";
+
+    function buildResaPs1Command(downloadBase) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$env:RESA_INSTALL_BASE = '${safeBase}'`,
+        `$f = Join-Path $env:TEMP 'ReSA-Install.ps1'`,
+        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) {`,
+        `  & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1')`,
+        `}`,
+        `if (-not (Test-Path -LiteralPath $f)) {`,
+        `  Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing`,
+        `}`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `& $f -Silent`,
+      ].join("\n");
+    }
+
+    const cmdResaPs1 = buildResaPs1Command(base);
     const cmdResa =
       'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReSA-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReSA-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReSA-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
     const cmdRest =
@@ -308,6 +340,7 @@
     document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("resaUrl").textContent = resaUrl;
     document.getElementById("restUrl").textContent = restUrl;
+    document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
     document.getElementById("cmdResa").textContent = cmdResa;
     document.getElementById("cmdRest").textContent = cmdRest;
 
@@ -346,6 +379,7 @@
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.exe 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
+    document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
   </script>
