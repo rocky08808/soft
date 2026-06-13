@@ -461,6 +461,8 @@ main {
 
 .terminal-input {
   width: 100%;
+  min-height: 88px;
+  max-height: 220px;
   padding: 10px 12px;
   border: 1px solid #3a4150;
   border-radius: 6px;
@@ -468,10 +470,13 @@ main {
   color: inherit;
   font-family: Consolas, "Courier New", monospace;
   font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .terminal-input:disabled {
   opacity: 0.5;
+  resize: none;
 }
 
 .terminal-modal {

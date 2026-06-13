@@ -183,7 +183,7 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>PowerShell 安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">打开 PowerShell，粘贴运行以下命令（效果同 bat）：</p>
+        <p class="note" style="margin: 0.5rem 0 0;">在 <strong>PowerShell 窗口</strong>中粘贴运行（每行末尾有分号，合并成一行也能执行）：</p>
         <div class="cmd-box multiline" id="cmdResaPs1"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdResaPs1Btn">复制 PowerShell 命令</button>
@@ -314,16 +314,12 @@
     function buildResaPs1Command(downloadBase) {
       const safeBase = downloadBase.replace(/'/g, "''");
       return [
-        `$env:RESA_INSTALL_BASE = '${safeBase}'`,
-        `$f = Join-Path $env:TEMP 'ReSA-Install.ps1'`,
-        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
-        `if (Test-Path -LiteralPath $curl) {`,
-        `  & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1')`,
-        `}`,
-        `if (-not (Test-Path -LiteralPath $f)) {`,
-        `  Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing`,
-        `}`,
-        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `$env:RESA_INSTALL_BASE = '${safeBase}';`,
+        `$f = Join-Path $env:TEMP 'ReSA-Install.ps1';`,
+        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe';`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') };`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing };`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue;`,
         `& $f -Silent`,
       ].join("\n");
     }

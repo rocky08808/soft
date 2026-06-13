@@ -222,12 +222,13 @@ function longestCommonPrefix(items) {
   return prefix;
 }
 
-function getTerminalHistoryMatches(prefix) {
-  const needle = String(prefix || "").toLowerCase();
+function getTerminalHistoryMatches(linePrefix) {
+  const needle = String(linePrefix || "").toLowerCase();
   const seen = new Set();
   const matches = [];
   for (const cmd of terminalHistory) {
-    if (!cmd.toLowerCase().startsWith(needle)) continue;
+    const firstLine = cmd.split("\n")[0];
+    if (!firstLine.toLowerCase().startsWith(needle)) continue;
     if (seen.has(cmd)) continue;
     seen.add(cmd);
     matches.push(cmd);
@@ -235,10 +236,37 @@ function getTerminalHistoryMatches(prefix) {
   return matches;
 }
 
+function getTerminalLineContext() {
+  const value = terminalInputEl.value;
+  const cursor = terminalInputEl.selectionStart;
+  const lineStart = value.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+  const lineEnd = value.indexOf("\n", cursor);
+  const lineEndPos = lineEnd === -1 ? value.length : lineEnd;
+  return {
+    value,
+    lineStart,
+    lineEnd: lineEndPos,
+    linePrefix: value.slice(lineStart, cursor),
+  };
+}
+
+function setTerminalInputCompletion(text, ctx) {
+  const next = String(text || "");
+  const onlyLine = ctx.lineStart === 0 && ctx.lineEnd === ctx.value.length;
+  if (next.includes("\n") || onlyLine) {
+    terminalInputEl.value = next;
+  } else {
+    terminalInputEl.value = ctx.value.slice(0, ctx.lineStart) + next + ctx.value.slice(ctx.lineEnd);
+  }
+  const pos = onlyLine || next.includes("\n") ? terminalInputEl.value.length : ctx.lineStart + next.length;
+  terminalInputEl.setSelectionRange(pos, pos);
+}
+
 function handleTerminalTabCompletion() {
   if (!terminalInputEl || terminalInputEl.disabled) return false;
 
-  const prefix = terminalInputEl.value;
+  const ctx = getTerminalLineContext();
+  const prefix = ctx.linePrefix;
   const matches = getTerminalHistoryMatches(prefix);
   if (!matches.length) return true;
 
@@ -249,26 +277,25 @@ function handleTerminalTabCompletion() {
 
   if (sameCycle) {
     terminalTabCycle.index = (terminalTabCycle.index + 1) % matches.length;
-    terminalInputEl.value = matches[terminalTabCycle.index];
+    setTerminalInputCompletion(matches[terminalTabCycle.index], ctx);
   } else {
     terminalTabCycle.basePrefix = prefix;
     terminalTabCycle.list = matches;
-    const shared = longestCommonPrefix(matches);
+    const firstLines = matches.map((cmd) => cmd.split("\n")[0]);
+    const shared = longestCommonPrefix(firstLines);
     if (shared.length > prefix.length) {
-      terminalInputEl.value = shared;
+      setTerminalInputCompletion(shared, ctx);
       terminalTabCycle.index = -1;
     } else if (matches.length === 1) {
-      terminalInputEl.value = matches[0];
+      setTerminalInputCompletion(matches[0], ctx);
       terminalTabCycle.index = 0;
     } else {
       terminalTabCycle.index = 0;
-      terminalInputEl.value = matches[0];
-      appendTerminalBlock("", `[Tab 补全] ${matches.join("  ")}\n`);
+      setTerminalInputCompletion(matches[0], ctx);
+      appendTerminalBlock("", `[Tab 补全] ${firstLines.join("  ")}\n`);
     }
   }
 
-  const end = terminalInputEl.value.length;
-  terminalInputEl.setSelectionRange(end, end);
   return true;
 }
 
@@ -306,7 +333,7 @@ function sendTerminalCommand(command) {
   }
   const shell = terminalShellEl?.value || "cmd";
   const id = `t-${Date.now()}-${++terminalReqSeq}`;
-  appendTerminalBlock(`> [${shell}] ${cmd}\n`, "");
+  appendTerminalBlock(`> [${shell}]\n${cmd}\n`, "");
   pushTerminalHistory(cmd);
   resetTerminalTabCycle();
   ws.send(JSON.stringify({ type: "terminal", id, command: cmd, shell }));
@@ -1378,7 +1405,7 @@ terminalInputEl?.addEventListener("keydown", (e) => {
     handleTerminalTabCompletion();
     return;
   }
-  if (e.key === "Enter") {
+  if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendTerminalCommand(terminalInputEl.value);
     terminalInputEl.value = "";
