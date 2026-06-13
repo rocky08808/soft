@@ -52,7 +52,10 @@ const STRIP_PS1_BOM = [
   "[IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))",
 ].join("; ");
 
-function buildInstallWrapperPs1(base) {
+function buildInstallWrapperPs1(base, opts = {}) {
+  const installScript = opts.installScript || "install.ps1";
+  const tempScript = opts.tempScript || "ReSA-install.ps1";
+  const logFile = opts.logFile || "ReSA-install.log";
   const safeBase = base.replace(/'/g, "''");
   return [
     "# ReSA one-click install wrapper - ASCII only",
@@ -65,17 +68,17 @@ function buildInstallWrapperPs1(base) {
     "    Unblock-File -LiteralPath $scriptPath -ErrorAction SilentlyContinue",
     "}",
     `$env:RESA_INSTALL_BASE='${safeBase}'`,
-    "$log = Join-Path $env:TEMP 'ReSA-install.log'",
+    `$log = Join-Path $env:TEMP '${logFile}'`,
     "Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' wrapper start')",
     "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}",
-    "$f = Join-Path $env:TEMP 'ReSA-install.ps1'",
+    `$f = Join-Path $env:TEMP '${tempScript}'`,
     "$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'",
     "try {",
     "    if (Test-Path -LiteralPath $curl) {",
-    "        & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/install.ps1')",
+    `        & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/${installScript}')`,
     "    }",
     "    if (-not (Test-Path -LiteralPath $f)) {",
-    "        Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing",
+    `        Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/${installScript}') -OutFile $f -UseBasicParsing`,
     "    }",
     "    Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
     `    ${STRIP_PS1_BOM}`,
@@ -88,27 +91,27 @@ function buildInstallWrapperPs1(base) {
     "} catch {",
     "    $m = $_.Exception.Message",
     "    Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' wrapper error: ' + $m)",
-    "    (New-Object -ComObject WScript.Shell).Popup(('ReSA install failed: ' + $m + [char]10 + [char]10 + 'Log: ' + $log), 0, 'ReSA', 16) | Out-Null",
     "    exit 1",
     "}",
   ].join("\r\n");
 }
 
-function buildInstallRunCommand(base) {
+function buildInstallRunCommand(base, opts = {}) {
+  const wrapperName = opts.wrapperName || "ReSA-Install.ps1";
   const safeBase = base.replace(/'/g, "''");
   return (
-    `$b='${safeBase}'; $f=Join-Path $env:TEMP 'ReSA-Install.ps1'; ` +
+    `$b='${safeBase}'; $f=Join-Path $env:TEMP '${wrapperName}'; ` +
     `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'; ` +
-    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/ReSA-Install.ps1') }; ` +
-    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/ReSA-Install.ps1') -OutFile $f -UseBasicParsing }; ` +
+    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/${wrapperName}') }; ` +
+    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${wrapperName}') -OutFile $f -UseBasicParsing }; ` +
     `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; ` +
     `${STRIP_PS1_BOM}; ` +
     `& $f -Silent`
   );
 }
 
-function buildSetupBat(base) {
-  const cmd = buildInstallRunCommand(base).replace(/"/g, '\\"');
+function buildSetupBat(base, opts = {}) {
+  const cmd = buildInstallRunCommand(base, opts).replace(/"/g, '\\"');
   return [
     "@echo off",
     "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
@@ -118,6 +121,40 @@ function buildSetupBat(base) {
 
 function buildInstallBat(base) {
   return buildSetupBat(base);
+}
+
+function buildUninstallBat(base, opts = {}) {
+  const title = opts.title || "ReSA 卸载";
+  const scriptName = opts.scriptName || "uninstall.ps1";
+  const tempName = opts.tempName || "ReSA-uninstall.ps1";
+  const batFilename = opts.batFilename || "ReSA-Uninstall.bat";
+  const productName = opts.productName || "ReSA";
+  const psCmd =
+    "Write-Host 'Downloading uninstall script...' -ForegroundColor Cyan; " +
+    `$b='%BASE%'; $f=Join-Path $env:TEMP '${tempName}'; ` +
+    `Invoke-WebRequest -Uri ($b+'/${scriptName}') -OutFile $f -UseBasicParsing; ` +
+    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
+    "$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false)); " +
+    "& $f; exit $LASTEXITCODE";
+  return [
+    "@echo off",
+    "chcp 65001 >nul",
+    `title ${title}`,
+    "echo.",
+    `echo === ${title} ===`,
+    "echo.",
+    `set "BASE=${base}"`,
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
+    "set RC=%ERRORLEVEL%",
+    "echo.",
+    "if %RC% NEQ 0 (",
+    `  echo [错误] 卸载未完全成功，请关闭 ${productName} 后重试，或以管理员身份运行。`,
+    ") else (",
+    "  echo 卸载已完成。",
+    ")",
+    "pause",
+    "exit /b %RC%",
+  ].join("\r\n");
 }
 
 function sendDownloadAsset(res, filename, contentType) {
@@ -156,13 +193,36 @@ app.get("/download/ReSA-Setup.bat", (req, res) => {
   res.send(buildSetupBat(base));
 });
 
-app.get("/download/ReSA-Setup.exe", (_req, res) => {
-  res.redirect("/download/ReSA-Setup.bat");
-});
-
 app.get("/download/ReSA-Install.ps1", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   sendPs1Download(res, "ReSA-Install.ps1", buildInstallWrapperPs1(base));
+});
+
+app.get("/download/ReST-Setup.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ReST-Setup.bat"; filename*=UTF-8\'\'ReST%E5%AE%89%E8%A3%85.bat'
+  );
+  res.send(
+    buildSetupBat(base, {
+      wrapperName: "ReST-Install.ps1",
+    })
+  );
+});
+
+app.get("/download/ReST-Install.ps1", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendPs1Download(
+    res,
+    "ReST-Install.ps1",
+    buildInstallWrapperPs1(base, {
+      installScript: "install-rest.ps1",
+      tempScript: "ReST-install.ps1",
+      logFile: "ReST-install.log",
+    })
+  );
 });
 
 app.get("/download/install.bat", (req, res) => {
@@ -171,34 +231,23 @@ app.get("/download/install.bat", (req, res) => {
 
 app.get("/download/uninstall.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
-  const psCmd =
-    "Write-Host 'Downloading uninstall script...' -ForegroundColor Cyan; " +
-    "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; " +
-    "Invoke-WebRequest -Uri ($b+'/uninstall.ps1') -OutFile $f -UseBasicParsing; " +
-    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false)); " +
-    "& $f; exit $LASTEXITCODE";
-  const body = [
-    "@echo off",
-    "chcp 65001 >nul",
-    "title ReSA 卸载",
-    "echo.",
-    "echo === ReSA 卸载 ===",
-    "echo.",
-    `set "BASE=${base}"`,
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
-    "set RC=%ERRORLEVEL%",
-    "echo.",
-    "if %RC% NEQ 0 (",
-    "  echo [错误] 卸载未完全成功，请关闭 ReSA 后重试，或以管理员身份运行。",
-    ") else (",
-    "  echo 卸载已完成。",
-    ")",
-    "pause",
-    "exit /b %RC%",
-  ].join("\r\n");
+  const body = buildUninstallBat(base);
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Uninstall.bat"');
+  res.send(body);
+});
+
+app.get("/download/uninstall-rest.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  const body = buildUninstallBat(base, {
+    title: "ReST 卸载",
+    scriptName: "uninstall-rest.ps1",
+    tempName: "ReST-uninstall.ps1",
+    batFilename: "ReST-Uninstall.bat",
+    productName: "ReST",
+  });
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader("Content-Disposition", 'attachment; filename="ReST-Uninstall.bat"');
   res.send(body);
 });
 
@@ -206,8 +255,16 @@ app.get("/download/install.ps1", (req, res) => {
   sendDownloadAsset(res, "install.ps1", "text/plain; charset=utf-8");
 });
 
+app.get("/download/install-rest.ps1", (req, res) => {
+  sendDownloadAsset(res, "install-rest.ps1", "text/plain; charset=utf-8");
+});
+
 app.get("/download/uninstall.ps1", (req, res) => {
   sendDownloadAsset(res, "uninstall.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/uninstall-rest.ps1", (req, res) => {
+  sendDownloadAsset(res, "uninstall-rest.ps1", "text/plain; charset=utf-8");
 });
 
 app.get("/download/ReSA.exe", (req, res) => {

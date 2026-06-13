@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ReSA 安装</title>
+  <title>Agent 安装</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -36,6 +36,28 @@
       font-size: 1.05rem;
     }
     .btn-primary:hover { background: #1d4ed8; }
+    .btn-rest {
+      display: inline-block;
+      padding: 0.9rem 1.5rem;
+      background: #059669;
+      color: #fff;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .btn-rest:hover { background: #047857; }
+    .product-tag {
+      display: inline-block;
+      margin-bottom: 0.5rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .tag-resa { background: #1e3a8a; color: #bfdbfe; }
+    .tag-rest { background: #064e3b; color: #a7f3d0; }
     .hero-tip {
       margin-top: 1rem;
       padding: 0.85rem 1rem;
@@ -132,25 +154,42 @@
       pointer-events: none;
     }
     .toast.show { opacity: 1; }
-    #afterDownload[hidden] { display: none; }
+    #afterResaDownload[hidden],
+    #afterRestDownload[hidden] { display: none; }
   </style>
 </head>
 <body>
   <div class="install-page">
-    <h1>ReSA 远程安装</h1>
-    <p class="note">发给对方这个页面链接即可，按下面两步操作，无需懂电脑命令。</p>
+    <h1>Agent 远程安装</h1>
+    <p class="note"><strong>ReSA</strong>（屏幕监控）与 <strong>ReST</strong>（远程终端）相互独立，可只装其中一个，也可分别安装。</p>
 
     <div class="hero">
-      <p>只需两步：<strong>下载</strong> → <strong>双击运行</strong></p>
-      <a id="setupDownloadBtn" class="btn-primary" href="/download/ReSA-Setup.bat" download>第一步：下载安装脚本</a>
-      <div id="afterDownload" class="hero-tip" hidden>
-        <strong>第二步：</strong>在「下载」文件夹双击 <code>ReSA-Setup.bat</code>（或 <code>ReSA安装.bat</code>）。<br />
-        若出现安全提示，点<strong>仍要运行</strong>。安装过程无窗口，日志见下方路径。
+      <span class="product-tag tag-resa">ReSA · 屏幕</span>
+      <p>下载安装脚本 → 双击运行</p>
+      <a id="resaSetupBtn" class="btn-primary" href="/download/ReSA-Setup.bat" download>下载 ReSA 安装脚本</a>
+      <div id="afterResaDownload" class="hero-tip" hidden>
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>ReSA-Setup.bat</code>（或 <code>ReSA安装.bat</code>）。<br />
+        若出现安全提示，点<strong>仍要运行</strong>。
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>点上方按钮，下载安装脚本（约 1KB，安装时再自动下载主程序）</span></div>
-        <div class="step"><span class="step-num">2</span><span>双击 bat 文件，等待自动安装（无需 Win+R）</span></div>
-        <div class="step"><span class="step-num">3</span><span>安装完成后程序自动在后台运行</span></div>
+        <div class="step"><span class="step-num">1</span><span>下载 ReSA 安装脚本（约 1KB）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReSA.exe 并加入开机自启</span></div>
+        <div class="step"><span class="step-num">3</span><span>控制端可见该设备的屏幕画面</span></div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <span class="product-tag tag-rest">ReST · 终端</span>
+      <p>下载安装脚本 → 双击运行</p>
+      <a id="restSetupBtn" class="btn-rest" href="/download/ReST-Setup.bat" download>下载 ReST 安装脚本</a>
+      <div id="afterRestDownload" class="hero-tip" hidden>
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>ReST-Setup.bat</code>（或 <code>ReST安装.bat</code>）。<br />
+        若出现安全提示，点<strong>仍要运行</strong>。
+      </div>
+      <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（约 1KB）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReST.exe 并加入开机自启</span></div>
+        <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
     </div>
 
@@ -166,10 +205,31 @@
     <div class="install-card">
       <h2>下载链接</h2>
       <div class="link-row">
-        <label>安装脚本（ReSA-Setup.bat，约 1KB）</label>
+        <label>ReSA 安装脚本（ReSA-Setup.bat）</label>
         <div class="link-row-inner">
           <div class="link-box" id="setupUrl"></div>
           <button type="button" id="copySetupBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
+        <label>ReST 安装脚本（ReST-Setup.bat）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="restSetupUrl"></div>
+          <button type="button" id="copyRestSetupBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
+        <label>屏幕 Agent（ReSA.exe）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="resaUrl"></div>
+          <button type="button" id="copyResaBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
+        <label>终端 Agent（ReST.exe）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="restUrl"></div>
+          <button type="button" id="copyRestBtn">复制</button>
         </div>
       </div>
       <div class="link-row">
@@ -188,25 +248,38 @@
       </div>
       <details>
         <summary>高级方式（技术人员）</summary>
-        <p class="note">Win+R 一行命令：</p>
-        <div class="cmd-box" id="cmdOneLiner"></div>
+        <p class="note">ReSA Win+R 一行命令：</p>
+        <div class="cmd-box" id="cmdResa"></div>
         <div class="install-actions">
-          <button type="button" id="copyCmdBtn">复制命令</button>
+          <button type="button" id="copyCmdResaBtn">复制 ReSA 命令</button>
+        </div>
+        <p class="note" style="margin-top: 1rem;">ReST Win+R 一行命令：</p>
+        <div class="cmd-box" id="cmdRest"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdRestBtn">复制 ReST 命令</button>
         </div>
       </details>
     </div>
 
     <div class="install-card">
       <h2>安装后路径</h2>
+      <p class="note"><strong>ReSA</strong></p>
       <p class="note">程序：<code>%LOCALAPPDATA%\ReSA\ReSA.exe</code></p>
+      <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReSA\device.id</code></p>
+      <p class="note">日志：<code>%LOCALAPPDATA%\ReSA\agent.log</code></p>
       <p class="note">安装日志：<code>%TEMP%\ReSA-install.log</code></p>
-      <p class="note">运行日志：<code>%LOCALAPPDATA%\ReSA\agent.log</code></p>
+      <p class="note" style="margin-top: 1rem;"><strong>ReST</strong></p>
+      <p class="note">程序：<code>%LOCALAPPDATA%\ReST\ReST.exe</code></p>
+      <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReST\device.id</code></p>
+      <p class="note">日志：<code>%LOCALAPPDATA%\ReST\term-agent.log</code></p>
+      <p class="note">安装日志：<code>%TEMP%\ReST-install.log</code></p>
     </div>
 
     <div class="install-card">
       <h2>卸载</h2>
       <div class="install-actions">
-        <a href="/download/uninstall.bat" download>下载卸载脚本</a>
+        <a href="/download/uninstall.bat" download>卸载 ReSA</a>
+        <a href="/download/uninstall-rest.bat" download style="margin-left: 0.5rem;">卸载 ReST</a>
       </div>
     </div>
 
@@ -220,23 +293,36 @@
     const base = origin + "/download";
     const pageUrl = origin + "/install.html";
     const setupUrl = base + "/ReSA-Setup.bat";
+    const restSetupUrl = base + "/ReST-Setup.bat";
     const batUrl = base + "/install.bat";
-    const cmdOneLiner =
+    const resaUrl = base + "/ReSA.exe";
+    const restUrl = base + "/ReST.exe";
+    const cmdResa =
       'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReSA-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReSA-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReSA-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
+    const cmdRest =
+      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReST-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReST-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReST-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("setupUrl").textContent = setupUrl;
+    document.getElementById("restSetupUrl").textContent = restSetupUrl;
     document.getElementById("installBatUrl").textContent = batUrl;
-    document.getElementById("cmdOneLiner").textContent = cmdOneLiner;
+    document.getElementById("resaUrl").textContent = resaUrl;
+    document.getElementById("restUrl").textContent = restUrl;
+    document.getElementById("cmdResa").textContent = cmdResa;
+    document.getElementById("cmdRest").textContent = cmdRest;
 
-    const setupBtn = document.getElementById("setupDownloadBtn");
-    const afterDownload = document.getElementById("afterDownload");
-    setupBtn.addEventListener("click", () => {
-      setTimeout(() => {
-        afterDownload.hidden = false;
-        afterDownload.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      }, 600);
-    });
+    function bindAfterDownload(btnId, tipId) {
+      const btn = document.getElementById(btnId);
+      const tip = document.getElementById(tipId);
+      btn.addEventListener("click", () => {
+        setTimeout(() => {
+          tip.hidden = false;
+          tip.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 600);
+      });
+    }
+    bindAfterDownload("resaSetupBtn", "afterResaDownload");
+    bindAfterDownload("restSetupBtn", "afterRestDownload");
 
     const toast = document.getElementById("toast");
     function showToast(text) {
@@ -254,10 +340,14 @@
       }
     }
 
-    document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "安装脚本地址"));
+    document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "ReSA 安装脚本"));
+    document.getElementById("copyRestSetupBtn").addEventListener("click", () => copyText(restSetupUrl, "ReST 安装脚本"));
+    document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
+    document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.exe 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
-    document.getElementById("copyCmdBtn").addEventListener("click", () => copyText(cmdOneLiner, "Win+R 命令"));
+    document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
+    document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
   </script>
 </body>
 </html>

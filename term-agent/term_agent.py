@@ -23,7 +23,7 @@ CREATE_NO_WINDOW = 0x08000000
 
 
 def get_settings_dir() -> Path:
-    return Path(os.environ.get("LOCALAPPDATA", "")) / "ReSA"
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "ReST"
 
 
 def get_device_id_path() -> Path:

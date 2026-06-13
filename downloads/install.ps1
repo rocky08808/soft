@@ -19,9 +19,7 @@ if ($BaseUrl -match "\s") {
 
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
-$TempExe = Join-Path $env:TEMP "ReSA-download.exe"
-$TaskName = "ReSA"
-$Url = ($BaseUrl + "/ReSA.exe")
+$Temp = Join-Path $env:TEMP "ReSA-download.exe"
 $LogFile = Join-Path $env:TEMP "ReSA-install.log"
 $script:HadError = $false
 
@@ -42,15 +40,7 @@ function Fail-Install {
     param([string]$Text)
     $script:HadError = $true
     Write-InstallLog $Text
-    if ($Silent) {
-        try {
-            $shell = New-Object -ComObject WScript.Shell
-            $msg = "ReSA install failed.`n" + $Text + "`n`nLog: " + $LogFile
-            $shell.Popup($msg, 0, "ReSA", 16) | Out-Null
-        } catch {
-            $null = $_
-        }
-    } else {
+    if (-not $Silent) {
         Write-Host $Text -ForegroundColor Red
     }
 }
@@ -88,8 +78,7 @@ function Download-File {
 }
 
 Write-InstallLog "install start"
-Write-InstallLog ("download: " + $Url)
-Write-InstallLog ("target: " + $Dir)
+Write-InstallLog ("target: " + $Exe)
 
 try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -100,25 +89,28 @@ try {
 Get-Process -Name "ReSA" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
-if (Test-Path -LiteralPath $TempExe) {
-    Remove-Item -LiteralPath $TempExe -Force -ErrorAction SilentlyContinue
+$Url = $BaseUrl + "/ReSA.exe"
+Write-InstallLog ("download: " + $Url)
+
+if (Test-Path -LiteralPath $Temp) {
+    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
 }
 
 try {
-    Download-File -Url $Url -OutFile $TempExe
-    Write-InstallLog "download ok"
+    Download-File -Url $Url -OutFile $Temp
 } catch {
     Fail-Install ("download failed: " + $_.Exception.Message)
     exit 1
 }
 
-if (-not (Test-Path -LiteralPath $TempExe)) {
+if (-not (Test-Path -LiteralPath $Temp)) {
     Fail-Install "missing file after download"
     exit 1
 }
 
-$length = (Get-Item -LiteralPath $TempExe).Length
+$length = (Get-Item -LiteralPath $Temp).Length
 if ($length -lt 1048576) {
+    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
     Fail-Install ("file too small: " + $length + " bytes")
     exit 1
 }
@@ -128,7 +120,7 @@ if (Test-Path -LiteralPath $Exe) {
 }
 
 try {
-    Move-Item -LiteralPath $TempExe -Destination $Exe -Force
+    Move-Item -LiteralPath $Temp -Destination $Exe -Force
 } catch {
     Fail-Install ("copy failed: " + $_.Exception.Message)
     exit 1
@@ -136,7 +128,7 @@ try {
 
 Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
-$autostartOk = $false
+$startupOk = $false
 try {
     $Startup = [Environment]::GetFolderPath("Startup")
     $Wsh = New-Object -ComObject WScript.Shell
@@ -145,31 +137,27 @@ try {
     $Link.WorkingDirectory = $Dir
     $Link.WindowStyle = 7
     $Link.Save()
-    $autostartOk = $true
+    $startupOk = $true
     Write-InstallLog "startup shortcut ok"
 } catch {
     $null = $_
 }
 
-if (-not $autostartOk) {
-    try {
-        $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-        $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-        Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
-        $autostartOk = $true
-        Write-InstallLog "scheduled task ok"
-    } catch {
-        Fail-Install ("autostart failed: " + $_.Exception.Message)
-        exit 1
-    }
+if (-not $startupOk) {
+    $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+    $Trigger = New-ScheduledTaskTrigger -AtLogOn
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName "ReSA" -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+    Write-InstallLog "scheduled task ok"
 }
 
 try {
     Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
-    Write-InstallLog "install complete"
-    exit 0
+    Write-InstallLog "started"
 } catch {
     Fail-Install ("start failed: " + $_.Exception.Message)
     exit 1
 }
+
+Write-InstallLog "install complete"
+exit 0
