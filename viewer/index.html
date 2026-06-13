@@ -38,18 +38,11 @@
       </div>
       <ul id="deviceList" class="device-list"></ul>
 
-      <h2 class="section-title">远程终端</h2>
-      <p id="terminalHint" class="clipboard-hint">需在被控端单独安装并运行 ReST.exe</p>
-      <div class="terminal-shell-row">
-        <label for="terminalShell">Shell</label>
-        <select id="terminalShell">
-          <option value="cmd">CMD</option>
-          <option value="powershell">PowerShell</option>
-        </select>
-        <button id="terminalRunBtn" class="btn-small" type="button" disabled>执行</button>
+      <div class="panel-head">
+        <h2 class="section-title inline-title">远程终端</h2>
+        <button id="openTerminalBtn" class="btn-small" type="button" disabled>打开终端</button>
       </div>
-      <pre id="terminalOutput" class="terminal-output">连接设备后可执行命令</pre>
-      <input id="terminalInput" class="terminal-input" type="text" placeholder="输入命令，回车执行" disabled />
+      <p id="terminalHint" class="clipboard-hint">需在被控端单独安装并运行 ReST.exe</p>
 
       <h2 class="section-title">会话</h2>
       <label class="toggle-row">
@@ -110,6 +103,32 @@
       <ul id="auditList" class="audit-list"></ul>
     </aside>
   </main>
+
+  <div id="terminalModal" class="terminal-modal" hidden>
+    <div class="terminal-modal-panel">
+      <div class="terminal-modal-head">
+        <span id="terminalModalTitle">远程终端</span>
+        <div class="terminal-modal-actions">
+          <button id="terminalClearBtn" class="btn-small" type="button">清空</button>
+          <button id="terminalModalClose" class="btn-small" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="terminal-modal-body">
+        <div class="terminal-shell-row">
+          <label for="terminalShell">Shell</label>
+          <select id="terminalShell">
+            <option value="cmd">CMD</option>
+            <option value="powershell">PowerShell</option>
+          </select>
+          <button id="terminalRunBtn" class="btn-small" type="button" disabled>执行</button>
+        </div>
+        <pre id="terminalOutput" class="terminal-output">连接设备后可执行命令</pre>
+      </div>
+      <div class="terminal-modal-foot">
+        <input id="terminalInput" class="terminal-input" type="text" placeholder="输入命令，回车执行" disabled />
+      </div>
+    </div>
+  </div>
 
   <div id="recordingModal" class="screenshot-modal" hidden>
     <div class="screenshot-modal-panel">

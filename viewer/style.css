@@ -427,13 +427,15 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 8px 0;
+  margin: 0 0 10px;
   font-size: 13px;
+  flex-shrink: 0;
 }
 
 .terminal-shell-row select {
   flex: 1;
-  padding: 4px 8px;
+  max-width: 220px;
+  padding: 6px 10px;
   border: 1px solid #3a4150;
   border-radius: 6px;
   background: #0f1117;
@@ -441,17 +443,17 @@ main {
 }
 
 .terminal-output {
-  margin: 0 0 8px;
-  padding: 8px;
-  min-height: 120px;
-  max-height: 220px;
+  margin: 0;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   background: #0a0c10;
   border: 1px solid #2a2f3a;
   border-radius: 8px;
   font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   color: #cbd5e1;
   white-space: pre-wrap;
   word-break: break-word;
@@ -459,17 +461,87 @@ main {
 
 .terminal-input {
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid #3a4150;
   border-radius: 6px;
   background: #0f1117;
   color: inherit;
   font-family: Consolas, "Courier New", monospace;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .terminal-input:disabled {
   opacity: 0.5;
+}
+
+.terminal-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.terminal-modal[hidden] {
+  display: none;
+}
+
+.terminal-modal-panel {
+  width: min(96vw, 1100px);
+  height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+  background: #1a1d27;
+  border: 1px solid #2a2f3a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.terminal-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a2f3a;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.terminal-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.terminal-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  background: #12151d;
+}
+
+.terminal-modal-foot {
+  padding: 12px 16px;
+  border-top: 1px solid #2a2f3a;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .terminal-modal {
+    padding: 0;
+  }
+
+  .terminal-modal-panel {
+    width: 100vw;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
 }
 
 .meta {

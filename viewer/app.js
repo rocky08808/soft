@@ -46,6 +46,11 @@ const recordingModalCloseBtn = document.getElementById("recordingModalClose");
 const recordingModalDownloadBtn = document.getElementById("recordingModalDownload");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
 const terminalHintEl = document.getElementById("terminalHint");
+const openTerminalBtn = document.getElementById("openTerminalBtn");
+const terminalModalEl = document.getElementById("terminalModal");
+const terminalModalTitleEl = document.getElementById("terminalModalTitle");
+const terminalModalCloseBtn = document.getElementById("terminalModalClose");
+const terminalClearBtn = document.getElementById("terminalClearBtn");
 const terminalShellEl = document.getElementById("terminalShell");
 const terminalRunBtn = document.getElementById("terminalRunBtn");
 const terminalOutputEl = document.getElementById("terminalOutput");
@@ -142,9 +147,42 @@ function setTerminalHint(text) {
 }
 
 function updateTerminalUi() {
-  const enabled = !!(ws && ws.readyState === WebSocket.OPEN && termOnline);
+  const connected = !!(ws && ws.readyState === WebSocket.OPEN);
+  const enabled = connected && termOnline;
+  if (openTerminalBtn) openTerminalBtn.disabled = !connected;
   if (terminalRunBtn) terminalRunBtn.disabled = !enabled;
   if (terminalInputEl) terminalInputEl.disabled = !enabled;
+}
+
+function updateTerminalModalTitle() {
+  if (!terminalModalTitleEl) return;
+  const deviceId = currentDeviceId();
+  const status = termOnline ? "已连接" : "离线";
+  terminalModalTitleEl.textContent = deviceId
+    ? `远程终端 · ${deviceId} · ${status}`
+    : `远程终端 · ${status}`;
+}
+
+function openTerminalModal() {
+  if (!terminalModalEl) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setTerminalHint("请先连接设备");
+    return;
+  }
+  terminalModalEl.hidden = false;
+  updateTerminalModalTitle();
+  if (terminalInputEl && termOnline) {
+    setTimeout(() => terminalInputEl.focus(), 0);
+  }
+}
+
+function closeTerminalModal() {
+  if (terminalModalEl) terminalModalEl.hidden = true;
+}
+
+function clearTerminalOutput() {
+  if (!terminalOutputEl) return;
+  terminalOutputEl.textContent = "连接设备后可执行命令";
 }
 
 function appendTerminalBlock(title, text) {
@@ -155,6 +193,9 @@ function appendTerminalBlock(title, text) {
   }
   terminalOutputEl.textContent += `${title}${chunk}${chunk && !chunk.endsWith("\n") ? "\n" : ""}`;
   terminalOutputEl.scrollTop = terminalOutputEl.scrollHeight;
+  if (terminalModalEl && !terminalModalEl.hidden) {
+    updateTerminalModalTitle();
+  }
 }
 
 function sendTerminalCommand(command) {
@@ -932,7 +973,7 @@ function connect() {
         setClipboardHint(`设备 ${deviceId} 离线，复制记录可能为空`);
       }
       if (termOnline) {
-        setTerminalHint(`设备: ${deviceId} · 终端已连接`);
+        setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       } else {
         setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReST.exe`);
       }
@@ -985,13 +1026,15 @@ function connect() {
     if (msg.type === "term_online" && msg.deviceId === deviceId) {
       termOnline = true;
       updateTerminalUi();
-      setTerminalHint(`设备: ${deviceId} · 终端已连接`);
+      updateTerminalModalTitle();
+      setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       return;
     }
 
     if (msg.type === "term_offline" && msg.deviceId === deviceId) {
       termOnline = false;
       updateTerminalUi();
+      updateTerminalModalTitle();
       setTerminalHint(`设备: ${deviceId} · 终端已离线`);
       return;
     }
@@ -1024,6 +1067,7 @@ function connect() {
     screenshotBtn.disabled = true;
     termOnline = false;
     updateTerminalUi();
+    closeTerminalModal();
     ws = null;
   };
 
@@ -1212,9 +1256,16 @@ screenshotModalEl?.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    if (recordingModalEl && !recordingModalEl.hidden) closeRecordingModal();
+    if (terminalModalEl && !terminalModalEl.hidden) closeTerminalModal();
+    else if (recordingModalEl && !recordingModalEl.hidden) closeRecordingModal();
     else if (screenshotModalEl && !screenshotModalEl.hidden) closeScreenshotModal();
   }
+});
+openTerminalBtn?.addEventListener("click", openTerminalModal);
+terminalModalCloseBtn?.addEventListener("click", closeTerminalModal);
+terminalClearBtn?.addEventListener("click", clearTerminalOutput);
+terminalModalEl?.addEventListener("click", (e) => {
+  if (e.target === terminalModalEl) closeTerminalModal();
 });
 terminalRunBtn?.addEventListener("click", () => {
   sendTerminalCommand(terminalInputEl?.value || "");
