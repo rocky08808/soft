@@ -423,6 +423,55 @@ main {
   opacity: 0.5;
 }
 
+.terminal-shell-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.terminal-shell-row select {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: #0f1117;
+  color: inherit;
+}
+
+.terminal-output {
+  margin: 0 0 8px;
+  padding: 8px;
+  min-height: 120px;
+  max-height: 220px;
+  overflow: auto;
+  background: #0a0c10;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #cbd5e1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: #0f1117;
+  color: inherit;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.terminal-input:disabled {
+  opacity: 0.5;
+}
+
 .meta {
   margin: 8px 0 0;
   font-size: 13px;

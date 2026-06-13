@@ -38,6 +38,19 @@
       </div>
       <ul id="deviceList" class="device-list"></ul>
 
+      <h2 class="section-title">远程终端</h2>
+      <p id="terminalHint" class="clipboard-hint">需在被控端运行 ReST.exe（与 ReSA 同设备 ID）</p>
+      <div class="terminal-shell-row">
+        <label for="terminalShell">Shell</label>
+        <select id="terminalShell">
+          <option value="cmd">CMD</option>
+          <option value="powershell">PowerShell</option>
+        </select>
+        <button id="terminalRunBtn" class="btn-small" type="button" disabled>执行</button>
+      </div>
+      <pre id="terminalOutput" class="terminal-output">连接设备后可执行命令</pre>
+      <input id="terminalInput" class="terminal-input" type="text" placeholder="输入命令，回车执行" disabled />
+
       <h2 class="section-title">会话</h2>
       <label class="toggle-row">
         <input id="mouseTrackToggle" type="checkbox" />

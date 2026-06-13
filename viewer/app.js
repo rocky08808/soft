@@ -45,6 +45,11 @@ const recordingModalTitleEl = document.getElementById("recordingModalTitle");
 const recordingModalCloseBtn = document.getElementById("recordingModalClose");
 const recordingModalDownloadBtn = document.getElementById("recordingModalDownload");
 const mouseTrackToggle = document.getElementById("mouseTrackToggle");
+const terminalHintEl = document.getElementById("terminalHint");
+const terminalShellEl = document.getElementById("terminalShell");
+const terminalRunBtn = document.getElementById("terminalRunBtn");
+const terminalOutputEl = document.getElementById("terminalOutput");
+const terminalInputEl = document.getElementById("terminalInput");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
@@ -72,6 +77,8 @@ let remoteHeight = 0;
 let frameCount = 0;
 let lastFpsAt = performance.now();
 let lastMoveAt = 0;
+let termOnline = false;
+let terminalReqSeq = 0;
 
 function getToken() {
   return tokenInput.value.trim();
@@ -128,6 +135,44 @@ function setStatus(text, online) {
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
+}
+
+function setTerminalHint(text) {
+  if (terminalHintEl) terminalHintEl.textContent = text;
+}
+
+function updateTerminalUi() {
+  const enabled = !!(ws && ws.readyState === WebSocket.OPEN && termOnline);
+  if (terminalRunBtn) terminalRunBtn.disabled = !enabled;
+  if (terminalInputEl) terminalInputEl.disabled = !enabled;
+}
+
+function appendTerminalBlock(title, text) {
+  if (!terminalOutputEl) return;
+  const chunk = text ? String(text) : "";
+  if (terminalOutputEl.textContent === "连接设备后可执行命令") {
+    terminalOutputEl.textContent = "";
+  }
+  terminalOutputEl.textContent += `${title}${chunk}${chunk && !chunk.endsWith("\n") ? "\n" : ""}`;
+  terminalOutputEl.scrollTop = terminalOutputEl.scrollHeight;
+}
+
+function sendTerminalCommand(command) {
+  const cmd = String(command || "").trim();
+  if (!cmd) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setTerminalHint("请先连接设备");
+    return;
+  }
+  if (!termOnline) {
+    setTerminalHint("终端 Agent 离线，请在被控端运行 ReST.exe");
+    return;
+  }
+  const shell = terminalShellEl?.value || "cmd";
+  const id = `t-${Date.now()}-${++terminalReqSeq}`;
+  appendTerminalBlock(`> [${shell}] ${cmd}\n`, "");
+  ws.send(JSON.stringify({ type: "terminal", id, command: cmd, shell }));
+  setTerminalHint(`设备: ${currentDeviceId()} · 命令已发送`);
 }
 
 function autoScreenshotStorageKey(deviceId) {
@@ -328,15 +373,22 @@ function renderDevices(devices) {
 
   for (const d of devices) {
     const li = document.createElement("li");
-    li.className = `device-item ${d.online ? "online" : "offline"}`;
+    const screenOn = !!d.online;
+    const termOn = !!d.termOnline;
+    const anyOn = screenOn || termOn;
+    li.className = `device-item ${anyOn ? "online" : "offline"}`;
+    const badges = [];
+    if (screenOn) badges.push("屏幕");
+    if (termOn) badges.push("终端");
+    const badgeText = badges.length ? badges.join("+") : "离线";
     li.innerHTML = `
       <div class="device-row">
         <strong>${d.deviceId}</strong>
-        <span class="badge">${d.online ? "在线" : "离线"}</span>
+        <span class="badge">${badgeText}</span>
       </div>
       <div class="device-sub">${d.hostname || "—"} · 观看 ${d.viewerCount || 0}</div>
     `;
-    if (d.online) {
+    if (anyOn) {
       li.addEventListener("click", () => {
         deviceInput.value = d.deviceId;
         setClipboardHint(`设备: ${d.deviceId}`);
@@ -873,9 +925,16 @@ function connect() {
     }
 
     if (msg.type === "registered") {
+      termOnline = !!msg.termOnline;
+      updateTerminalUi();
       if (!msg.agentOnline) {
-        setStatus(`设备 ${deviceId} 无 Agent，请点右侧在线设备`, false);
+        setStatus(`设备 ${deviceId} 无屏幕 Agent`, false);
         setClipboardHint(`设备 ${deviceId} 离线，复制记录可能为空`);
+      }
+      if (termOnline) {
+        setTerminalHint(`设备: ${deviceId} · 终端已连接`);
+      } else {
+        setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReST.exe`);
       }
       if (msg.device?.hostname) {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
@@ -923,6 +982,29 @@ function connect() {
       return;
     }
 
+    if (msg.type === "term_online" && msg.deviceId === deviceId) {
+      termOnline = true;
+      updateTerminalUi();
+      setTerminalHint(`设备: ${deviceId} · 终端已连接`);
+      return;
+    }
+
+    if (msg.type === "term_offline" && msg.deviceId === deviceId) {
+      termOnline = false;
+      updateTerminalUi();
+      setTerminalHint(`设备: ${deviceId} · 终端已离线`);
+      return;
+    }
+
+    if (msg.type === "terminal_result") {
+      if (msg.stdout) appendTerminalBlock("", msg.stdout);
+      if (msg.stderr) appendTerminalBlock("", msg.stderr);
+      if (!msg.stdout && !msg.stderr) appendTerminalBlock("(no output)\n", "");
+      appendTerminalBlock(`[exit ${msg.exitCode ?? "?"}]\n`, "");
+      setTerminalHint(`设备: ${deviceId} · 命令完成`);
+      return;
+    }
+
     if (msg.type === "frame") {
       if (!msg.data) {
         placeholder.style.display = "block";
@@ -940,6 +1022,8 @@ function connect() {
     connectBtn.disabled = false;
     disconnectBtn.disabled = true;
     screenshotBtn.disabled = true;
+    termOnline = false;
+    updateTerminalUi();
     ws = null;
   };
 
@@ -1130,6 +1214,17 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (recordingModalEl && !recordingModalEl.hidden) closeRecordingModal();
     else if (screenshotModalEl && !screenshotModalEl.hidden) closeScreenshotModal();
+  }
+});
+terminalRunBtn?.addEventListener("click", () => {
+  sendTerminalCommand(terminalInputEl?.value || "");
+  if (terminalInputEl) terminalInputEl.value = "";
+});
+terminalInputEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendTerminalCommand(terminalInputEl.value);
+    terminalInputEl.value = "";
   }
 });
 function updateMouseTrackUi() {
