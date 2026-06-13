@@ -50,13 +50,8 @@ if not exist ..\downloads mkdir ..\downloads
 copy /Y dist\ReSA.exe ..\downloads\ >nul
 
 echo.
-echo Building ReSA-Setup.exe ...
-call ..\setup\build-setup.bat nopause
-if errorlevel 1 exit /b 1
 
-echo.
-
-echo Next: upload downloads/ to server, then use install page
+echo Next: upload downloads\ReSA.exe to server, then use install page
 
 echo   https://your-domain/install.html
 

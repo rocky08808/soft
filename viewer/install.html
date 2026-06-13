@@ -142,15 +142,15 @@
 
     <div class="hero">
       <p>只需两步：<strong>下载</strong> → <strong>双击运行</strong></p>
-      <a id="setupDownloadBtn" class="btn-primary" href="/download/ReSA-Setup.exe" download>第一步：下载安装程序</a>
+      <a id="setupDownloadBtn" class="btn-primary" href="/download/ReSA-Setup.bat" download>第一步：下载安装脚本</a>
       <div id="afterDownload" class="hero-tip" hidden>
-        <strong>第二步：</strong>打开浏览器的「下载」或电脑的「下载」文件夹，双击 <code>ReSA-Setup.exe</code>。<br />
-        若浏览器询问是否运行，点<strong>打开</strong>或<strong>仍要运行</strong>。安装成功会弹出「安装完成」提示。
+        <strong>第二步：</strong>在「下载」文件夹双击 <code>ReSA-Setup.bat</code>（或 <code>ReSA安装.bat</code>）。<br />
+        若出现安全提示，点<strong>仍要运行</strong>。成功会弹出「安装完成」。
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>点上方蓝色按钮，下载 <code>ReSA-Setup.exe</code></span></div>
-        <div class="step"><span class="step-num">2</span><span>在「下载」里找到该文件，<strong>双击运行</strong></span></div>
-        <div class="step"><span class="step-num">3</span><span>看到「安装完成」即成功，无需其他操作</span></div>
+        <div class="step"><span class="step-num">1</span><span>点上方按钮，下载安装脚本（约 1KB，安装时再自动下载主程序）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 bat 文件，等待自动安装（无需 Win+R）</span></div>
+        <div class="step"><span class="step-num">3</span><span>看到「安装完成」即成功</span></div>
       </div>
     </div>
 
@@ -166,7 +166,7 @@
     <div class="install-card">
       <h2>下载链接</h2>
       <div class="link-row">
-        <label>安装程序（ReSA-Setup.exe）</label>
+        <label>安装脚本（ReSA-Setup.bat，约 1KB）</label>
         <div class="link-row-inner">
           <div class="link-box" id="setupUrl"></div>
           <button type="button" id="copySetupBtn">复制</button>
@@ -219,7 +219,7 @@
     const origin = location.origin;
     const base = origin + "/download";
     const pageUrl = origin + "/install.html";
-    const setupUrl = base + "/ReSA-Setup.exe";
+    const setupUrl = base + "/ReSA-Setup.bat";
     const batUrl = base + "/install.bat";
     const cmdOneLiner =
       'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReSA-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReSA-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReSA-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
@@ -254,7 +254,7 @@
       }
     }
 
-    document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "安装程序地址"));
+    document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "安装脚本地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
     document.getElementById("copyCmdBtn").addEventListener("click", () => copyText(cmdOneLiner, "Win+R 命令"));

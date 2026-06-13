@@ -480,35 +480,16 @@ def _read_clipboard_ctypes() -> Optional[str]:
     return None
 
 
-def _read_clipboard_tk() -> Optional[str]:
-    try:
-        import tkinter as tk
-
-        root = tk.Tk()
-        root.withdraw()
-        root.update()
-        try:
-            text = root.clipboard_get()
-            return text if text else None
-        except tk.TclError:
-            return None
-        finally:
-            root.destroy()
-    except Exception:
-        return None
-
-
 def get_clipboard_text() -> Optional[str]:
     if sys.platform != "win32":
         return None
 
-    for reader in (_read_clipboard_ctypes, _read_clipboard_tk):
-        try:
-            text = reader()
-            if text and text.strip():
-                return text
-        except Exception:
-            continue
+    try:
+        text = _read_clipboard_ctypes()
+        if text and text.strip():
+            return text
+    except Exception:
+        pass
     return None
 
 

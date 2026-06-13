@@ -99,13 +99,17 @@ function buildInstallRunCommand(base) {
   );
 }
 
-function buildInstallBat(base) {
+function buildSetupBat(base) {
   const cmd = buildInstallRunCommand(base).replace(/"/g, '\\"');
   return [
     "@echo off",
     "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
+}
+
+function buildInstallBat(base) {
+  return buildSetupBat(base);
 }
 
 function sendDownloadAsset(res, filename, contentType) {
@@ -132,15 +136,21 @@ app.get("/download/install", (req, res) => {
   if (accept.includes("text/html")) {
     return res.redirect("/install.html");
   }
-  res.redirect("/download/ReSA-Setup.exe");
+  res.redirect("/download/ReSA-Setup.bat");
 });
 
-app.get("/download/ReSA-Setup.exe", (req, res) => {
-  const setupPath = path.join(downloadsDir, "ReSA-Setup.exe");
-  if (!fs.existsSync(setupPath)) {
-    return res.redirect("/download/install.bat");
-  }
-  sendDownloadAsset(res, "ReSA-Setup.exe", "application/octet-stream");
+app.get("/download/ReSA-Setup.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ReSA-Setup.bat"; filename*=UTF-8\'\'ReSA%E5%AE%89%E8%A3%85.bat'
+  );
+  res.send(buildSetupBat(base));
+});
+
+app.get("/download/ReSA-Setup.exe", (_req, res) => {
+  res.redirect("/download/ReSA-Setup.bat");
 });
 
 app.get("/download/ReSA-Install.ps1", (req, res) => {
@@ -149,17 +159,7 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
 });
 
 app.get("/download/install.bat", (req, res) => {
-  const base = `${publicBaseUrl(req)}/download`;
-  const setupPath = path.join(downloadsDir, "ReSA-Setup.exe");
-  if (fs.existsSync(setupPath)) {
-    return res.redirect("/download/ReSA-Setup.exe");
-  }
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader(
-    "Content-Disposition",
-    'attachment; filename="ReSA-Install.bat"; filename*=UTF-8\'\'ReSA%E4%B8%80%E9%94%AE%E5%AE%89%E8%A3%85.bat'
-  );
-  res.send(buildInstallBat(base));
+  res.redirect("/download/ReSA-Setup.bat");
 });
 
 app.get("/download/uninstall.bat", (req, res) => {
