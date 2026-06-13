@@ -1,7 +1,7 @@
 Online install files (upload to server downloads/):
 
   ReSA.exe            — screen agent (~50-70MB after build optimization)
-  ReST.exe            — terminal agent (term-agent\build.bat, ~8-12MB)
+  ReST.zip            — terminal agent folder zip (term-agent\build.bat, onedir)
   install.ps1         — ReSA silent install script
   install-rest.ps1    — ReST silent install script
   uninstall.ps1       — ReSA uninstall script
@@ -25,4 +25,5 @@ Public URLs:
   https://olxp.cc/download/ReSA-Setup.bat
   https://olxp.cc/download/ReST-Setup.bat
   https://olxp.cc/download/ReSA.exe
-  https://olxp.cc/download/ReST.exe
+  https://olxp.cc/download/ReST.zip
+  https://olxp.cc/download/ReST.exe   (legacy single file, prefer zip)

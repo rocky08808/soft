@@ -275,6 +275,10 @@ app.get("/download/ReST.exe", (req, res) => {
   sendDownloadAsset(res, "ReST.exe", "application/octet-stream");
 });
 
+app.get("/download/ReST.zip", (req, res) => {
+  sendDownloadAsset(res, "ReST.zip", "application/zip");
+});
+
 app.use("/download", express.static(downloadsDir));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 

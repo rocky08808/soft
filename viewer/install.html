@@ -223,6 +223,16 @@
     </div>
 
     <div class="install-card warn-card">
+      <h2>Windows 安全中心误杀？</h2>
+      <p class="note">ReST 执行命令时若被 Defender 拦截，请将安装目录加入排除项：</p>
+      <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 管理设置</span></div>
+        <div class="step"><span class="step-num">2</span><span>排除项 → 添加排除项 → 文件夹 → 选 <code>%LOCALAPPDATA%\ReST</code></span></div>
+        <div class="step"><span class="step-num">3</span><span>重新运行 ReST 安装脚本；新版为文件夹安装，比单文件 exe 更不易误报</span></div>
+      </div>
+    </div>
+
+    <div class="install-card warn-card">
       <h2>出现 Windows 安全提示？</h2>
       <p class="note">未签名软件首次运行可能被拦截，属于正常现象。</p>
       <div class="steps">
@@ -255,7 +265,7 @@
         </div>
       </div>
       <div class="link-row">
-        <label>终端 Agent（ReST.exe）</label>
+        <label>终端 Agent（ReST.zip，解压到 ReST 文件夹）</label>
         <div class="link-row-inner">
           <div class="link-box" id="restUrl"></div>
           <button type="button" id="copyRestBtn">复制</button>
@@ -325,7 +335,7 @@
     const restSetupUrl = base + "/ReST-Setup.bat";
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
-    const restUrl = base + "/ReST.exe";
+    const restUrl = base + "/ReST.zip";
 
     function toPsEncodedCommand(script) {
       const bytes = [];
@@ -430,7 +440,7 @@
     document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "ReSA 安装脚本"));
     document.getElementById("copyRestSetupBtn").addEventListener("click", () => copyText(restSetupUrl, "ReST 安装脚本"));
     document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
-    document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.exe 地址"));
+    document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.zip 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
     document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA 一键命令"));

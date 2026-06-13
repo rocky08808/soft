@@ -20,6 +20,13 @@ import websockets
 
 MAX_OUTPUT_BYTES = 65536
 CREATE_NO_WINDOW = 0x08000000
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+DETACHED_PROCESS = 0x00000008
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+SUBPROCESS_FLAGS = (
+    CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
+)
+_SINGLE_INSTANCE_MUTEX = None
 _session_cwd: Optional[str] = None
 
 
@@ -222,6 +229,29 @@ def build_ws_url(server: str, device_id: str, token: str) -> str:
     return f"{base}/ws?role=term&deviceId={device_id}&token={token}"
 
 
+def subprocess_startupinfo() -> Optional[subprocess.STARTUPINFO]:
+    if sys.platform != "win32":
+        return None
+    info = subprocess.STARTUPINFO()
+    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    info.wShowWindow = subprocess.SW_HIDE
+    return info
+
+
+def acquire_single_instance() -> bool:
+    global _SINGLE_INSTANCE_MUTEX
+    if sys.platform != "win32":
+        return True
+    import ctypes
+
+    mutex_name = "Local\\ReST-TermAgent"
+    _SINGLE_INSTANCE_MUTEX = ctypes.windll.kernel32.CreateMutexW(None, True, mutex_name)
+    if ctypes.windll.kernel32.GetLastError() == 183:
+        agent_log("Another ReST instance is already running, exiting")
+        return False
+    return True
+
+
 def trim_output(text: str, limit: int = MAX_OUTPUT_BYTES) -> tuple[str, bool]:
     raw = text or ""
     encoded = raw.encode("utf-8", errors="replace")
@@ -294,7 +324,8 @@ def run_single_line(line: str, shell: str) -> dict[str, Any]:
     else:
         args = ["cmd.exe", "/c", command]
 
-    flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    flags = SUBPROCESS_FLAGS if sys.platform == "win32" else 0
+    startupinfo = subprocess_startupinfo()
     try:
         completed = subprocess.run(
             args,
@@ -304,6 +335,7 @@ def run_single_line(line: str, shell: str) -> dict[str, Any]:
             errors="replace",
             cwd=workdir,
             creationflags=flags,
+            startupinfo=startupinfo,
             timeout=120,
         )
         stdout, out_trunc = trim_output(completed.stdout)
@@ -392,16 +424,35 @@ async def handle_message(ws, msg: dict[str, Any]) -> None:
     cwd = msg.get("cwd")
 
     agent_log(f"exec [{shell}]: {command[:120]}")
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, run_command, command, shell, cwd)
-    payload = {
-        "type": "terminal_result",
-        "id": req_id,
-        "command": command,
-        "shell": shell,
-        **result,
-    }
-    await ws.send(json.dumps(payload))
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, run_command, command, shell, cwd)
+        payload = {
+            "type": "terminal_result",
+            "id": req_id,
+            "command": command,
+            "shell": shell,
+            **result,
+        }
+        await ws.send(json.dumps(payload))
+        agent_log(f"exec done [{shell}] exit={result.get('exitCode')}")
+    except Exception as exc:
+        agent_log(f"exec failed: {exc}")
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "terminal_result",
+                    "id": req_id,
+                    "command": command,
+                    "shell": shell,
+                    "stdout": "",
+                    "stderr": f"agent error: {exc}",
+                    "exitCode": 1,
+                    "truncated": False,
+                    "cwd": default_cwd(),
+                }
+            )
+        )
 
 
 async def run_term_agent(server: str, device_id: str, token: str) -> None:
@@ -432,7 +483,17 @@ async def run_term_agent(server: str, device_id: str, token: str) -> None:
                         msg = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
-                    await handle_message(ws, msg)
+                    try:
+                        await handle_message(ws, msg)
+                    except Exception as exc:
+                        agent_log(f"message error: {exc}")
+        except websockets.exceptions.ConnectionClosed as exc:
+            reason = exc.reason or ""
+            if exc.code == 4000 and "replaced" in reason.lower():
+                agent_log("Connection replaced by newer ReST instance, exiting")
+                return
+            agent_log(f"Disconnected: {exc}. Retry in 3s...")
+            await asyncio.sleep(3)
         except Exception as exc:
             agent_log(f"Disconnected: {exc}. Retry in 3s...")
             await asyncio.sleep(3)
@@ -446,6 +507,9 @@ def main() -> None:
     parser.add_argument("--token", default=os.environ.get("ACCESS_TOKEN", ""))
     args = parser.parse_args()
     settings = resolve_settings(args)
+
+    if not acquire_single_instance():
+        return
 
     print(f"Server: {settings['server']}")
     print(f"Device: {settings['device_id']}")

