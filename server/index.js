@@ -40,11 +40,16 @@ function publicBaseUrl(req) {
 }
 
 function sendPs1Download(res, filename, body) {
-  const bom = Buffer.from([0xef, 0xbb, 0xbf]);
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.send(Buffer.concat([bom, Buffer.from(body, "utf8")]));
+  res.send(Buffer.from(body, "utf8"));
 }
+
+const STRIP_PS1_BOM = [
+  "$t = [IO.File]::ReadAllText($f)",
+  "$t = $t.TrimStart([char]0xFEFF)",
+  "[IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))",
+].join("; ");
 
 function buildInstallWrapperPs1(base) {
   const safeBase = base.replace(/'/g, "''");
@@ -72,6 +77,7 @@ function buildInstallWrapperPs1(base) {
     "        Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing",
     "    }",
     "    Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
+    `    ${STRIP_PS1_BOM}`,
     "    if ($Silent) {",
     "        & $f -Silent",
     "    } else {",
@@ -95,6 +101,7 @@ function buildInstallRunCommand(base) {
     `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/ReSA-Install.ps1') }; ` +
     `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/ReSA-Install.ps1') -OutFile $f -UseBasicParsing }; ` +
     `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; ` +
+    `${STRIP_PS1_BOM}; ` +
     `& $f -Silent`
   );
 }
@@ -118,10 +125,9 @@ function sendDownloadAsset(res, filename, contentType) {
     return res.status(404).send(`${filename} not found on server`);
   }
   if (filename.endsWith(".ps1")) {
-    const text = fs.readFileSync(filePath, "utf8");
-    const bom = Buffer.from([0xef, 0xbb, 0xbf]);
+    const text = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
     res.setHeader("Content-Type", contentType);
-    return res.send(Buffer.concat([bom, Buffer.from(text, "utf8")]));
+    return res.send(Buffer.from(text, "utf8"));
   }
   res.setHeader("Content-Type", contentType);
   res.sendFile(filePath);
@@ -169,7 +175,7 @@ app.get("/download/uninstall.bat", (req, res) => {
     "$b='%BASE%'; $f=Join-Path $env:TEMP 'ReSA-uninstall.ps1'; " +
     "Invoke-WebRequest -Uri ($b+'/uninstall.ps1') -OutFile $f -UseBasicParsing; " +
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "$t=[IO.File]::ReadAllText($f); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $true)); " +
+    "$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false)); " +
     "& $f; exit $LASTEXITCODE";
   const body = [
     "@echo off",
