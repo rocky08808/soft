@@ -182,11 +182,11 @@
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的屏幕画面</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
-        <strong>CMD 一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制<strong>整行</strong>到 CMD 或 Win+R 运行。须以 <code>cmd /c</code> 开头（PowerShell 里 <code>curl</code> 是别名，会报 Port 错误）：</p>
+        <strong>命令行一键安装</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">复制<strong>整行</strong>到 CMD、Win+R 或 PowerShell 均可（自动下载并执行 bat）：</p>
         <div class="cmd-box" id="cmdResaBat"></div>
         <div class="install-actions">
-          <button type="button" id="copyCmdResaBatBtn">复制 CMD 命令</button>
+          <button type="button" id="copyCmdResaBatBtn">复制一键命令</button>
         </div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -213,11 +213,11 @@
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
-        <strong>CMD 一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD 或 Win+R 运行（须以 <code>cmd /c</code> 开头）：</p>
+        <strong>命令行一键安装</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD、Win+R 或 PowerShell 运行：</p>
         <div class="cmd-box" id="cmdRestBat"></div>
         <div class="install-actions">
-          <button type="button" id="copyCmdRestBatBtn">复制 CMD 命令</button>
+          <button type="button" id="copyCmdRestBatBtn">复制一键命令</button>
         </div>
       </div>
     </div>
@@ -329,9 +329,16 @@
 
     function buildBatInstallCommand(downloadBase, batFile) {
       const url = `${downloadBase}/${batFile}`;
-      const curl = `%SystemRoot%\\System32\\curl.exe`;
-      const batPath = `%TEMP%\\${batFile}`;
-      return `cmd /c "${curl} -fsSL -o ${batPath} ${url} && call ${batPath}"`;
+      const safeUrl = url.replace(/'/g, "''");
+      const inner = [
+        `$f=Join-Path $env:TEMP '${batFile}'`,
+        `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f '${safeUrl}' }`,
+        `else { Invoke-WebRequest -Uri '${safeUrl}' -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `Start-Process -FilePath $f -Wait -WindowStyle Hidden`,
+      ].join("; ");
+      return `powershell -NoProfile -ExecutionPolicy Bypass -Command "${inner.replace(/"/g, '\\"')}"`;
     }
 
     function buildRestInstallInner(downloadBase) {
@@ -425,8 +432,8 @@
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.exe 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
-    document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA CMD 命令"));
-    document.getElementById("copyCmdRestBatBtn").addEventListener("click", () => copyText(cmdRestBat, "ReST CMD 命令"));
+    document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA 一键命令"));
+    document.getElementById("copyCmdRestBatBtn").addEventListener("click", () => copyText(cmdRestBat, "ReST 一键命令"));
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
