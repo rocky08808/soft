@@ -183,7 +183,7 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>CMD 一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 <strong>CMD</strong> 或 <strong>Win+R</strong> 运行（自动下载并执行 bat）：</p>
+        <p class="note" style="margin: 0.5rem 0 0;">复制<strong>整行</strong>到 CMD 或 Win+R 运行。须以 <code>cmd /c</code> 开头（PowerShell 里 <code>curl</code> 是别名，会报 Port 错误）：</p>
         <div class="cmd-box" id="cmdResaBat"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdResaBatBtn">复制 CMD 命令</button>
@@ -214,7 +214,7 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>CMD 一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD 或 Win+R 运行：</p>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD 或 Win+R 运行（须以 <code>cmd /c</code> 开头）：</p>
         <div class="cmd-box" id="cmdRestBat"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdRestBatBtn">复制 CMD 命令</button>
@@ -329,8 +329,9 @@
 
     function buildBatInstallCommand(downloadBase, batFile) {
       const url = `${downloadBase}/${batFile}`;
+      const curl = `%SystemRoot%\\System32\\curl.exe`;
       const batPath = `%TEMP%\\${batFile}`;
-      return `curl -fsSL -o "${batPath}" "${url}" && call "${batPath}"`;
+      return `cmd /c "${curl} -fsSL -o ${batPath} ${url} && call ${batPath}"`;
     }
 
     function buildRestInstallInner(downloadBase) {
