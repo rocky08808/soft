@@ -182,9 +182,17 @@
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的屏幕画面</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>CMD 一键安装</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 <strong>CMD</strong> 或 <strong>Win+R</strong> 运行（自动下载并执行 bat）：</p>
+        <div class="cmd-box" id="cmdResaBat"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdResaBatBtn">复制 CMD 命令</button>
+        </div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
         <strong>PowerShell 安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">在 <strong>PowerShell 窗口</strong>中粘贴运行（每行末尾有分号，合并成一行也能执行）：</p>
-        <div class="cmd-box multiline" id="cmdResaPs1"></div>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD 或 Win+R 运行（内部调用 PowerShell，勿单独复制 <code>Unblock-File</code>）：</p>
+        <div class="cmd-box" id="cmdResaPs1"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdResaPs1Btn">复制 PowerShell 命令</button>
         </div>
@@ -203,6 +211,14 @@
         <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（约 1KB）</span></div>
         <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReST.exe 并加入开机自启</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>CMD 一键安装</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD 或 Win+R 运行：</p>
+        <div class="cmd-box" id="cmdRestBat"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdRestBatBtn">复制 CMD 命令</button>
+        </div>
       </div>
     </div>
 
@@ -311,24 +327,55 @@
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.exe";
 
-    function buildResaPs1Command(downloadBase) {
-      const safeBase = downloadBase.replace(/'/g, "''");
-      return [
-        `$env:RESA_INSTALL_BASE = '${safeBase}';`,
-        `$f = Join-Path $env:TEMP 'ReSA-Install.ps1';`,
-        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe';`,
-        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') };`,
-        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing };`,
-        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue;`,
-        `& $f -Silent`,
-      ].join("\n");
+    function buildBatInstallCommand(downloadBase, batFile) {
+      const url = `${downloadBase}/${batFile}`;
+      const batPath = `%TEMP%\\${batFile}`;
+      return `curl -fsSL -o "${batPath}" "${url}" && call "${batPath}"`;
     }
 
-    const cmdResaPs1 = buildResaPs1Command(base);
-    const cmdResa =
-      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReSA-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReSA-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReSA-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
-    const cmdRest =
-      'powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "$b=\'' + base + '\'; $f=Join-Path $env:TEMP \'ReST-Install.ps1\'; $curl=Join-Path $env:SystemRoot \'System32\\curl.exe\'; if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+\'/ReST-Install.ps1\') }; if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+\'/ReST-Install.ps1\') -OutFile $f -UseBasicParsing }; Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; & $f -Silent"';
+    function buildRestInstallInner(downloadBase) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$env:RESA_INSTALL_BASE='${safeBase}'`,
+        `$f=Join-Path $env:TEMP 'ReST-Install.ps1'`,
+        `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReST-Install.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReST-Install.ps1') -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `& $f -Silent`,
+      ].join("; ");
+    }
+
+    function buildRestInstallLaunch(downloadBase, hidden) {
+      const inner = buildRestInstallInner(downloadBase).replace(/"/g, '\\"');
+      const windowStyle = hidden ? "-WindowStyle Hidden " : "";
+      return `powershell ${windowStyle}-NoProfile -ExecutionPolicy Bypass -Command "${inner}"`;
+    }
+
+    function buildResaInstallInner(downloadBase) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$env:RESA_INSTALL_BASE='${safeBase}'`,
+        `$f=Join-Path $env:TEMP 'ReSA-Install.ps1'`,
+        `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `& $f -Silent`,
+      ].join("; ");
+    }
+
+    function buildResaInstallLaunch(downloadBase, hidden) {
+      const inner = buildResaInstallInner(downloadBase).replace(/"/g, '\\"');
+      const windowStyle = hidden ? "-WindowStyle Hidden " : "";
+      return `powershell ${windowStyle}-NoProfile -ExecutionPolicy Bypass -Command "${inner}"`;
+    }
+
+    const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
+    const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
+    const cmdResaPs1 = buildResaInstallLaunch(base, false);
+    const cmdResa = buildResaInstallLaunch(base, true);
+    const cmdRest = buildRestInstallLaunch(base, true);
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("setupUrl").textContent = setupUrl;
@@ -336,6 +383,8 @@
     document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("resaUrl").textContent = resaUrl;
     document.getElementById("restUrl").textContent = restUrl;
+    document.getElementById("cmdResaBat").textContent = cmdResaBat;
+    document.getElementById("cmdRestBat").textContent = cmdRestBat;
     document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
     document.getElementById("cmdResa").textContent = cmdResa;
     document.getElementById("cmdRest").textContent = cmdRest;
@@ -375,6 +424,8 @@
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.exe 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
+    document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA CMD 命令"));
+    document.getElementById("copyCmdRestBatBtn").addEventListener("click", () => copyText(cmdRestBat, "ReST CMD 命令"));
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
