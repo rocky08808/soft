@@ -168,14 +168,6 @@ if (-not $autostartOk) {
 try {
     Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
     Write-InstallLog "install complete"
-    if ($Silent) {
-        try {
-            $shell = New-Object -ComObject WScript.Shell
-            $shell.Popup("ReSA install complete.", 0, "ReSA", 64) | Out-Null
-        } catch {
-            $null = $_
-        }
-    }
     exit 0
 } catch {
     Fail-Install ("start failed: " + $_.Exception.Message)
