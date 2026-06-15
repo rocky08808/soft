@@ -32,6 +32,7 @@ if errorlevel 1 (
 
     echo Build failed.
 
+    pause
     exit /b 1
 
 )
@@ -62,5 +63,5 @@ echo   https://your-domain/install.html
 
 echo.
 
-pause
+exit /b 0
 

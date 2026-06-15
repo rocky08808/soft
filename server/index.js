@@ -169,10 +169,10 @@ function buildUninstallBat(base, opts = {}) {
     "echo.",
     "if %RC% NEQ 0 (",
     `  echo [错误] 卸载未完全成功，请关闭 ${productName} 后重试，或以管理员身份运行。`,
+    "  pause",
     ") else (",
     "  echo 卸载已完成。",
     ")",
-    "pause",
     "exit /b %RC%",
   ].join("\r\n");
 }
@@ -912,6 +912,19 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
+      if (msg.type === "terminal_result") {
+        addAudit("terminal_result", {
+          deviceId,
+          exitCode: msg.exitCode,
+          preview: String(msg.stdout || msg.stderr || "").slice(0, 80),
+        });
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, msg);
+        }
+        return;
+      }
+
       const set = viewers.get(deviceId);
       if (!set || set.size === 0) return;
       for (const viewer of set) send(viewer, msg);
@@ -972,13 +985,15 @@ wss.on("connection", (ws, req) => {
     }
 
     if (ws.role === "viewer" && msg.type === "terminal") {
+      const agent = agents.get(deviceId);
       const term = termAgents.get(deviceId);
-      if (!term) {
+      const target = agent || term;
+      if (!target) {
         send(ws, {
           type: "terminal_result",
           id: msg.id,
           stdout: "",
-          stderr: "terminal agent offline",
+          stderr: "agent offline",
           exitCode: 1,
         });
         return;
@@ -988,7 +1003,7 @@ wss.on("connection", (ws, req) => {
         shell: msg.shell || "cmd",
         preview: String(msg.command || "").slice(0, 120),
       });
-      send(term, msg);
+      send(target, msg);
       return;
     }
 

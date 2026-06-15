@@ -18,6 +18,7 @@ echo Building ReST (onedir) ...
 python -m PyInstaller --clean --noconfirm term_agent.spec
 if errorlevel 1 (
     echo Build failed.
+    pause
     exit /b 1
 )
 
@@ -26,10 +27,11 @@ if exist ..\downloads\ReST.zip del /f /q ..\downloads\ReST.zip
 powershell -NoProfile -Command "Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -Force"
 if errorlevel 1 (
     echo Failed to create ReST.zip
+    pause
     exit /b 1
 )
 
 echo Done: dist\ReST\ReST.exe
 echo Packaged: downloads\ReST.zip
 echo Version %BUILD_VERSION% written to downloads\versions.json
-pause
+exit /b 0

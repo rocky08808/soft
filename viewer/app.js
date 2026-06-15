@@ -170,6 +170,10 @@ function sendControl(payload) {
   ws.send(JSON.stringify({ type: "control", ...payload }));
 }
 
+function isTerminalAvailable() {
+  return agentOnline || termOnline;
+}
+
 function setTerminalHint(text) {
   if (terminalHintEl) terminalHintEl.textContent = text;
 }
@@ -289,7 +293,7 @@ function handleUpdateResult(msg) {
 
 function updateTerminalUi() {
   const connected = !!(ws && ws.readyState === WebSocket.OPEN);
-  const enabled = connected && termOnline;
+  const enabled = connected && isTerminalAvailable();
   if (openTerminalBtn) openTerminalBtn.disabled = !connected;
   if (terminalRunBtn) terminalRunBtn.disabled = !enabled;
   if (terminalInputEl) terminalInputEl.disabled = !enabled;
@@ -316,7 +320,7 @@ function setTerminalCwd(path) {
 function updateTerminalModalTitle() {
   if (!terminalModalTitleEl) return;
   const deviceId = currentDeviceId();
-  const status = termOnline ? "已连接" : "离线";
+  const status = isTerminalAvailable() ? "已连接" : "离线";
   terminalModalTitleEl.textContent = deviceId
     ? `远程终端 · ${deviceId} · ${status}`
     : `远程终端 · ${status}`;
@@ -330,7 +334,7 @@ function openTerminalModal() {
   }
   terminalModalEl.hidden = false;
   updateTerminalModalTitle();
-  if (terminalInputEl && termOnline) {
+  if (terminalInputEl && isTerminalAvailable()) {
     setTimeout(() => terminalInputEl.focus(), 0);
   }
 }
@@ -634,8 +638,8 @@ function sendTerminalCommand(command) {
     setTerminalHint("请先连接设备");
     return;
   }
-  if (!termOnline) {
-    setTerminalHint("终端 Agent 离线，请在被控端运行 ReST.exe");
+  if (!isTerminalAvailable()) {
+    setTerminalHint("终端离线，请确认 ReSA 或 ReST 已运行");
     return;
   }
   const shell = terminalShellEl?.value || "cmd";
@@ -846,7 +850,7 @@ function renderDevices(devices) {
   for (const d of devices) {
     const li = document.createElement("li");
     const screenOn = !!d.online;
-    const termOn = !!d.termOnline;
+    const termOn = !!d.termOnline || !!d.online;
     const anyOn = screenOn || termOn;
     li.className = `device-item ${anyOn ? "online" : "offline"}`;
     const badges = [];
@@ -1409,10 +1413,10 @@ function connect() {
       } else {
         setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
       }
-      if (termOnline) {
+      if (isTerminalAvailable()) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       } else {
-        setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReST.exe`);
+        setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReSA 或 ReST`);
       }
       if (msg.device?.hostname) {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
@@ -1449,6 +1453,8 @@ function connect() {
 
     if (msg.type === "agent_offline") {
       agentOnline = false;
+      updateTerminalUi();
+      updateTerminalModalTitle();
       updateFilesUi();
       updateFilesModalTitle();
       setStatus(`Agent 离线 · ${deviceId}`, false);
@@ -1460,9 +1466,14 @@ function connect() {
 
     if (msg.type === "agent_online" && msg.deviceId === deviceId) {
       agentOnline = true;
+      updateTerminalUi();
+      updateTerminalModalTitle();
       updateFilesUi();
       updateFilesModalTitle();
       setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
+      if (isTerminalAvailable()) {
+        setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
+      }
       refreshDeviceVersions();
       pushAutoScreenshotToAgent(deviceId);
       pushScreenRecordingToAgent(deviceId);

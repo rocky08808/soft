@@ -9,8 +9,8 @@ set "RC=%ERRORLEVEL%"
 echo.
 if %RC% NEQ 0 (
     echo [错误] 卸载未完全成功，错误码: %RC%
+    pause
 ) else (
     echo 卸载已完成。
 )
-pause
 exit /b %RC%

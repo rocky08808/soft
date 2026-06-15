@@ -43,7 +43,11 @@ except ImportError:
 UPDATE_INITIAL_DELAY = 120
 UPDATE_CHECK_INTERVAL = 6 * 3600
 CREATE_NO_WINDOW = 0x08000000
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+TERMINAL_SUBPROCESS_FLAGS = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+MAX_TERMINAL_OUTPUT_BYTES = 65536
 _update_exit_requested = False
+_terminal_session_cwd: Optional[str] = None
 
 KEY_MAP = {
     "enter": Key.enter,
@@ -725,6 +729,331 @@ def file_handle_action(action: str, path: str) -> dict:
         result = file_read_download(path)
         return {"ok": True, **result}
     return {"ok": False, "error": "unknown action"}
+
+
+def terminal_default_cwd() -> str:
+    global _terminal_session_cwd
+    if _terminal_session_cwd:
+        return _terminal_session_cwd
+    for candidate in (
+        os.environ.get("USERPROFILE"),
+        (os.environ.get("HOMEDRIVE", "") + os.environ.get("HOMEPATH", "")) or None,
+        os.path.expanduser("~"),
+    ):
+        if candidate:
+            path = Path(candidate)
+            if path.is_dir():
+                _terminal_session_cwd = str(path.resolve())
+                return _terminal_session_cwd
+    system_drive = os.environ.get("SystemDrive", "C:")
+    _terminal_session_cwd = f"{system_drive}\\"
+    return _terminal_session_cwd
+
+
+def terminal_set_session_cwd(path: str) -> None:
+    global _terminal_session_cwd
+    _terminal_session_cwd = str(Path(path).resolve())
+
+
+def terminal_resolve_cd_target(base: str, target: str) -> Optional[Path]:
+    raw = target.strip().strip('"').strip("'")
+    if not raw:
+        return Path(base)
+    if re.match(r"^[a-zA-Z]:$", raw):
+        root = f"{raw[0].upper()}:\\"
+        return Path(root) if Path(root).is_dir() else None
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(base) / path
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return None
+    return resolved if resolved.is_dir() else None
+
+
+def terminal_split_command_lines(command: str) -> list[str]:
+    normalized = (command or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized:
+        return []
+    return [line.strip() for line in normalized.split("\n") if line.strip()]
+
+
+def terminal_resolve_initial_workdir(cwd: Optional[str]) -> str:
+    if cwd and str(cwd).strip():
+        path = str(cwd).strip()
+        if Path(path).is_dir():
+            terminal_set_session_cwd(path)
+    return terminal_default_cwd()
+
+
+def terminal_apply_cd_command(
+    command: str, shell: str, current: str
+) -> tuple[Optional[str], bool, Optional[str]]:
+    cmd = command.strip()
+    if not cmd or "\n" in cmd or "\r" in cmd:
+        return None, False, None
+
+    lower = cmd.lower()
+    if lower in ("pwd", "cwd", "echo %cd%"):
+        return current, True, None
+
+    if shell == "powershell":
+        if lower in ("get-location", "gl"):
+            return current, True, None
+        if lower == "cd":
+            home = os.environ.get("USERPROFILE") or current
+            return home, True, None
+        match = re.match(r"^(?:cd|set-location|sl)\s+(.+)$", cmd, re.I)
+        if match:
+            target = terminal_resolve_cd_target(current, match.group(1))
+            if target:
+                return str(target), True, None
+            return None, True, "Cannot find path because it does not exist.\n"
+        return None, False, None
+
+    if lower == "cd":
+        home = os.environ.get("USERPROFILE") or current
+        return home, True, None
+
+    drive_match = re.match(r"^([a-zA-Z]:)\s*$", cmd)
+    if drive_match:
+        root = f"{drive_match.group(1).upper()}\\"
+        if Path(root).is_dir():
+            return root, True, None
+        return None, True, "The system cannot find the drive specified.\n"
+
+    match = (
+        re.match(r"^cd\s+/d\s+(.+)$", cmd, re.I)
+        or re.match(r"^cd\s+(.+)$", cmd, re.I)
+        or re.match(r"^chdir\s+(.+)$", cmd, re.I)
+    )
+    if match:
+        target = terminal_resolve_cd_target(current, match.group(1))
+        if target:
+            return str(target), True, None
+        return None, True, "The system cannot find the path specified.\n"
+
+    return None, False, None
+
+
+def terminal_subprocess_startupinfo() -> Optional[subprocess.STARTUPINFO]:
+    if sys.platform != "win32":
+        return None
+    info = subprocess.STARTUPINFO()
+    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    info.wShowWindow = subprocess.SW_HIDE
+    return info
+
+
+def terminal_trim_output(text: str, limit: int = MAX_TERMINAL_OUTPUT_BYTES) -> tuple[str, bool]:
+    raw = text or ""
+    encoded = raw.encode("utf-8", errors="replace")
+    if len(encoded) <= limit:
+        return raw, False
+    clipped = encoded[:limit].decode("utf-8", errors="ignore")
+    return clipped + "\n...[truncated]", True
+
+
+def terminal_run_single_line(line: str, shell: str) -> dict[str, Any]:
+    command = (line or "").strip()
+    if not command:
+        return {
+            "stdout": "",
+            "stderr": "empty command",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": terminal_default_cwd(),
+        }
+
+    workdir = terminal_default_cwd()
+    if not Path(workdir).is_dir():
+        return {
+            "stdout": "",
+            "stderr": f"invalid cwd: {workdir}",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": terminal_default_cwd(),
+        }
+
+    new_cwd, handled, cd_error = terminal_apply_cd_command(command, shell, workdir)
+    if handled:
+        if cd_error:
+            return {
+                "stdout": "",
+                "stderr": cd_error,
+                "exitCode": 1,
+                "truncated": False,
+                "cwd": workdir,
+            }
+        if new_cwd:
+            terminal_set_session_cwd(new_cwd)
+            if command.strip().lower() in (
+                "pwd",
+                "cwd",
+                "get-location",
+                "gl",
+                "echo %cd%",
+            ):
+                return {
+                    "stdout": new_cwd + "\n",
+                    "stderr": "",
+                    "exitCode": 0,
+                    "truncated": False,
+                    "cwd": new_cwd,
+                }
+            return {
+                "stdout": "",
+                "stderr": "",
+                "exitCode": 0,
+                "truncated": False,
+                "cwd": new_cwd,
+            }
+
+    workdir = terminal_default_cwd()
+    if shell == "powershell":
+        args = [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            command,
+        ]
+    else:
+        args = ["cmd.exe", "/c", command]
+
+    flags = TERMINAL_SUBPROCESS_FLAGS if sys.platform == "win32" else 0
+    startupinfo = terminal_subprocess_startupinfo()
+    try:
+        completed = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=workdir,
+            creationflags=flags,
+            startupinfo=startupinfo,
+            timeout=120,
+        )
+        stdout, out_trunc = terminal_trim_output(completed.stdout)
+        stderr, err_trunc = terminal_trim_output(completed.stderr)
+        return {
+            "stdout": stdout,
+            "stderr": stderr,
+            "exitCode": int(completed.returncode),
+            "truncated": out_trunc or err_trunc,
+            "cwd": terminal_default_cwd(),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "stdout": "",
+            "stderr": "command timeout (120s)",
+            "exitCode": 124,
+            "truncated": False,
+            "cwd": terminal_default_cwd(),
+        }
+    except OSError as exc:
+        return {
+            "stdout": "",
+            "stderr": str(exc),
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": terminal_default_cwd(),
+        }
+
+
+def terminal_run_command(command: str, shell: str, cwd: Optional[str]) -> dict[str, Any]:
+    terminal_resolve_initial_workdir(cwd)
+    lines = terminal_split_command_lines(command)
+    if not lines:
+        return {
+            "stdout": "",
+            "stderr": "empty command",
+            "exitCode": 1,
+            "truncated": False,
+            "cwd": terminal_default_cwd(),
+        }
+
+    if len(lines) == 1:
+        return terminal_run_single_line(lines[0], shell)
+
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    exit_code = 0
+    truncated = False
+    final = terminal_default_cwd()
+
+    for index, line in enumerate(lines, start=1):
+        result = terminal_run_single_line(line, shell)
+        final = result.get("cwd") or final
+        exit_code = int(result.get("exitCode", 1))
+        truncated = truncated or bool(result.get("truncated"))
+
+        if result.get("stdout"):
+            stdout_parts.append(result["stdout"])
+        if result.get("stderr"):
+            stderr_parts.append(result["stderr"])
+        if exit_code != 0:
+            if index < len(lines):
+                stderr_parts.append(f"[line {index}] command failed, stopped.\n")
+            break
+
+    stdout, out_trunc = terminal_trim_output("".join(stdout_parts))
+    stderr, err_trunc = terminal_trim_output("".join(stderr_parts))
+    return {
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": exit_code,
+        "truncated": truncated or out_trunc or err_trunc,
+        "cwd": final,
+    }
+
+
+async def handle_terminal_message(ws, msg: dict[str, Any]) -> None:
+    req_id = str(msg.get("id") or "")
+    command = str(msg.get("command") or "")
+    shell = str(msg.get("shell") or "cmd").lower()
+    if shell not in ("cmd", "powershell"):
+        shell = "cmd"
+    cwd = msg.get("cwd")
+
+    agent_log(f"terminal [{shell}]: {command[:120]}")
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None, terminal_run_command, command, shell, cwd
+        )
+        payload = {
+            "type": "terminal_result",
+            "id": req_id,
+            "command": command,
+            "shell": shell,
+            **result,
+        }
+        await ws.send(json.dumps(payload))
+        agent_log(f"terminal done [{shell}] exit={result.get('exitCode')}")
+    except Exception as exc:
+        agent_log(f"terminal failed: {exc}")
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "terminal_result",
+                    "id": req_id,
+                    "command": command,
+                    "shell": shell,
+                    "stdout": "",
+                    "stderr": f"agent error: {exc}",
+                    "exitCode": 1,
+                    "truncated": False,
+                    "cwd": terminal_default_cwd(),
+                }
+            )
+        )
 
 
 def handle_control(msg: dict) -> None:
@@ -1430,6 +1759,8 @@ async def receive_loop(
             asyncio.create_task(
                 handle_update_request(ws, server, str(msg.get("id", "")))
             )
+        elif msg_type == "terminal":
+            asyncio.create_task(handle_terminal_message(ws, msg))
         elif msg_type == "viewer_count":
             count = int(msg.get("count", 0))
             if count > 0:
