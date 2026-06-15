@@ -23,6 +23,9 @@ if not exist agent.config.json (
 
 echo Building ReSA.exe ...
 
+for /f "delims=" %%V in ('python ..\scripts\write_versions.py resa') do set BUILD_VERSION=%%V
+echo Version: %BUILD_VERSION%
+
 python -m PyInstaller --clean --noconfirm agent.spec
 
 if errorlevel 1 (
@@ -49,6 +52,8 @@ if not exist ..\downloads mkdir ..\downloads
 
 copy /Y dist\ReSA.exe ..\downloads\ >nul
 
+echo.
+echo Version %BUILD_VERSION% written to downloads\versions.json
 echo.
 
 echo Next: upload downloads\ReSA.exe to server, then use install page

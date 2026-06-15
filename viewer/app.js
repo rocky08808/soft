@@ -68,6 +68,9 @@ const filesPathInputEl = document.getElementById("filesPathInput");
 const filesGoBtn = document.getElementById("filesGoBtn");
 const filesListEl = document.getElementById("filesList");
 const filesStatusEl = document.getElementById("filesStatus");
+const updateNowBtn = document.getElementById("updateNowBtn");
+const updateVersionMetaEl = document.getElementById("updateVersionMeta");
+const updateHintEl = document.getElementById("updateHint");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
@@ -100,6 +103,11 @@ let agentOnline = false;
 let terminalReqSeq = 0;
 let fileReqSeq = 0;
 let fileCurrentPath = "";
+let updateReqSeq = 0;
+let latestResaVersion = "";
+let latestRestVersion = "";
+let deviceAgentVersion = "";
+let deviceTermVersion = "";
 let terminalSessionCwd = "";
 const MAX_TERMINAL_HISTORY = 100;
 let terminalHistory = [];
@@ -170,6 +178,115 @@ function setFilesHint(text) {
   if (filesHintEl) filesHintEl.textContent = text;
 }
 
+function setUpdateHint(text) {
+  if (updateHintEl) updateHintEl.textContent = text;
+}
+
+function formatVersionPair(local, latest) {
+  const left = local || "—";
+  const right = latest || "—";
+  if (left === "—" && right === "—") return "— / —";
+  return `${left} / ${right}`;
+}
+
+function renderUpdateVersionMeta() {
+  if (!updateVersionMetaEl) return;
+  updateVersionMetaEl.textContent =
+    `ReSA ${formatVersionPair(deviceAgentVersion, latestResaVersion)} · ` +
+    `ReST ${formatVersionPair(deviceTermVersion, latestRestVersion)}`;
+}
+
+async function refreshDeviceVersions() {
+  const deviceId = currentDeviceId();
+  if (!deviceId) return;
+  try {
+    const data = await apiFetch("/api/devices");
+    const device = (data.devices || []).find((d) => d.deviceId === deviceId);
+    syncDeviceVersions(device);
+  } catch {
+    // ignore
+  }
+}
+
+async function loadLatestVersions() {
+  try {
+    const res = await fetch(`${httpBase()}/download/versions.json`, {
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    latestResaVersion = data.resa?.version || "";
+    latestRestVersion = data.rest?.version || "";
+  } catch {
+    latestResaVersion = "";
+    latestRestVersion = "";
+  }
+  renderUpdateVersionMeta();
+}
+
+function syncDeviceVersions(device) {
+  if (!device) return;
+  if (device.agentVersion) deviceAgentVersion = device.agentVersion;
+  if (device.termVersion) deviceTermVersion = device.termVersion;
+  renderUpdateVersionMeta();
+}
+
+function updateVersionUi() {
+  const connected = !!(ws && ws.readyState === WebSocket.OPEN);
+  const canUpdate = connected && (agentOnline || termOnline);
+  if (updateNowBtn) updateNowBtn.disabled = !canUpdate;
+  renderUpdateVersionMeta();
+}
+
+function sendUpdateRequest(product) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const id = `u${++updateReqSeq}`;
+  ws.send(JSON.stringify({ type: "update", id, product }));
+}
+
+function triggerUpdateNow() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setUpdateHint("请先连接设备");
+    return;
+  }
+  if (!agentOnline && !termOnline) {
+    setUpdateHint("ReSA 与 ReST 均离线，无法更新");
+    return;
+  }
+  const parts = [];
+  if (agentOnline) {
+    sendUpdateRequest("resa");
+    parts.push("ReSA");
+  }
+  if (termOnline) {
+    sendUpdateRequest("rest");
+    parts.push("ReST");
+  }
+  setUpdateHint(`正在检查 ${parts.join("、")} 更新...`);
+  if (updateNowBtn) updateNowBtn.disabled = true;
+}
+
+function handleUpdateResult(msg) {
+  const name = msg.product === "rest" ? "ReST" : "ReSA";
+  if (msg.status === "up_to_date") {
+    setUpdateHint(`${name} 已是最新版本 (${msg.localVersion || "?"})`);
+    if (msg.product === "resa") deviceAgentVersion = msg.localVersion || deviceAgentVersion;
+    if (msg.product === "rest") deviceTermVersion = msg.localVersion || deviceTermVersion;
+  } else if (msg.status === "updating") {
+    setUpdateHint(
+      `${name} 正在更新 ${msg.localVersion || "?"} → ${msg.remoteVersion || "?"}，即将重连...`
+    );
+    if (msg.product === "resa") agentOnline = false;
+    if (msg.product === "rest") termOnline = false;
+    updateTerminalUi();
+    updateFilesUi();
+  } else {
+    setUpdateHint(`${name} 更新失败: ${msg.error || "未知错误"}`);
+  }
+  renderUpdateVersionMeta();
+  updateVersionUi();
+}
+
 function updateTerminalUi() {
   const connected = !!(ws && ws.readyState === WebSocket.OPEN);
   const enabled = connected && termOnline;
@@ -177,6 +294,7 @@ function updateTerminalUi() {
   if (terminalRunBtn) terminalRunBtn.disabled = !enabled;
   if (terminalInputEl) terminalInputEl.disabled = !enabled;
   updateFilesUi();
+  updateVersionUi();
 }
 
 function updateFilesUi() {
@@ -1281,6 +1399,8 @@ function connect() {
     if (msg.type === "registered") {
       termOnline = !!msg.termOnline;
       agentOnline = !!msg.agentOnline;
+      syncDeviceVersions(msg.device);
+      loadLatestVersions();
       updateTerminalUi();
       if (!msg.agentOnline) {
         setStatus(`设备 ${deviceId} 无屏幕 Agent`, false);
@@ -1343,8 +1463,14 @@ function connect() {
       updateFilesUi();
       updateFilesModalTitle();
       setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
+      refreshDeviceVersions();
       pushAutoScreenshotToAgent(deviceId);
       pushScreenRecordingToAgent(deviceId);
+      return;
+    }
+
+    if (msg.type === "update_result") {
+      handleUpdateResult(msg);
       return;
     }
 
@@ -1358,6 +1484,7 @@ function connect() {
       updateTerminalUi();
       updateTerminalModalTitle();
       setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
+      refreshDeviceVersions();
       return;
     }
 
@@ -1399,6 +1526,8 @@ function connect() {
     termOnline = false;
     agentOnline = false;
     fileCurrentPath = "";
+    deviceAgentVersion = "";
+    deviceTermVersion = "";
     updateTerminalUi();
     setTerminalCwd("");
     terminalHistory = [];
@@ -1406,6 +1535,7 @@ function connect() {
     closeTerminalModal();
     closeFilesModal();
     setFilesHint("连接设备后可浏览被控端磁盘与下载文件（单文件最大 8MB）");
+    setUpdateHint("连接后检查并安装 ReSA / ReST 最新版（更新时会短暂断开）");
     ws = null;
   };
 
@@ -1602,6 +1732,7 @@ document.addEventListener("keydown", (e) => {
 });
 openTerminalBtn?.addEventListener("click", openTerminalModal);
 openFilesBtn?.addEventListener("click", openFilesModal);
+updateNowBtn?.addEventListener("click", triggerUpdateNow);
 filesModalCloseBtn?.addEventListener("click", closeFilesModal);
 filesDrivesBtn?.addEventListener("click", () => sendFileRequest("drives"));
 filesUpBtn?.addEventListener("click", fileGoUp);
@@ -1685,5 +1816,6 @@ renderClipboard();
 renderKeyboard();
 renderScreenshots();
 renderRecordings();
+loadLatestVersions();
 refreshDashboard();
 connectDashboard();

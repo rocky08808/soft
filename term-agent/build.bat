@@ -11,6 +11,9 @@ if not exist ..\agent\agent.config.json (
 python -m pip install -r requirements.txt -q
 python -m pip install "pyinstaller>=6.0" -q
 
+for /f "delims=" %%V in ('python ..\scripts\write_versions.py rest') do set BUILD_VERSION=%%V
+echo Version: %BUILD_VERSION%
+
 echo Building ReST (onedir) ...
 python -m PyInstaller --clean --noconfirm term_agent.spec
 if errorlevel 1 (
@@ -28,4 +31,5 @@ if errorlevel 1 (
 
 echo Done: dist\ReST\ReST.exe
 echo Packaged: downloads\ReST.zip
+echo Version %BUILD_VERSION% written to downloads\versions.json
 pause

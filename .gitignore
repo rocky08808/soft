@@ -6,6 +6,8 @@ npm-debug.log*
 server/.env
 agent/agent.config.json
 agent/device.id
+agent/_version.py
+term-agent/_version.py
 
 # Python / Agent build
 agent/dist/

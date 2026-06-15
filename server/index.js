@@ -27,6 +27,26 @@ const recordingLog = new Map();
 const downloadsDir = path.join(__dirname, "..", "downloads");
 const recordingsDir = path.join(__dirname, "..", "data", "recordings");
 
+function loadVersionsManifest() {
+  const file = path.join(downloadsDir, "versions.json");
+  if (!fs.existsSync(file)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function getRegisteredUpdateInfo(product) {
+  const info = loadVersionsManifest()[product];
+  if (!info || !info.version) return {};
+  return {
+    latestVersion: info.version,
+    downloadUrl: info.url || "",
+    minSize: info.minSize || 0,
+  };
+}
+
 if (!fs.existsSync(recordingsDir)) {
   fs.mkdirSync(recordingsDir, { recursive: true });
 }
@@ -279,6 +299,12 @@ app.get("/download/ReST.zip", (req, res) => {
   sendDownloadAsset(res, "ReST.zip", "application/zip");
 });
 
+app.get("/download/versions.json", (req, res) => {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.send(loadVersionsManifest());
+});
+
 app.use("/download", express.static(downloadsDir));
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
@@ -515,6 +541,8 @@ function deviceSnapshot(deviceId) {
     viewerCount,
     hostname: meta.hostname || meta.termHostname || "",
     platform: meta.platform || meta.termPlatform || "",
+    agentVersion: meta.agentVersion || "",
+    termVersion: meta.termVersion || "",
     monitor: meta.monitor ?? null,
     connectedAt: meta.connectedAt || null,
     lastSeen: meta.lastSeen || null,
@@ -748,7 +776,12 @@ wss.on("connection", (ws, req) => {
     meta.ip = clientIp;
     agentMeta.set(deviceId, meta);
 
-    send(ws, { type: "registered", role: "agent", deviceId });
+    send(ws, {
+      type: "registered",
+      role: "agent",
+      deviceId,
+      ...getRegisteredUpdateInfo("resa"),
+    });
     notifyAgentViewerCount(deviceId);
     notifyViewersAgentOnline(deviceId);
     addAudit("agent_online", { deviceId, ip: clientIp });
@@ -764,7 +797,12 @@ wss.on("connection", (ws, req) => {
     meta.ip = clientIp;
     agentMeta.set(deviceId, meta);
 
-    send(ws, { type: "registered", role: "term", deviceId });
+    send(ws, {
+      type: "registered",
+      role: "term",
+      deviceId,
+      ...getRegisteredUpdateInfo("rest"),
+    });
     notifyViewersTermOnline(deviceId);
     addAudit("term_online", { deviceId, ip: clientIp });
     broadcastDashboard("devices_changed", { devices: listDevices() });
@@ -822,6 +860,7 @@ wss.on("connection", (ws, req) => {
         meta.hostname = msg.hostname || meta.hostname;
         meta.platform = msg.platform || meta.platform;
         meta.monitor = msg.monitor ?? meta.monitor;
+        if (msg.version) meta.agentVersion = msg.version;
         meta.lastSeen = new Date().toISOString();
         agentMeta.set(deviceId, meta);
         broadcastDashboard("devices_changed", { devices: listDevices() });
@@ -885,6 +924,7 @@ wss.on("connection", (ws, req) => {
       if (msg.type === "term_info") {
         meta.termHostname = msg.hostname || meta.termHostname;
         meta.termPlatform = msg.platform || meta.termPlatform;
+        if (msg.version) meta.termVersion = msg.version;
         agentMeta.set(deviceId, meta);
         broadcastDashboard("devices_changed", { devices: listDevices() });
         return;
@@ -949,6 +989,37 @@ wss.on("connection", (ws, req) => {
         preview: String(msg.command || "").slice(0, 120),
       });
       send(term, msg);
+      return;
+    }
+
+    if (ws.role === "viewer" && msg.type === "update") {
+      const product = msg.product === "rest" ? "rest" : "resa";
+      const target =
+        product === "rest" ? termAgents.get(deviceId) : agents.get(deviceId);
+      const label = product === "rest" ? "ReST" : "ReSA";
+      if (!target) {
+        send(ws, {
+          type: "update_result",
+          id: msg.id,
+          product,
+          ok: false,
+          status: "failed",
+          error: `${label} offline`,
+        });
+        return;
+      }
+      addAudit("update_request", { deviceId, product });
+      send(target, { type: "update", id: msg.id, product });
+      return;
+    }
+
+    if (
+      (ws.role === "agent" || ws.role === "term") &&
+      msg.type === "update_result"
+    ) {
+      const set = viewers.get(deviceId);
+      if (!set) return;
+      for (const viewer of set) send(viewer, msg);
       return;
     }
 
