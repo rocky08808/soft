@@ -629,6 +629,93 @@ async def keyboard_loop(ws) -> None:
         listener.stop()
 
 
+FILE_MAX_ENTRIES = 500
+FILE_MAX_DOWNLOAD_BYTES = 8 * 1024 * 1024
+
+
+def file_list_drives() -> list[dict]:
+    entries = []
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        root = f"{letter}:\\"
+        if os.path.isdir(root):
+            entries.append({"name": root, "dir": True, "size": 0, "mtime": 0})
+    return entries
+
+
+def file_normalize_path(path: str) -> Path:
+    raw = str(path or "").strip()
+    if not raw:
+        raise ValueError("empty path")
+    return Path(raw)
+
+
+def file_list_directory(path: str) -> dict:
+    target = file_normalize_path(path)
+    if not target.exists():
+        raise FileNotFoundError("path not found")
+    if not target.is_dir():
+        raise NotADirectoryError("not a directory")
+    entries = []
+    try:
+        items = sorted(
+            target.iterdir(),
+            key=lambda item: (not item.is_dir(), item.name.lower()),
+        )
+    except OSError as exc:
+        raise PermissionError(str(exc)) from exc
+    for item in items[:FILE_MAX_ENTRIES]:
+        try:
+            stat = item.stat()
+            entries.append(
+                {
+                    "name": item.name,
+                    "dir": item.is_dir(),
+                    "size": stat.st_size if item.is_file() else 0,
+                    "mtime": stat.st_mtime,
+                }
+            )
+        except OSError:
+            entries.append(
+                {
+                    "name": item.name,
+                    "dir": item.is_dir(),
+                    "size": 0,
+                    "mtime": 0,
+                }
+            )
+    return {"path": str(target.resolve()), "entries": entries}
+
+
+def file_read_download(path: str) -> dict:
+    target = file_normalize_path(path)
+    if not target.is_file():
+        raise FileNotFoundError("not a file")
+    size = target.stat().st_size
+    if size > FILE_MAX_DOWNLOAD_BYTES:
+        raise ValueError(
+            f"file too large ({size} bytes, max {FILE_MAX_DOWNLOAD_BYTES})"
+        )
+    data = base64.b64encode(target.read_bytes()).decode("ascii")
+    return {
+        "name": target.name,
+        "path": str(target.resolve()),
+        "size": size,
+        "data": data,
+    }
+
+
+def file_handle_action(action: str, path: str) -> dict:
+    if action == "drives":
+        return {"ok": True, "entries": file_list_drives()}
+    if action == "list":
+        result = file_list_directory(path)
+        return {"ok": True, **result}
+    if action == "download":
+        result = file_read_download(path)
+        return {"ok": True, **result}
+    return {"ok": False, "error": "unknown action"}
+
+
 def handle_control(msg: dict) -> None:
     mark_remote_input()
     action = msg.get("action")
@@ -1162,6 +1249,33 @@ async def receive_loop(
                 handle_control(msg)
             except Exception as exc:
                 print(f"[control] error: {exc}", file=sys.stderr)
+        elif msg_type == "file":
+            req_id = msg.get("id")
+            action = str(msg.get("action", ""))
+            path = str(msg.get("path", ""))
+
+            async def run_file_request() -> None:
+                result: dict[str, Any] = {
+                    "type": "file_result",
+                    "id": req_id,
+                    "action": action,
+                }
+                try:
+                    loop = asyncio.get_running_loop()
+                    payload = await loop.run_in_executor(
+                        None,
+                        lambda: file_handle_action(action, path),
+                    )
+                    result.update(payload)
+                except Exception as exc:
+                    result["ok"] = False
+                    result["error"] = str(exc)
+                try:
+                    await ws.send(json.dumps(result))
+                except Exception as exc:
+                    agent_log(f"file_result send error: {exc}")
+
+            asyncio.create_task(run_file_request())
 
 
 async def run_agent(

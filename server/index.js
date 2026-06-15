@@ -903,6 +903,34 @@ wss.on("connection", (ws, req) => {
       }
     }
 
+    if (ws.role === "viewer" && msg.type === "file") {
+      const agent = agents.get(deviceId);
+      if (!agent) {
+        send(ws, {
+          type: "file_result",
+          id: msg.id,
+          action: msg.action,
+          ok: false,
+          error: "agent offline",
+        });
+        return;
+      }
+      addAudit("file_request", {
+        deviceId,
+        action: msg.action,
+        path: String(msg.path || "").slice(0, 200),
+      });
+      send(agent, msg);
+      return;
+    }
+
+    if (ws.role === "agent" && msg.type === "file_result") {
+      const set = viewers.get(deviceId);
+      if (!set) return;
+      for (const viewer of set) send(viewer, msg);
+      return;
+    }
+
     if (ws.role === "viewer" && msg.type === "terminal") {
       const term = termAgents.get(deviceId);
       if (!term) {

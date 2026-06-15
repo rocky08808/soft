@@ -56,6 +56,18 @@ const terminalRunBtn = document.getElementById("terminalRunBtn");
 const terminalOutputEl = document.getElementById("terminalOutput");
 const terminalInputEl = document.getElementById("terminalInput");
 const terminalCwdEl = document.getElementById("terminalCwd");
+const openFilesBtn = document.getElementById("openFilesBtn");
+const filesHintEl = document.getElementById("filesHint");
+const filesModalEl = document.getElementById("filesModal");
+const filesModalTitleEl = document.getElementById("filesModalTitle");
+const filesModalCloseBtn = document.getElementById("filesModalClose");
+const filesDrivesBtn = document.getElementById("filesDrivesBtn");
+const filesUpBtn = document.getElementById("filesUpBtn");
+const filesRefreshBtn = document.getElementById("filesRefreshBtn");
+const filesPathInputEl = document.getElementById("filesPathInput");
+const filesGoBtn = document.getElementById("filesGoBtn");
+const filesListEl = document.getElementById("filesList");
+const filesStatusEl = document.getElementById("filesStatus");
 const ctx = canvas.getContext("2d");
 
 const MAX_CLIPBOARD_UI = 300;
@@ -84,7 +96,10 @@ let frameCount = 0;
 let lastFpsAt = performance.now();
 let lastMoveAt = 0;
 let termOnline = false;
+let agentOnline = false;
 let terminalReqSeq = 0;
+let fileReqSeq = 0;
+let fileCurrentPath = "";
 let terminalSessionCwd = "";
 const MAX_TERMINAL_HISTORY = 100;
 let terminalHistory = [];
@@ -151,12 +166,23 @@ function setTerminalHint(text) {
   if (terminalHintEl) terminalHintEl.textContent = text;
 }
 
+function setFilesHint(text) {
+  if (filesHintEl) filesHintEl.textContent = text;
+}
+
 function updateTerminalUi() {
   const connected = !!(ws && ws.readyState === WebSocket.OPEN);
   const enabled = connected && termOnline;
   if (openTerminalBtn) openTerminalBtn.disabled = !connected;
   if (terminalRunBtn) terminalRunBtn.disabled = !enabled;
   if (terminalInputEl) terminalInputEl.disabled = !enabled;
+  updateFilesUi();
+}
+
+function updateFilesUi() {
+  const connected = !!(ws && ws.readyState === WebSocket.OPEN);
+  const enabled = connected && agentOnline;
+  if (openFilesBtn) openFilesBtn.disabled = !enabled;
 }
 
 function setTerminalCwd(path) {
@@ -193,6 +219,169 @@ function openTerminalModal() {
 
 function closeTerminalModal() {
   if (terminalModalEl) terminalModalEl.hidden = true;
+}
+
+function updateFilesModalTitle() {
+  if (!filesModalTitleEl) return;
+  const deviceId = currentDeviceId();
+  const status = agentOnline ? "已连接" : "离线";
+  const pathPart = fileCurrentPath ? ` · ${fileCurrentPath}` : "";
+  filesModalTitleEl.textContent = deviceId
+    ? `文件管理器 · ${deviceId} · ${status}${pathPart}`
+    : `文件管理器 · ${status}${pathPart}`;
+}
+
+function openFilesModal() {
+  if (!filesModalEl) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    setFilesHint("请先连接设备");
+    return;
+  }
+  if (!agentOnline) {
+    setFilesHint("屏幕 Agent 离线，无法浏览文件");
+    return;
+  }
+  filesModalEl.hidden = false;
+  updateFilesModalTitle();
+  sendFileRequest("drives");
+}
+
+function closeFilesModal() {
+  if (filesModalEl) filesModalEl.hidden = true;
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function formatFileMtime(ts) {
+  if (!ts) return "—";
+  return new Date(Number(ts) * 1000).toLocaleString();
+}
+
+function joinFilePath(base, name) {
+  if (!base) return name;
+  const sep = base.includes("/") && !base.includes("\\") ? "/" : "\\";
+  const trimmed = base.replace(/[\\/]+$/, "");
+  return `${trimmed}${sep}${name}`;
+}
+
+function sendFileRequest(action, path = "") {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const id = `f${++fileReqSeq}`;
+  ws.send(JSON.stringify({ type: "file", id, action, path }));
+  if (filesStatusEl) filesStatusEl.textContent = "加载中...";
+}
+
+function fileNavigate(path) {
+  if (!path) {
+    fileCurrentPath = "";
+    sendFileRequest("drives");
+    return;
+  }
+  sendFileRequest("list", path);
+}
+
+function fileGoUp() {
+  if (!fileCurrentPath) return;
+  let current = fileCurrentPath.replace(/[\\/]+$/, "");
+  if (/^[A-Za-z]:\\?$/.test(current) || /^[A-Za-z]:$/.test(current)) {
+    fileCurrentPath = "";
+    sendFileRequest("drives");
+    return;
+  }
+  const slash = Math.max(current.lastIndexOf("\\"), current.lastIndexOf("/"));
+  if (slash <= 0) {
+    fileCurrentPath = "";
+    sendFileRequest("drives");
+    return;
+  }
+  let parent = current.slice(0, slash);
+  if (parent.length === 2 && parent[1] === ":") parent += "\\";
+  fileNavigate(parent);
+}
+
+function renderFileList(entries) {
+  if (!filesListEl) return;
+  filesListEl.innerHTML = "";
+  if (!entries?.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = '<td colspan="4" class="files-empty">空目录</td>';
+    filesListEl.appendChild(row);
+    return;
+  }
+  for (const entry of entries) {
+    const row = document.createElement("tr");
+    row.className = entry.dir ? "files-row-dir" : "files-row-file";
+    row.innerHTML = `
+      <td class="files-col-name">${escapeHtml(entry.name)}</td>
+      <td class="files-col-type">${entry.dir ? "文件夹" : "文件"}</td>
+      <td class="files-col-size">${entry.dir ? "—" : formatFileSize(entry.size)}</td>
+      <td class="files-col-time">${formatFileMtime(entry.mtime)}</td>
+    `;
+    row.addEventListener("dblclick", () => {
+      if (entry.dir) {
+        const nextPath = fileCurrentPath
+          ? joinFilePath(fileCurrentPath, entry.name)
+          : entry.name;
+        fileNavigate(nextPath);
+        return;
+      }
+      const fullPath = joinFilePath(fileCurrentPath, entry.name);
+      sendFileRequest("download", fullPath);
+    });
+    filesListEl.appendChild(row);
+  }
+}
+
+function downloadFileBlob(name, base64Data) {
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes]);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name || "download";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function handleFileResult(msg) {
+  if (!msg.ok) {
+    if (filesStatusEl) filesStatusEl.textContent = msg.error || "操作失败";
+    return;
+  }
+  if (msg.action === "drives") {
+    fileCurrentPath = "";
+    if (filesPathInputEl) filesPathInputEl.value = "";
+    renderFileList(msg.entries);
+    updateFilesModalTitle();
+    if (filesStatusEl) filesStatusEl.textContent = "双击磁盘进入目录";
+    return;
+  }
+  if (msg.action === "list") {
+    fileCurrentPath = msg.path || "";
+    if (filesPathInputEl) filesPathInputEl.value = fileCurrentPath;
+    renderFileList(msg.entries);
+    updateFilesModalTitle();
+    if (filesStatusEl) {
+      filesStatusEl.textContent = "双击文件夹进入，双击文件下载";
+    }
+    return;
+  }
+  if (msg.action === "download" && msg.data) {
+    downloadFileBlob(msg.name, msg.data);
+    if (filesStatusEl) {
+      filesStatusEl.textContent = `已下载 ${msg.name} (${formatFileSize(msg.size)})`;
+    }
+  }
 }
 
 function resetTerminalTabCycle() {
@@ -1091,10 +1280,14 @@ function connect() {
 
     if (msg.type === "registered") {
       termOnline = !!msg.termOnline;
+      agentOnline = !!msg.agentOnline;
       updateTerminalUi();
       if (!msg.agentOnline) {
         setStatus(`设备 ${deviceId} 无屏幕 Agent`, false);
         setClipboardHint(`设备 ${deviceId} 离线，复制记录可能为空`);
+        setFilesHint(`设备: ${deviceId} · Agent 离线，无法浏览文件`);
+      } else {
+        setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
       }
       if (termOnline) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
@@ -1135,15 +1328,28 @@ function connect() {
     }
 
     if (msg.type === "agent_offline") {
+      agentOnline = false;
+      updateFilesUi();
+      updateFilesModalTitle();
       setStatus(`Agent 离线 · ${deviceId}`, false);
+      setFilesHint(`设备: ${deviceId} · Agent 离线`);
       placeholder.style.display = "block";
       placeholder.textContent = "Agent 已离线";
       return;
     }
 
     if (msg.type === "agent_online" && msg.deviceId === deviceId) {
+      agentOnline = true;
+      updateFilesUi();
+      updateFilesModalTitle();
+      setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
       pushAutoScreenshotToAgent(deviceId);
       pushScreenRecordingToAgent(deviceId);
+      return;
+    }
+
+    if (msg.type === "file_result") {
+      handleFileResult(msg);
       return;
     }
 
@@ -1191,11 +1397,15 @@ function connect() {
     disconnectBtn.disabled = true;
     screenshotBtn.disabled = true;
     termOnline = false;
+    agentOnline = false;
+    fileCurrentPath = "";
     updateTerminalUi();
     setTerminalCwd("");
     terminalHistory = [];
     resetTerminalTabCycle();
     closeTerminalModal();
+    closeFilesModal();
+    setFilesHint("连接设备后可浏览被控端磁盘与下载文件（单文件最大 8MB）");
     ws = null;
   };
 
@@ -1385,11 +1595,36 @@ screenshotModalEl?.addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     if (terminalModalEl && !terminalModalEl.hidden) closeTerminalModal();
+    else if (filesModalEl && !filesModalEl.hidden) closeFilesModal();
     else if (recordingModalEl && !recordingModalEl.hidden) closeRecordingModal();
     else if (screenshotModalEl && !screenshotModalEl.hidden) closeScreenshotModal();
   }
 });
 openTerminalBtn?.addEventListener("click", openTerminalModal);
+openFilesBtn?.addEventListener("click", openFilesModal);
+filesModalCloseBtn?.addEventListener("click", closeFilesModal);
+filesDrivesBtn?.addEventListener("click", () => sendFileRequest("drives"));
+filesUpBtn?.addEventListener("click", fileGoUp);
+filesRefreshBtn?.addEventListener("click", () => {
+  if (fileCurrentPath) fileNavigate(fileCurrentPath);
+  else sendFileRequest("drives");
+});
+filesGoBtn?.addEventListener("click", () => {
+  const path = filesPathInputEl?.value?.trim() || "";
+  if (!path) sendFileRequest("drives");
+  else fileNavigate(path);
+});
+filesPathInputEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const path = filesPathInputEl.value.trim();
+    if (!path) sendFileRequest("drives");
+    else fileNavigate(path);
+  }
+});
+filesModalEl?.addEventListener("click", (e) => {
+  if (e.target === filesModalEl) closeFilesModal();
+});
 terminalModalCloseBtn?.addEventListener("click", closeTerminalModal);
 terminalClearBtn?.addEventListener("click", clearTerminalOutput);
 terminalModalEl?.addEventListener("click", (e) => {

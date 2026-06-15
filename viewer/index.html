@@ -44,6 +44,12 @@
       </div>
       <p id="terminalHint" class="clipboard-hint">需在被控端单独安装 ReST.exe；命令以当前登录用户运行（非管理员）</p>
 
+      <div class="panel-head">
+        <h2 class="section-title inline-title">文件管理</h2>
+        <button id="openFilesBtn" class="btn-small" type="button" disabled>打开文件管理器</button>
+      </div>
+      <p id="filesHint" class="clipboard-hint">连接设备后可浏览被控端磁盘与下载文件（单文件最大 8MB）</p>
+
       <h2 class="section-title">会话</h2>
       <label class="toggle-row">
         <input id="mouseTrackToggle" type="checkbox" />
@@ -128,6 +134,38 @@
         <p id="terminalCwd" class="terminal-cwd">工作目录: —</p>
         <textarea id="terminalInput" class="terminal-input" rows="4" placeholder="Enter 执行，Shift+Enter 换行；Tab 补全历史" disabled></textarea>
       </div>
+    </div>
+  </div>
+
+  <div id="filesModal" class="files-modal" hidden>
+    <div class="files-modal-panel">
+      <div class="files-modal-head">
+        <span id="filesModalTitle">文件管理器</span>
+        <div class="files-modal-actions">
+          <button id="filesDrivesBtn" class="btn-small" type="button">磁盘</button>
+          <button id="filesUpBtn" class="btn-small" type="button">上级</button>
+          <button id="filesRefreshBtn" class="btn-small" type="button">刷新</button>
+          <button id="filesModalClose" class="btn-small" type="button">关闭</button>
+        </div>
+      </div>
+      <div class="files-modal-toolbar">
+        <input id="filesPathInput" type="text" class="files-path-input" placeholder="路径，例如 C:\Users" />
+        <button id="filesGoBtn" class="btn-small" type="button">前往</button>
+      </div>
+      <div class="files-modal-body">
+        <table class="files-table">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>类型</th>
+              <th>大小</th>
+              <th>修改时间</th>
+            </tr>
+          </thead>
+          <tbody id="filesList"></tbody>
+        </table>
+      </div>
+      <p id="filesStatus" class="files-status">双击文件夹进入，双击文件下载</p>
     </div>
   </div>
 
