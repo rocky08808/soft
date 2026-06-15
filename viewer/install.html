@@ -357,7 +357,7 @@
         `$f = Join-Path $env:TEMP '${batFile}'`,
         `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
         `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f '${url}' }`,
-        `else { Invoke-WebRequest -Uri '${url}' -OutFile $f -UseBasicParsing }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri '${url}' -OutFile $f -UseBasicParsing }`,
         `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
         `Start-Process -FilePath $f -Wait -WindowStyle Hidden`,
       ].join("; ");
