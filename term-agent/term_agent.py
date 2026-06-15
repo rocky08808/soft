@@ -21,11 +21,7 @@ import websockets
 MAX_OUTPUT_BYTES = 65536
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
-DETACHED_PROCESS = 0x00000008
-CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-SUBPROCESS_FLAGS = (
-    CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB
-)
+SUBPROCESS_FLAGS = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
 _SINGLE_INSTANCE_MUTEX = None
 _session_cwd: Optional[str] = None
 
@@ -154,7 +150,8 @@ def sanitize_device_id(value: str) -> str:
 
 def agent_log(message: str) -> None:
     line = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
-    print(line, flush=True)
+    if not getattr(sys, "frozen", False):
+        print(line, flush=True)
     try:
         get_settings_dir().mkdir(parents=True, exist_ok=True)
         with get_log_path().open("a", encoding="utf-8") as f:
@@ -316,6 +313,8 @@ def run_single_line(line: str, shell: str) -> dict[str, Any]:
             "powershell.exe",
             "-NoProfile",
             "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
@@ -511,8 +510,9 @@ def main() -> None:
     if not acquire_single_instance():
         return
 
-    print(f"Server: {settings['server']}")
-    print(f"Device: {settings['device_id']}")
+    if not getattr(sys, "frozen", False):
+        print(f"Server: {settings['server']}")
+        print(f"Device: {settings['device_id']}")
 
     try:
         asyncio.run(

@@ -361,7 +361,7 @@
         `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
         `Start-Process -FilePath $f -Wait -WindowStyle Hidden`,
       ].join("; ");
-      return buildPsLaunch(script, false);
+      return buildPsLaunch(script, true);
     }
 
     function buildRestInstallInner(downloadBase) {
@@ -392,7 +392,7 @@
 
     const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
     const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
-    const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), false);
+    const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdResa = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
 
