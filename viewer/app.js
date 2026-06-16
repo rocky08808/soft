@@ -1569,14 +1569,16 @@ canvas.addEventListener("mousemove", (e) => {
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   e.preventDefault();
-  if (!isMouseTrackEnabled()) sendMouseMove(e.clientX, e.clientY);
+  const { x, y } = mapCoords(e.clientX, e.clientY);
+  if (!isMouseTrackEnabled()) sendControl({ action: "mouse_move", x, y });
   const button = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
-  sendControl({ action: "mouse_click", button, down: true });
+  sendControl({ action: "mouse_click", button, down: true, x, y });
 });
 
 canvas.addEventListener("mouseup", (e) => {
+  const { x, y } = mapCoords(e.clientX, e.clientY);
   const button = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
-  sendControl({ action: "mouse_click", button, down: false });
+  sendControl({ action: "mouse_click", button, down: false, x, y });
 });
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1585,8 +1587,9 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
+    const { x, y } = mapCoords(e.clientX, e.clientY);
     const dy = e.deltaY > 0 ? -1 : 1;
-    sendControl({ action: "scroll", dx: 0, dy });
+    sendControl({ action: "scroll", dx: 0, dy, x, y });
   },
   { passive: false }
 );

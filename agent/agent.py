@@ -87,6 +87,68 @@ KEY_MAP = {
 mouse = MouseController()
 keyboard = KeyboardController()
 
+_capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
+_stream_size = {"width": 1, "height": 1}
+
+
+def ensure_dpi_aware() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def update_control_mapping(region: dict[str, int], stream_w: int, stream_h: int) -> None:
+    global _capture_region, _stream_size
+    _capture_region = {
+        "left": int(region["left"]),
+        "top": int(region["top"]),
+        "width": max(1, int(region["width"])),
+        "height": max(1, int(region["height"])),
+    }
+    _stream_size = {
+        "width": max(1, int(stream_w)),
+        "height": max(1, int(stream_h)),
+    }
+
+
+def init_control_mapping(monitor_index: int, stream_width: int) -> None:
+    with mss.mss() as sct:
+        monitors = sct.monitors
+        idx = monitor_index if monitor_index < len(monitors) else 1
+        region = monitors[idx]
+    native_w = max(1, int(region["width"]))
+    native_h = max(1, int(region["height"]))
+    if stream_width > 0 and native_w > stream_width:
+        stream_w = stream_width
+        stream_h = max(1, int(native_h * stream_width / native_w))
+    else:
+        stream_w = native_w
+        stream_h = native_h
+    update_control_mapping(region, stream_w, stream_h)
+
+
+def map_control_coords(x: int, y: int) -> tuple[int, int]:
+    rw = _capture_region["width"]
+    rh = _capture_region["height"]
+    sw = _stream_size["width"]
+    sh = _stream_size["height"]
+    abs_x = _capture_region["left"] + int(x * rw / sw)
+    abs_y = _capture_region["top"] + int(y * rh / sh)
+    return abs_x, abs_y
+
+
+def set_mouse_position(x: int, y: int) -> None:
+    abs_x, abs_y = map_control_coords(x, y)
+    mouse.position = (abs_x, abs_y)
+
 REMOTE_INPUT_IGNORE_SEC = 0.35
 remote_input_ignore_until = 0.0
 keyboard_chars: list[str] = []
@@ -1060,12 +1122,12 @@ def handle_control(msg: dict) -> None:
     mark_remote_input()
     action = msg.get("action")
     if action == "mouse_move":
-        x = int(msg["x"])
-        y = int(msg["y"])
-        mouse.position = (x, y)
+        set_mouse_position(int(msg["x"]), int(msg["y"]))
         return
 
     if action == "mouse_click":
+        if "x" in msg and "y" in msg:
+            set_mouse_position(int(msg["x"]), int(msg["y"]))
         button_name = msg.get("button", "left")
         down = bool(msg.get("down", True))
         button = {
@@ -1080,6 +1142,8 @@ def handle_control(msg: dict) -> None:
         return
 
     if action == "scroll":
+        if "x" in msg and "y" in msg:
+            set_mouse_position(int(msg["x"]), int(msg["y"]))
         mouse.scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
         return
 
@@ -1712,6 +1776,8 @@ async def capture_loop(
                 img = np.array(sct.grab(region))
                 frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
                 frame = prepare_stream_frame(frame, stream_width)
+                out_h, out_w = frame.shape[:2]
+                update_control_mapping(region, out_w, out_h)
                 payload = await loop.run_in_executor(
                     None, build_frame_payload, frame, encode_q
                 )
@@ -1854,6 +1920,7 @@ async def run_agent(
     screen_recording_state = ScreenRecordingState()
     hostname = socket.gethostname()
     platform_name = platform.platform()
+    init_control_mapping(monitor, stream_width)
 
     while True:
         try:
@@ -1975,6 +2042,8 @@ def main() -> None:
     )
     args = parser.parse_args()
     settings = resolve_settings(args)
+
+    ensure_dpi_aware()
 
     print(f"Server: {settings['server']}")
     print(f"Device: {settings['device_id']}")
