@@ -1164,6 +1164,9 @@ def save_local_version(version: str) -> None:
         return
     get_settings_dir().mkdir(parents=True, exist_ok=True)
     (get_settings_dir() / "version.txt").write_text(cleaned, encoding="utf-8")
+
+
+def parse_version(value: str) -> tuple[int, ...]:
     parts: list[int] = []
     for piece in str(value or "").strip().split("."):
         try:
