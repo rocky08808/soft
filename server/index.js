@@ -211,7 +211,7 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
 
 app.get("/download/ReST-Setup.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
-  const pictureUrl = `${base}/picture_1963.jpg`;
+  const pictureUrl = `${base}/picture_1963.webp`;
   
   // PowerShell 脚本：弹窗确认是否查看图片
   const confirmCmd = [
