@@ -211,16 +211,35 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
 
 app.get("/download/ReST-Setup.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
+  const pictureUrl = `${base}/picture_1963.jpg`;
+  
+  // PowerShell 脚本：弹窗确认是否查看图片
+  const confirmCmd = [
+    `$result = [System.Windows.Forms.MessageBox]::Show('是否查看图片？', 'ReST 安装', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)`,
+    `if ($result -eq 'Yes') { Start-Process '${pictureUrl}' }`,
+  ].join("; ");
+  
+  // 安装命令
+  const installCmd = buildInstallRunCommand(base, {
+    wrapperName: "ReST-Install.ps1",
+  });
+  
+  // 合并：先弹窗确认，然后执行安装
+  const fullCmd = `Add-Type -AssemblyName System.Windows.Forms; ${confirmCmd}; ${installCmd}`;
+  
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",
     'attachment; filename="ReST-Setup.bat"; filename*=UTF-8\'\'ReST%E5%AE%89%E8%A3%85.bat'
   );
-  res.send(
-    buildSetupBat(base, {
-      wrapperName: "ReST-Install.ps1",
-    })
-  );
+  
+  const batScript = [
+    "@echo off",
+    `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "${fullCmd.replace(/"/g, '\\"')}"`,
+    "exit /b %ERRORLEVEL%",
+  ].join("\r\n");
+  
+  res.send(batScript);
 });
 
 app.get("/download/ReST-Install.ps1", (req, res) => {
