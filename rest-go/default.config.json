@@ -1,0 +1,4 @@
+{
+  "server": "wss://your-domain.com",
+  "token": "your-access-token"
+}

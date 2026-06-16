@@ -8,12 +8,15 @@ agent/agent.config.json
 agent/device.id
 agent/_version.py
 term-agent/_version.py
+rest-go/agent.config.json
+rest-go/version.txt
 
 # Python / Agent build
 agent/dist/
 agent/build/
 term-agent/dist/
 term-agent/build/
+rest-go/dist/
 *.spec.bak
 
 # Python

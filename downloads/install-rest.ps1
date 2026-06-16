@@ -142,7 +142,7 @@ if (-not (Test-Path -LiteralPath $TempZip)) {
 }
 
 $length = (Get-Item -LiteralPath $TempZip).Length
-if ($length -lt 2097152) {
+if ($length -lt 524288) {
     Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
     Fail-Install ("file too small: " + $length + " bytes")
     exit 1

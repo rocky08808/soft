@@ -5,8 +5,8 @@
     "minSize": 1048576
   },
   "rest": {
-    "version": "2026.06.16.2204",
+    "version": "2026.06.16.2224",
     "url": "/download/ReST.zip",
-    "minSize": 2097152
+    "minSize": 524288
   }
 }

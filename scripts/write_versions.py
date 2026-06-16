@@ -18,9 +18,9 @@ PRODUCTS = {
         "minSize": 1_048_576,
     },
     "rest": {
-        "dir": ROOT / "term-agent",
+        "dir": ROOT / "rest-go",
         "url": "/download/ReST.zip",
-        "minSize": 2_097_152,
+        "minSize": 524_288,
     },
 }
 
@@ -56,8 +56,13 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    version_py = meta["dir"] / "_version.py"
-    version_py.write_text(f'VERSION = "{version}"\n', encoding="utf-8")
+    version_file = meta["dir"] / (
+        "version.txt" if product == "rest" else "_version.py"
+    )
+    if product == "rest":
+        version_file.write_text(f"{version}\n", encoding="utf-8")
+    else:
+        version_file.write_text(f'VERSION = "{version}"\n', encoding="utf-8")
     print(version)
 
 

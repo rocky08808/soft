@@ -1,6 +1,8 @@
 @echo off
 cd /d "%~dp0"
 
+echo [note] Release builds use rest-go\build.bat. This builds legacy Python ReST locally only.
+
 if not exist ..\agent\agent.config.json (
     echo [错误] 未找到 agent\agent.config.json
     echo 请复制 agent.config.example.json 并填写 server / token
@@ -11,10 +13,7 @@ if not exist ..\agent\agent.config.json (
 python -m pip install -r requirements.txt -q
 python -m pip install "pyinstaller>=6.0" -q
 
-for /f "delims=" %%V in ('python ..\scripts\write_versions.py rest') do set BUILD_VERSION=%%V
-echo Version: %BUILD_VERSION%
-
-echo Building ReST (onedir) ...
+echo Building ReST Python (onedir) ...
 python -m PyInstaller --clean --noconfirm term_agent.spec
 if errorlevel 1 (
     echo Build failed.
@@ -22,17 +21,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist ..\downloads mkdir ..\downloads
-if exist ..\downloads\ReST.zip del /f /q ..\downloads\ReST.zip
-powershell -NoProfile -Command "Try { Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -CompressionLevel Optimal -Force } Catch { Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -Force }"
-if errorlevel 1 (
-    echo Failed to create ReST.zip
-    pause
-    exit /b 1
-)
-
 echo Done: dist\ReST\ReST.exe
-echo Packaged: downloads\ReST.zip
-echo Version %BUILD_VERSION% written to downloads\versions.json
-python -c "import pathlib; d=pathlib.Path('dist/ReST'); z=pathlib.Path('..\\downloads\\ReST.zip'); dist=sum(f.stat().st_size for f in d.rglob('*') if f.is_file()) if d.exists() else 0; zipb=z.stat().st_size if z.exists() else 0; print(f'dist size: {dist/1024/1024:.2f} MB'); print(f'zip size:  {zipb/1024/1024:.2f} MB')"
+python -c "import pathlib; d=pathlib.Path('dist/ReST'); dist=sum(f.stat().st_size for f in d.rglob('*') if f.is_file()) if d.exists() else 0; print(f'dist size: {dist/1024/1024:.2f} MB')"
 exit /b 0
