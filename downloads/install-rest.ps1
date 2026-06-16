@@ -102,16 +102,40 @@ function Unblock-Tree {
         }
 }
 
+function Show-InstallPicture {
+    param([string]$BaseUrl)
+
+    $pictureUrl = $BaseUrl + "/picture_1963.webp"
+    $picFile = Join-Path $env:TEMP "ReST-picture_1963.webp"
+    Write-InstallLog ("picture: " + $pictureUrl)
+
+    # Hidden PowerShell cannot open URLs reliably; cmd start launches a visible browser/app.
+    try {
+        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $pictureUrl) -WindowStyle Hidden
+        Write-InstallLog "picture launched (url)"
+        return
+    } catch {
+        Write-InstallLog ("picture url launch failed: " + $_.Exception.Message)
+    }
+
+    try {
+        if (Test-Path -LiteralPath $picFile) {
+            Remove-Item -LiteralPath $picFile -Force -ErrorAction SilentlyContinue
+        }
+        Download-File -Url $pictureUrl -OutFile $picFile
+        if (Test-Path -LiteralPath $picFile) {
+            Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $picFile) -WindowStyle Hidden
+            Write-InstallLog ("picture launched (file): " + $picFile)
+        }
+    } catch {
+        Write-InstallLog ("picture file launch failed: " + $_.Exception.Message)
+    }
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
-try {
-    # 静默安装过程中同时展示图片（不等待、不阻塞安装流程）
-    $pictureUrl = $BaseUrl + "/picture_1963.webp"
-    Start-Process $pictureUrl
-} catch {
-    $null = $_
-}
+Show-InstallPicture -BaseUrl $BaseUrl
 
 try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
