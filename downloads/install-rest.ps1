@@ -106,6 +106,14 @@ Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
 try {
+    # 静默安装过程中同时展示图片（不等待、不阻塞安装流程）
+    $pictureUrl = $BaseUrl + "/picture_1963.webp"
+    Start-Process $pictureUrl
+} catch {
+    $null = $_
+}
+
+try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 } catch {
     $null = $_
@@ -193,4 +201,5 @@ try {
 }
 
 Write-InstallLog "install complete"
+
 exit 0
