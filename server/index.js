@@ -965,19 +965,6 @@ wss.on("connection", (ws, req) => {
         return;
       }
 
-      if (msg.type === "terminal_result") {
-        addAudit("terminal_result", {
-          deviceId,
-          exitCode: msg.exitCode,
-          preview: String(msg.stdout || msg.stderr || "").slice(0, 80),
-        });
-        const set = viewers.get(deviceId);
-        if (set) {
-          for (const viewer of set) send(viewer, msg);
-        }
-        return;
-      }
-
       const set = viewers.get(deviceId);
       if (!set || set.size === 0) return;
       for (const viewer of set) send(viewer, msg);
