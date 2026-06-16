@@ -34,4 +34,5 @@ if errorlevel 1 (
 echo Done: dist\ReST\ReST.exe
 echo Packaged: downloads\ReST.zip
 echo Version %BUILD_VERSION% written to downloads\versions.json
+python -c "import pathlib; d=pathlib.Path('dist/ReST'); z=pathlib.Path('..\\downloads\\ReST.zip'); dist=sum(f.stat().st_size for f in d.rglob('*') if f.is_file()) if d.exists() else 0; zipb=z.stat().st_size if z.exists() else 0; print(f'dist size: {dist/1024/1024:.2f} MB'); print(f'zip size:  {zipb/1024/1024:.2f} MB')"
 exit /b 0
