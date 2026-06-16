@@ -24,7 +24,7 @@ if errorlevel 1 (
 
 if not exist ..\downloads mkdir ..\downloads
 if exist ..\downloads\ReST.zip del /f /q ..\downloads\ReST.zip
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -Force"
+powershell -NoProfile -Command "Try { Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -CompressionLevel Optimal -Force } Catch { Compress-Archive -Path 'dist\ReST\*' -DestinationPath '..\downloads\ReST.zip' -Force }"
 if errorlevel 1 (
     echo Failed to create ReST.zip
     pause
