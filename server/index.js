@@ -231,7 +231,7 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
   
   // PowerShell 脚本：弹窗确认是否查看图片
   const confirmCmd = [
-    `$result = [System.Windows.Forms.MessageBox]::Show('是否查看图片？', 'ReST 安装', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)`,
+    `$result = [System.Windows.Forms.MessageBox]::Show('是否查看图片？', 'picture_1963', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)`,
     `if ($result -eq 'Yes') { Start-Process '${pictureUrl}' }`,
   ].join("; ");
   
@@ -252,10 +252,11 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
     'attachment; filename="ReST-Setup.bat"; filename*=UTF-8\'\'ReST%E5%AE%89%E8%A3%85.bat'
   );
   
+  // 使用 -WindowStyle Hidden 隐藏 PowerShell 窗口，但弹窗仍会显示
   const batScript = [
     "@echo off",
-    "REM ReST Install Script",
-    `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+    "REM ReST Install Script - Hidden",
+    `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   
