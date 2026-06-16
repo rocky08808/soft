@@ -316,10 +316,24 @@
 
     <div class="install-card">
       <h2>卸载</h2>
+      <p class="note">推荐 Win+R 粘贴一键命令，避免下载 bat 时出现「无法验证发布者」安全提示。</p>
+      <p class="note"><strong>卸载 ReSA</strong></p>
+      <div class="cmd-box" id="cmdUninstallResa"></div>
       <div class="install-actions">
-        <a href="/download/uninstall.bat" download>卸载 ReSA</a>
-        <a href="/download/uninstall-rest.bat" download style="margin-left: 0.5rem;">卸载 ReST</a>
+        <button type="button" id="copyCmdUninstallResaBtn">复制 ReSA 卸载命令</button>
       </div>
+      <p class="note" style="margin-top: 1rem;"><strong>卸载 ReST</strong></p>
+      <div class="cmd-box" id="cmdUninstallRest"></div>
+      <div class="install-actions">
+        <button type="button" id="copyCmdUninstallRestBtn">复制 ReST 卸载命令</button>
+      </div>
+      <details style="margin-top: 1rem;">
+        <summary>备用：下载 bat（双击可能仍出现 Windows 安全提示）</summary>
+        <div class="install-actions">
+          <a href="/download/uninstall.bat" download>卸载 ReSA bat</a>
+          <a href="/download/uninstall-rest.bat" download style="margin-left: 0.5rem;">卸载 ReST bat</a>
+        </div>
+      </details>
     </div>
 
     <p class="back"><a href="/">返回控制端</a></p>
@@ -390,11 +404,33 @@
       ].join("; ");
     }
 
+    function buildUninstallInner(downloadBase, scriptFile, tempName) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$b='${safeBase}'`,
+        `$f=Join-Path $env:TEMP '${tempName}'`,
+        `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/${scriptFile}') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${scriptFile}') -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))`,
+        `& $f; exit $LASTEXITCODE`,
+      ].join("; ");
+    }
+
     const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
     const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
     const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdResa = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
+    const cmdUninstallResa = buildPsLaunch(
+      buildUninstallInner(base, "uninstall.ps1", "ReSA-uninstall.ps1"),
+      true
+    );
+    const cmdUninstallRest = buildPsLaunch(
+      buildUninstallInner(base, "uninstall-rest.ps1", "ReST-uninstall.ps1"),
+      true
+    );
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("setupUrl").textContent = setupUrl;
@@ -407,6 +443,8 @@
     document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
     document.getElementById("cmdResa").textContent = cmdResa;
     document.getElementById("cmdRest").textContent = cmdRest;
+    document.getElementById("cmdUninstallResa").textContent = cmdUninstallResa;
+    document.getElementById("cmdUninstallRest").textContent = cmdUninstallRest;
 
     function bindAfterDownload(btnId, tipId) {
       const btn = document.getElementById(btnId);
@@ -448,6 +486,12 @@
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
+    document.getElementById("copyCmdUninstallResaBtn").addEventListener("click", () =>
+      copyText(cmdUninstallResa, "ReSA 卸载命令")
+    );
+    document.getElementById("copyCmdUninstallRestBtn").addEventListener("click", () =>
+      copyText(cmdUninstallRest, "ReST 卸载命令")
+    );
   </script>
 </body>
 </html>

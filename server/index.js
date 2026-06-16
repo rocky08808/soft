@@ -143,37 +143,28 @@ function buildInstallBat(base) {
   return buildSetupBat(base);
 }
 
-function buildUninstallBat(base, opts = {}) {
-  const title = opts.title || "ReSA 卸载";
+function buildUninstallRunCommand(base, opts = {}) {
   const scriptName = opts.scriptName || "uninstall.ps1";
   const tempName = opts.tempName || "ReSA-uninstall.ps1";
-  const batFilename = opts.batFilename || "ReSA-Uninstall.bat";
-  const productName = opts.productName || "ReSA";
-  const psCmd =
-    "Write-Host 'Downloading uninstall script...' -ForegroundColor Cyan; " +
-    `$b='%BASE%'; $f=Join-Path $env:TEMP '${tempName}'; ` +
-    `Invoke-WebRequest -Uri ($b+'/${scriptName}') -OutFile $f -UseBasicParsing; ` +
-    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; " +
-    "$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false)); " +
-    "& $f; exit $LASTEXITCODE";
+  const safeBase = base.replace(/'/g, "''");
+  return [
+    `$b='${safeBase}'`,
+    `$f=Join-Path $env:TEMP '${tempName}'`,
+    `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/${scriptName}') }`,
+    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${scriptName}') -OutFile $f -UseBasicParsing }`,
+    "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
+    STRIP_PS1_BOM,
+    "& $f; exit $LASTEXITCODE",
+  ].join("; ");
+}
+
+function buildUninstallBat(base, opts = {}) {
+  const cmd = buildUninstallRunCommand(base, opts).replace(/"/g, '\\"');
   return [
     "@echo off",
-    "chcp 65001 >nul",
-    `title ${title}`,
-    "echo.",
-    `echo === ${title} ===`,
-    "echo.",
-    `set "BASE=${base}"`,
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCmd}"`,
-    "set RC=%ERRORLEVEL%",
-    "echo.",
-    "if %RC% NEQ 0 (",
-    `  echo [错误] 卸载未完全成功，请关闭 ${productName} 后重试，或以管理员身份运行。`,
-    "  pause",
-    ") else (",
-    "  echo 卸载已完成。",
-    ")",
-    "exit /b %RC%",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
+    "exit /b %ERRORLEVEL%",
   ].join("\r\n");
 }
 
