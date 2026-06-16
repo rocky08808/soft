@@ -639,7 +639,7 @@ function sendTerminalCommand(command) {
     return;
   }
   if (!isTerminalAvailable()) {
-    setTerminalHint("终端离线，请确认 ReSA 或 ReST 已运行");
+    setTerminalHint("终端离线，请确认 ReST 已运行");
     return;
   }
   const shell = terminalShellEl?.value || "cmd";
@@ -647,7 +647,9 @@ function sendTerminalCommand(command) {
   appendTerminalBlock(`> [${shell}]\n${cmd}\n`, "");
   pushTerminalHistory(cmd);
   resetTerminalTabCycle();
-  ws.send(JSON.stringify({ type: "terminal", id, command: cmd, shell }));
+  const payload = { type: "terminal", id, command: cmd, shell };
+  if (terminalSessionCwd) payload.cwd = terminalSessionCwd;
+  ws.send(JSON.stringify(payload));
   setTerminalHint(`设备: ${currentDeviceId()} · 命令已发送`);
 }
 

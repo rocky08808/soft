@@ -67,10 +67,11 @@ func runSingleLine(line, shell string) execResult {
 	if shell == "powershell" {
 		args = []string{
 			"powershell.exe", "-NoProfile", "-NonInteractive",
+			"-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
 			"-Command", command,
 		}
 	} else {
-		args = []string{"cmd.exe", "/d", "/s", "/c", command}
+		args = []string{"cmd.exe", "/c", command}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -85,6 +86,8 @@ func runSingleLine(line, shell string) execResult {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	stdoutText := decodeConsoleBytes(stdout.Bytes())
+	stderrText := decodeConsoleBytes(stderr.Bytes())
 	if ctx.Err() == context.DeadlineExceeded {
 		return execResult{
 			Stderr:   "command timeout (120s)",
@@ -94,8 +97,8 @@ func runSingleLine(line, shell string) execResult {
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			out, outTrunc := trimOutput(stdout.String(), maxOutputBytes)
-			errOut, errTrunc := trimOutput(stderr.String(), maxOutputBytes)
+			out, outTrunc := trimOutput(stdoutText, maxOutputBytes)
+			errOut, errTrunc := trimOutput(stderrText, maxOutputBytes)
 			return execResult{
 				Stdout:    out,
 				Stderr:    errOut,
@@ -111,8 +114,8 @@ func runSingleLine(line, shell string) execResult {
 		}
 	}
 
-	out, outTrunc := trimOutput(stdout.String(), maxOutputBytes)
-	errOut, errTrunc := trimOutput(stderr.String(), maxOutputBytes)
+	out, outTrunc := trimOutput(stdoutText, maxOutputBytes)
+	errOut, errTrunc := trimOutput(stderrText, maxOutputBytes)
 	return execResult{
 		Stdout:    out,
 		Stderr:    errOut,

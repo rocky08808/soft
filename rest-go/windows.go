@@ -9,10 +9,9 @@ import (
 )
 
 func hideChildExec(cmd *exec.Cmd) {
-	// Avoid CREATE_NO_WINDOW on shell children; Defender flags hidden cmd/powershell spawns.
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
-		CreationFlags: 0x00000200,
+		CreationFlags: 0x08000000 | 0x00000200,
 	}
 }
 
