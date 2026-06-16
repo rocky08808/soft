@@ -61,15 +61,6 @@ const VIEWER_PASSWORD = "159";
 const VIEWER_TOKEN_KEY = "viewer_token";
 const VIEWER_AUTH_TOKEN = "viewer_auth_" + Date.now();
 
-// Middleware to verify viewer password
-function requireViewerAuth(req, res, next) {
-  const token = req.cookies?.[VIEWER_TOKEN_KEY];
-  if (token === VIEWER_AUTH_TOKEN) {
-    return next();
-  }
-  res.sendFile(path.join(__dirname, "..", "viewer", "login.html"));
-}
-
 function publicBaseUrl(req) {
   const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
   const host = req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host");
@@ -338,6 +329,19 @@ app.get("/download/versions.json", (req, res) => {
 
 app.use("/download", express.static(downloadsDir));
 
+// Middleware to verify viewer password - only for root
+function requireViewerAuthForRoot(req, res, next) {
+  // 允许 /install.html, /login.html, /login 等不需要密码
+  if (req.path && (req.path === '/login.html' || req.path === '/install.html' || req.path.startsWith('/assets'))) {
+    return next();
+  }
+  const token = req.cookies?.[VIEWER_TOKEN_KEY];
+  if (token === VIEWER_AUTH_TOKEN) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, "..", "viewer", "login.html"));
+}
+
 // Login endpoint
 app.post("/login", (req, res) => {
   const { password } = req.body;
@@ -353,8 +357,8 @@ app.post("/login", (req, res) => {
   }
 });
 
-// Protect viewer with password
-app.use(requireViewerAuth);
+// Protect only index.html and other sensitive pages, allow install.html and downloads
+app.use(requireViewerAuthForRoot);
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
 function send(ws, payload) {
