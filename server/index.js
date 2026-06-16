@@ -240,13 +240,6 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
     "@echo off",
     "REM ReST Install Script",
     `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
-    "REM 显示安装结果",
-    "if %ERRORLEVEL% equ 0 (",
-    '  echo. & echo 安装完成！',
-    ") else (",
-    '  echo. & echo 安装失败！错误代码: %ERRORLEVEL%',
-    ")",
-    "pause",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   
