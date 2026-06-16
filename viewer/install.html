@@ -226,11 +226,12 @@
 
     <div class="install-card warn-card">
       <h2>Windows 安全中心误杀？</h2>
-      <p class="note">ReST 执行命令时若被 Defender 拦截，请将安装目录加入排除项：</p>
+      <p class="note">ReST 远程执行命令时，Defender 可能提示「可疑进程启动 PowerShell/CMD」。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 管理设置</span></div>
-        <div class="step"><span class="step-num">2</span><span>排除项 → 添加排除项 → 文件夹 → 选 <code>%LOCALAPPDATA%\ReST</code></span></div>
-        <div class="step"><span class="step-num">3</span><span>重新运行 ReST 安装脚本；新版为文件夹安装，比单文件 exe 更不易误报</span></div>
+        <div class="step"><span class="step-num">2</span><span>排除项 → 添加排除项 → 文件夹 → <code>%LOCALAPPDATA%\ReST</code></span></div>
+        <div class="step"><span class="step-num">3</span><span>再添加排除项 → 进程 → <code>ReST.exe</code></span></div>
+        <div class="step"><span class="step-num">4</span><span>重新运行 ReST 安装脚本，或重启 ReST 后再试终端命令</span></div>
       </div>
     </div>
 

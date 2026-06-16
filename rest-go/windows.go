@@ -8,6 +8,14 @@ import (
 	"unsafe"
 )
 
+func hideChildExec(cmd *exec.Cmd) {
+	// Avoid CREATE_NO_WINDOW on shell children; Defender flags hidden cmd/powershell spawns.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x00000200,
+	}
+}
+
 func hideExec(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,

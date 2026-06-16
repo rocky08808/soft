@@ -67,11 +67,10 @@ func runSingleLine(line, shell string) execResult {
 	if shell == "powershell" {
 		args = []string{
 			"powershell.exe", "-NoProfile", "-NonInteractive",
-			"-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
 			"-Command", command,
 		}
 	} else {
-		args = []string{"cmd.exe", "/c", command}
+		args = []string{"cmd.exe", "/d", "/s", "/c", command}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -79,7 +78,7 @@ func runSingleLine(line, shell string) execResult {
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = workdir
-	hideExec(cmd)
+	hideChildExec(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

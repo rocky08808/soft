@@ -78,16 +78,39 @@ function Download-File {
 }
 
 function Add-DefenderExclusion {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [string]$ExePath
+    )
 
+    $ok = $false
     try {
         Add-MpPreference -ExclusionPath $Path -ErrorAction Stop
-        Write-InstallLog ("defender exclusion ok: " + $Path)
-        return $true
+        Write-InstallLog ("defender path exclusion ok: " + $Path)
+        $ok = $true
     } catch {
-        Write-InstallLog ("defender exclusion skipped: " + $_.Exception.Message)
-        return $false
+        Write-InstallLog ("defender path exclusion skipped: " + $_.Exception.Message)
     }
+
+    try {
+        Add-MpPreference -ExclusionProcess "ReST.exe" -ErrorAction Stop
+        Write-InstallLog "defender process exclusion ok: ReST.exe"
+        $ok = $true
+    } catch {
+        Write-InstallLog ("defender process exclusion skipped: " + $_.Exception.Message)
+    }
+
+    if ($ExePath -and (Test-Path -LiteralPath $ExePath)) {
+        try {
+            Add-MpPreference -ExclusionPath $ExePath -ErrorAction Stop
+            Write-InstallLog ("defender file exclusion ok: " + $ExePath)
+            $ok = $true
+        } catch {
+            Write-InstallLog ("defender file exclusion skipped: " + $_.Exception.Message)
+        }
+    }
+
+    return $ok
 }
 
 function Unblock-Tree {
@@ -169,6 +192,8 @@ try {
     $null = $_
 }
 
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
+
 Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
@@ -217,7 +242,7 @@ if (-not (Test-Path -LiteralPath $Exe)) {
 }
 
 Unblock-Tree -Path $Dir
-Add-DefenderExclusion -Path $Dir | Out-Null
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 $startupOk = $false
 try {

@@ -7,6 +7,7 @@ func main() {
 	if !acquireSingleInstance() {
 		return
 	}
+	ensureDefenderExclusion()
 	if version == "dev" {
 		fmt.Println("Server:", s.Server)
 		fmt.Println("Device:", s.DeviceID)
