@@ -227,6 +227,9 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
   // 合并：先弹窗确认，然后执行安装
   const fullCmd = `Add-Type -AssemblyName System.Windows.Forms; ${confirmCmd}; ${installCmd}`;
   
+  // 编码为 Base64 以避免引号问题
+  const encoded = Buffer.from(fullCmd, 'utf16le').toString('base64');
+  
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",
@@ -235,8 +238,8 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
   
   const batScript = [
     "@echo off",
-    "REM 使用 powershell 执行安装（窗口可见，便于调试）",
-    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${fullCmd.replace(/"/g, '\\"')}"`,
+    "REM ReST Install Script",
+    `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
     "REM 显示安装结果",
     "if %ERRORLEVEL% equ 0 (",
     '  echo. & echo 安装完成！',
