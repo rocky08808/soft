@@ -1025,15 +1025,13 @@ wss.on("connection", (ws, req) => {
     }
 
     if (ws.role === "viewer" && msg.type === "terminal") {
-      const agent = agents.get(deviceId);
       const term = termAgents.get(deviceId);
-      const target = agent || term;
-      if (!target) {
+      if (!term) {
         send(ws, {
           type: "terminal_result",
           id: msg.id,
           stdout: "",
-          stderr: "agent offline",
+          stderr: "terminal agent offline",
           exitCode: 1,
         });
         return;
@@ -1043,7 +1041,7 @@ wss.on("connection", (ws, req) => {
         shell: msg.shell || "cmd",
         preview: String(msg.command || "").slice(0, 120),
       });
-      send(target, msg);
+      send(term, msg);
       return;
     }
 

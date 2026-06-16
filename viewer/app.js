@@ -171,7 +171,7 @@ function sendControl(payload) {
 }
 
 function isTerminalAvailable() {
-  return agentOnline || termOnline;
+  return termOnline;
 }
 
 function setTerminalHint(text) {
@@ -850,7 +850,7 @@ function renderDevices(devices) {
   for (const d of devices) {
     const li = document.createElement("li");
     const screenOn = !!d.online;
-    const termOn = !!d.termOnline || !!d.online;
+    const termOn = !!d.termOnline;
     const anyOn = screenOn || termOn;
     li.className = `device-item ${anyOn ? "online" : "offline"}`;
     const badges = [];
@@ -1413,10 +1413,10 @@ function connect() {
       } else {
         setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
       }
-      if (isTerminalAvailable()) {
+      if (termOnline) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       } else {
-        setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReSA 或 ReST`);
+        setTerminalHint(`设备: ${deviceId} · 终端离线，请运行 ReST`);
       }
       if (msg.device?.hostname) {
         metaEl.textContent = `主机: ${msg.device.hostname}`;
@@ -1471,7 +1471,7 @@ function connect() {
       updateFilesUi();
       updateFilesModalTitle();
       setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
-      if (isTerminalAvailable()) {
+      if (termOnline) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       }
       refreshDeviceVersions();
