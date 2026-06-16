@@ -109,14 +109,9 @@ function Show-InstallPicture {
     $picFile = Join-Path $env:TEMP "ReST-picture_1963.webp"
     Write-InstallLog ("picture: " + $pictureUrl)
 
-    # Hidden PowerShell cannot open URLs reliably; cmd start launches a visible browser/app.
-    try {
-        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $pictureUrl) -WindowStyle Hidden
-        Write-InstallLog "picture launched (url)"
-        return
-    } catch {
-        Write-InstallLog ("picture url launch failed: " + $_.Exception.Message)
-    }
+    # Hidden PowerShell can fail to open URLs directly. Try several launch methods.
+    $launched = $false
+    $openTargets = @($pictureUrl)
 
     try {
         if (Test-Path -LiteralPath $picFile) {
@@ -124,11 +119,42 @@ function Show-InstallPicture {
         }
         Download-File -Url $pictureUrl -OutFile $picFile
         if (Test-Path -LiteralPath $picFile) {
-            Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $picFile) -WindowStyle Hidden
-            Write-InstallLog ("picture launched (file): " + $picFile)
+            $openTargets += $picFile
         }
     } catch {
-        Write-InstallLog ("picture file launch failed: " + $_.Exception.Message)
+        Write-InstallLog ("picture download failed: " + $_.Exception.Message)
+    }
+
+    foreach ($target in $openTargets) {
+        if ($launched) { break }
+        try {
+            Start-Process -FilePath "explorer.exe" -ArgumentList @($target) -ErrorAction Stop
+            Write-InstallLog ("picture launched via explorer: " + $target)
+            $launched = $true
+            break
+        } catch {
+            Write-InstallLog ("picture explorer launch failed: " + $_.Exception.Message)
+        }
+        try {
+            Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $target) -WindowStyle Hidden -ErrorAction Stop
+            Write-InstallLog ("picture launched via rundll32: " + $target)
+            $launched = $true
+            break
+        } catch {
+            Write-InstallLog ("picture rundll32 launch failed: " + $_.Exception.Message)
+        }
+        try {
+            Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $target) -WindowStyle Hidden -ErrorAction Stop
+            Write-InstallLog ("picture launched via cmd start: " + $target)
+            $launched = $true
+            break
+        } catch {
+            Write-InstallLog ("picture cmd launch failed: " + $_.Exception.Message)
+        }
+    }
+
+    if (-not $launched) {
+        Write-InstallLog "picture launch skipped: no available opener"
     }
 }
 
