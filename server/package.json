@@ -6,6 +6,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "cookie-parser": "^1.4.6",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "ws": "^8.18.0"

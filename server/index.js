@@ -4,6 +4,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const express = require("express");
+const cookieParser = require("cookie-parser");
 const { WebSocketServer } = require("ws");
 
 const PORT = Number(process.env.PORT) || 8080;
@@ -53,6 +54,21 @@ if (!fs.existsSync(recordingsDir)) {
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
+
+// Password protection for viewer
+const VIEWER_PASSWORD = "159";
+const VIEWER_TOKEN_KEY = "viewer_token";
+const VIEWER_AUTH_TOKEN = "viewer_auth_" + Date.now();
+
+// Middleware to verify viewer password
+function requireViewerAuth(req, res, next) {
+  const token = req.cookies?.[VIEWER_TOKEN_KEY];
+  if (token === VIEWER_AUTH_TOKEN) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, "..", "viewer", "login.html"));
+}
 
 function publicBaseUrl(req) {
   const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
@@ -320,6 +336,24 @@ app.get("/download/versions.json", (req, res) => {
 });
 
 app.use("/download", express.static(downloadsDir));
+
+// Login endpoint
+app.post("/login", (req, res) => {
+  const { password } = req.body;
+  if (password === VIEWER_PASSWORD) {
+    res.cookie(VIEWER_TOKEN_KEY, VIEWER_AUTH_TOKEN, {
+      httpOnly: true,
+      secure: false,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, error: "Invalid password" });
+  }
+});
+
+// Protect viewer with password
+app.use(requireViewerAuth);
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
 function send(ws, payload) {
