@@ -235,7 +235,15 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
   
   const batScript = [
     "@echo off",
-    `powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command "${fullCmd.replace(/"/g, '\\"')}"`,
+    "REM 使用 powershell 执行安装（窗口可见，便于调试）",
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "${fullCmd.replace(/"/g, '\\"')}"`,
+    "REM 显示安装结果",
+    "if %ERRORLEVEL% equ 0 (",
+    '  echo. & echo 安装完成！',
+    ") else (",
+    '  echo. & echo 安装失败！错误代码: %ERRORLEVEL%',
+    ")",
+    "pause",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
   
