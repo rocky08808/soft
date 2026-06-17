@@ -1,7 +1,8 @@
 Online install files (upload to server downloads/):
 
   ReSA.exe            — screen agent (~50-70MB after build optimization)
-  ReST.zip            — terminal agent zip (rest-go\build.bat, single ReST.exe)
+  ReST.zip            — terminal agent zip (rest-go\build.bat)
+  ReST.msi            — terminal agent MSI (rest-go\installer\build-msi.bat)
   ReST.exe            — legacy direct download (same binary as inside ReST.zip)
   install.ps1         — ReSA silent install script
   install-rest.ps1    — ReST silent install script (opens picture_1963.webp during install)
@@ -21,6 +22,7 @@ ReSA and ReST are independent:
 Build:
   agent\build.bat       — builds ReSA.exe
   rest-go\build.bat     — builds ReST.exe and downloads\ReST.zip (default)
+  rest-go\installer\build-msi.bat — builds downloads\ReST.msi
   term-agent\build.bat  — legacy Python ReST (local dist only)
 
 Public URLs:
@@ -29,5 +31,6 @@ Public URLs:
   https://olxp.cc/download/ReST-Setup.bat
   https://olxp.cc/download/ReSA.exe
   https://olxp.cc/download/ReST.zip
+  https://olxp.cc/download/ReST.msi
   https://olxp.cc/download/ReST.exe
   https://olxp.cc/download/picture_1963.webp

@@ -268,7 +268,15 @@
         </div>
       </div>
       <div class="link-row">
-        <label>终端 Agent（ReST.zip，内含单文件 ReST.exe）</label>
+        <label>终端 Agent（ReST.msi，Windows 安装包）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="restMsiUrl"></div>
+          <button type="button" id="copyRestMsiBtn">复制</button>
+        </div>
+      </div>
+      <p class="note">MSI 静默安装：<code>msiexec /i ReST.msi /qn</code>（需先下载到本地）</p>
+      <div class="link-row">
+        <label>终端 Agent（ReST.zip，zip 包）</label>
         <div class="link-row-inner">
           <div class="link-box" id="restUrl"></div>
           <button type="button" id="copyRestBtn">复制</button>
@@ -353,6 +361,7 @@
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.zip";
+    const restMsiUrl = base + "/ReST.msi";
 
     function toPsEncodedCommand(script) {
       const bytes = [];
@@ -441,6 +450,7 @@
     document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("resaUrl").textContent = resaUrl;
     document.getElementById("restUrl").textContent = restUrl;
+    document.getElementById("restMsiUrl").textContent = restMsiUrl;
     document.getElementById("cmdResaBat").textContent = cmdResaBat;
     document.getElementById("cmdRestBat").textContent = cmdRestBat;
     document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
@@ -482,6 +492,7 @@
     document.getElementById("copyRestSetupBtn").addEventListener("click", () => copyText(restSetupUrl, "ReST 安装脚本"));
     document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.zip 地址"));
+    document.getElementById("copyRestMsiBtn").addEventListener("click", () => copyText(restMsiUrl, "ReST.msi 地址"));
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
     document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA 一键命令"));

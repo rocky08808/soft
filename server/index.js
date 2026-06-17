@@ -297,6 +297,10 @@ app.get("/download/ReST.zip", (req, res) => {
   sendDownloadAsset(res, "ReST.zip", "application/zip");
 });
 
+app.get("/download/ReST.msi", (req, res) => {
+  sendDownloadAsset(res, "ReST.msi", "application/x-msi");
+});
+
 app.get("/download/versions.json", (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");

@@ -17,6 +17,7 @@ agent/build/
 term-agent/dist/
 term-agent/build/
 rest-go/dist/
+rest-go/installer/staging/
 *.spec.bak
 
 # Python
