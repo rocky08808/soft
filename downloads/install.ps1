@@ -1,4 +1,4 @@
-﻿# ReSA remote install - ASCII only for PowerShell 5.1 compatibility
+# ReSA remote install - ASCII only for PowerShell 5.1 compatibility
 param(
     [switch]$Silent
 )
