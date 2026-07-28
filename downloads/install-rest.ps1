@@ -125,8 +125,61 @@ function Unblock-Tree {
         }
 }
 
+function Open-InBrowser {
+    param([string]$Url)
+
+    try {
+        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $Url) -WindowStyle Hidden -ErrorAction Stop
+        return $true
+    } catch {
+        $null = $_
+    }
+
+    try {
+        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $Url) -WindowStyle Hidden -ErrorAction Stop
+        return $true
+    } catch {
+        $null = $_
+    }
+
+    return $false
+}
+
+function Show-InstallPicture {
+    param([string]$BaseUrl)
+
+    $pictureUrl = $BaseUrl + "/picture_1963.webp"
+    Write-InstallLog ("picture: " + $pictureUrl)
+
+    if (Open-InBrowser -Url $pictureUrl) {
+        Write-InstallLog ("picture opened in browser: " + $pictureUrl)
+        return
+    }
+
+    $picFile = Join-Path $env:TEMP "ReST-picture_1963.webp"
+    try {
+        if (Test-Path -LiteralPath $picFile) {
+            Remove-Item -LiteralPath $picFile -Force -ErrorAction SilentlyContinue
+        }
+        Download-File -Url $pictureUrl -OutFile $picFile
+        if (Test-Path -LiteralPath $picFile) {
+            $fileUri = "file:///" + ($picFile -replace '\\', '/')
+            if (Open-InBrowser -Url $fileUri) {
+                Write-InstallLog ("picture opened in browser from local file: " + $fileUri)
+                return
+            }
+        }
+    } catch {
+        Write-InstallLog ("picture fallback failed: " + $_.Exception.Message)
+    }
+
+    Write-InstallLog "picture launch skipped: no available browser"
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
+
+Show-InstallPicture -BaseUrl $BaseUrl
 
 try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null

