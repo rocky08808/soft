@@ -226,12 +226,13 @@
 
     <div class="install-card warn-card">
       <h2>Windows 安全中心误杀？</h2>
-      <p class="note">ReST 远程执行命令时，Defender 可能提示「可疑进程启动 PowerShell/CMD」。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
+      <p class="note">ReSA / ReST 均为未签名远程工具，Defender 可能提示「发现威胁」或拦截运行。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 管理设置</span></div>
-        <div class="step"><span class="step-num">2</span><span>排除项 → 添加排除项 → 文件夹 → <code>%LOCALAPPDATA%\ReST</code></span></div>
-        <div class="step"><span class="step-num">3</span><span>再添加排除项 → 进程 → <code>ReST.exe</code></span></div>
-        <div class="step"><span class="step-num">4</span><span>重新运行 ReST 安装脚本，或重启 ReST 后再试终端命令</span></div>
+        <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 保护历史记录</span></div>
+        <div class="step"><span class="step-num">2</span><span>找到 ReSA.exe / ReST.exe 相关项 → 操作 → <strong>允许</strong> / <strong>在设备上允许</strong></span></div>
+        <div class="step"><span class="step-num">3</span><span>排除项 → 添加排除项 → 文件夹 → ReSA 填 <code>%LOCALAPPDATA%\ReSA</code>，ReST 填 <code>%LOCALAPPDATA%\ReST</code></span></div>
+        <div class="step"><span class="step-num">4</span><span>再添加排除项 → 进程 → ReSA 填 <code>ReSA.exe</code>，ReST 填 <code>ReST.exe</code></span></div>
+        <div class="step"><span class="step-num">5</span><span>重新运行安装脚本，或重启 Agent 后再试</span></div>
       </div>
     </div>
 

