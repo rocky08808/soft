@@ -1,11 +1,11 @@
 {
   "resa": {
-    "version": "2026.07.28.2019",
+    "version": "2026.08.04.1839",
     "url": "/download/ReSA.exe",
     "minSize": 1048576
   },
   "rest": {
-    "version": "2026.06.16.2337",
+    "version": "2026.08.04.1840",
     "url": "/download/ReST.zip",
     "minSize": 524288
   }

@@ -23,7 +23,6 @@ Build:
   agent\build.bat       — builds ReSA.exe
   rest-go\build.bat     — builds ReST.exe and downloads\ReST.zip (default)
   rest-go\installer\build-msi.bat — builds downloads\ReST.msi
-  term-agent\build.bat  — legacy Python ReST (local dist only)
 
 Public URLs:
   https://olxp.cc/install.html
