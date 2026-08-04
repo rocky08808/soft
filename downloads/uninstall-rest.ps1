@@ -10,6 +10,7 @@ $AgentProfiles = @(
         Label = "ReST"
         ProcessName = "ReST"
         TaskName = "ReST"
+        WatchdogTaskName = "ReST-Watchdog"
         InstallDirName = "ReST"
         RunKeyName = "ReST"
         StartupLinkName = "ReST.lnk"
@@ -171,6 +172,7 @@ function Remove-AgentProfile {
     $installDir = Join-Path $env:LOCALAPPDATA $Profile.InstallDirName
 
     if (Remove-AgentScheduledTask -TaskName $Profile.TaskName) { $changed = $true }
+    if ($Profile.WatchdogTaskName -and (Remove-AgentScheduledTask -TaskName $Profile.WatchdogTaskName)) { $changed = $true }
     if (Remove-AgentRunKey -Name $Profile.RunKeyName) { $changed = $true }
     if (Remove-AgentStartupLink -LinkName $Profile.StartupLinkName) { $changed = $true }
     if (Stop-AgentProcess -ProcessName $Profile.ProcessName) { $changed = $true }

