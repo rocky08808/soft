@@ -42,6 +42,7 @@ except ImportError:
 
 UPDATE_INITIAL_DELAY = 120
 UPDATE_CHECK_INTERVAL = 6 * 3600
+AUTO_UPDATE_ENABLED = False
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 TERMINAL_SUBPROCESS_FLAGS = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
@@ -1367,6 +1368,8 @@ def apply_resa_update_sync(server: str, info: dict[str, Any]) -> bool:
 
 
 async def maybe_auto_update(server: str) -> bool:
+    if not AUTO_UPDATE_ENABLED:
+        return False
     if not getattr(sys, "frozen", False):
         return False
     if os.environ.get("RESA_SKIP_UPDATE") == "1":
@@ -1851,10 +1854,15 @@ async def receive_loop(
         msg_type = msg.get("type")
         if msg_type == "registered":
             remote_version = str(msg.get("latestVersion", "")).strip()
-            if remote_version and version_is_newer(remote_version, get_local_version()):
+            if (
+                AUTO_UPDATE_ENABLED
+                and remote_version
+                and version_is_newer(remote_version, get_local_version())
+            ):
                 asyncio.create_task(maybe_auto_update(server))
         elif msg_type == "update_available":
-            asyncio.create_task(maybe_auto_update(server))
+            if AUTO_UPDATE_ENABLED:
+                asyncio.create_task(maybe_auto_update(server))
         elif msg_type == "update":
             asyncio.create_task(
                 handle_update_request(ws, server, str(msg.get("id", "")))
@@ -2014,17 +2022,18 @@ async def run_agent(
                 )
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 keyboard_task = asyncio.create_task(keyboard_loop(ws))
-                update_task = asyncio.create_task(auto_update_loop(server))
+                tasks = {
+                    capture_task,
+                    receive_task,
+                    screen_record_task,
+                    auto_screenshot_task,
+                    clipboard_task,
+                    keyboard_task,
+                }
+                if AUTO_UPDATE_ENABLED:
+                    tasks.add(asyncio.create_task(auto_update_loop(server)))
                 done, pending = await asyncio.wait(
-                    {
-                        capture_task,
-                        receive_task,
-                        screen_record_task,
-                        auto_screenshot_task,
-                        clipboard_task,
-                        keyboard_task,
-                        update_task,
-                    },
+                    tasks,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:

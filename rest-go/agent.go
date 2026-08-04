@@ -80,7 +80,9 @@ func (a *agent) connectOnce(url string) error {
 	defer close(stopPing)
 
 	updateStop := make(chan struct{})
-	go a.autoUpdateLoop(updateStop)
+	if autoUpdateEnabled {
+		go a.autoUpdateLoop(updateStop)
+	}
 	defer close(updateStop)
 
 	for {
@@ -149,11 +151,13 @@ func (a *agent) handleIncoming(msg map[string]any) {
 	switch msgType {
 	case "registered":
 		remote := stringsTrim(fmt.Sprint(msg["latestVersion"]))
-		if remote != "" && versionIsNewer(remote, localVersion()) {
+		if autoUpdateEnabled && remote != "" && versionIsNewer(remote, localVersion()) {
 			go maybeAutoUpdate(a.settings.Server)
 		}
 	case "update_available":
-		go maybeAutoUpdate(a.settings.Server)
+		if autoUpdateEnabled {
+			go maybeAutoUpdate(a.settings.Server)
+		}
 	case "update":
 		go a.handleUpdateRequest(fmt.Sprint(msg["id"]))
 	case "terminal":

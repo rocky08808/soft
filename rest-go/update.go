@@ -16,6 +16,7 @@ import (
 const (
 	updateInitialDelay  = 120 * time.Second
 	updateCheckInterval = 6 * time.Hour
+	autoUpdateEnabled   = false
 )
 
 var updateExitRequested atomic.Bool
@@ -187,7 +188,7 @@ func updateAllowed() bool {
 }
 
 func maybeAutoUpdate(server string) bool {
-	if !updateAllowed() {
+	if !autoUpdateEnabled || !updateAllowed() {
 		return false
 	}
 	manifest, err := fetchVersionsManifest(server)
