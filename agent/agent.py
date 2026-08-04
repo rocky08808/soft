@@ -509,7 +509,7 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "device_id": device_id,
         "token": args.token or cfg.get("token") or "remote-screen-dev",
         "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
-        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 12)),
+        "fps": args.fps if args.fps is not None else int(cfg.get("fps", 15)),
         "quality": args.quality if args.quality is not None else int(cfg.get("quality", 55)),
         "stream_width": (
             args.stream_width
