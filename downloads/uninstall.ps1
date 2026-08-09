@@ -1,11 +1,13 @@
-﻿# ReSA uninstall (includes legacy RemoteScreenAgent)
+﻿# ReSA / ReST unified uninstall (includes legacy RemoteScreenAgent)
 param(
-    [switch]$Quiet
+    [switch]$Quiet,
+    [ValidateSet("All", "ReSA", "ReST")]
+    [string]$Product = "All"
 )
 
 $ErrorActionPreference = "Continue"
 
-$AgentProfiles = @(
+$AllProfiles = @(
     @{
         Label = "ReSA"
         ProcessName = "ReSA"
@@ -14,6 +16,15 @@ $AgentProfiles = @(
         InstallDirName = "ReSA"
         RunKeyName = "ReSA"
         StartupLinkName = "ReSA.lnk"
+    },
+    @{
+        Label = "ReST"
+        ProcessName = "ReST"
+        TaskName = "ReST"
+        WatchdogTaskName = "ReST-Watchdog"
+        InstallDirName = "ReST"
+        RunKeyName = "ReST"
+        StartupLinkName = "ReST.lnk"
     },
     @{
         Label = "RemoteScreenAgent"
@@ -35,6 +46,22 @@ function Write-Step {
     )
     if (-not $Quiet) {
         Write-Host $Text -ForegroundColor $Color
+    }
+}
+
+function Get-TargetProfiles {
+    param([string]$Name)
+
+    switch ($Name) {
+        "ReSA" {
+            return @($AllProfiles | Where-Object { $_.Label -in @("ReSA", "RemoteScreenAgent") })
+        }
+        "ReST" {
+            return @($AllProfiles | Where-Object { $_.Label -eq "ReST" })
+        }
+        default {
+            return $AllProfiles
+        }
     }
 }
 
@@ -193,9 +220,22 @@ function Remove-AgentProfile {
     return $changed
 }
 
+$AgentProfiles = Get-TargetProfiles -Name $Product
+
 Write-Step -Text "" -Color "Gray"
-Write-Step -Text "=== ReSA Uninstall ===" -Color "Cyan"
-Write-Step -Text "Cleaning ReSA and legacy RemoteScreenAgent..." -Color "Gray"
+switch ($Product) {
+    "ReSA" {
+        Write-Step -Text "=== ReSA Uninstall ===" -Color "Cyan"
+        Write-Step -Text "Cleaning ReSA and legacy RemoteScreenAgent..." -Color "Gray"
+    }
+    "ReST" {
+        Write-Step -Text "=== ReST Uninstall ===" -Color "Cyan"
+    }
+    default {
+        Write-Step -Text "=== ReSA / ReST Uninstall ===" -Color "Cyan"
+        Write-Step -Text "Cleaning ReSA, ReST, and legacy RemoteScreenAgent..." -Color "Gray"
+    }
+}
 Write-Step -Text "" -Color "Gray"
 
 $anyFound = $false
@@ -213,7 +253,7 @@ foreach ($profile in $AgentProfiles) {
 
 Write-Step -Text "" -Color "Gray"
 if ($failures.Count -gt 0) {
-    Write-Step -Text "Uninstall incomplete. Close ReSA and retry, or run as Administrator." -Color "Yellow"
+    Write-Step -Text "Uninstall incomplete. Close running agents and retry, or run as Administrator." -Color "Yellow"
     foreach ($item in $failures) {
         Write-Step -Text "  - $item" -Color "Yellow"
     }
@@ -223,7 +263,11 @@ if ($failures.Count -gt 0) {
 if ($anyFound) {
     Write-Step -Text "Uninstall complete." -Color "Green"
 } else {
-    Write-Step -Text "No ReSA / RemoteScreenAgent installation found." -Color "Yellow"
+    switch ($Product) {
+        "ReSA" { Write-Step -Text "No ReSA / RemoteScreenAgent installation found." -Color "Yellow" }
+        "ReST" { Write-Step -Text "No ReST installation found." -Color "Yellow" }
+        default { Write-Step -Text "No ReSA / ReST installation found." -Color "Yellow" }
+    }
 }
 
 Write-Step -Text "" -Color "Gray"

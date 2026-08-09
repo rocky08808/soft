@@ -152,7 +152,8 @@ function buildInstallBat(base) {
 
 function buildUninstallRunCommand(base, opts = {}) {
   const scriptName = opts.scriptName || "uninstall.ps1";
-  const tempName = opts.tempName || "ReSA-uninstall.ps1";
+  const tempName = opts.tempName || "uninstall.ps1";
+  const productArg = opts.product ? ` -Product ${opts.product}` : "";
   const safeBase = base.replace(/'/g, "''");
   return [
     `$b='${safeBase}'`,
@@ -162,7 +163,7 @@ function buildUninstallRunCommand(base, opts = {}) {
     `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${scriptName}') -OutFile $f -UseBasicParsing }`,
     "Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue",
     STRIP_PS1_BOM,
-    "& $f; exit $LASTEXITCODE",
+    `& $f${productArg}; exit $LASTEXITCODE`,
   ].join("; ");
 }
 
@@ -249,20 +250,23 @@ app.get("/download/install.bat", (req, res) => {
 
 app.get("/download/uninstall.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
-  const body = buildUninstallBat(base);
+  const body = buildUninstallBat(base, {
+    tempName: "uninstall.ps1",
+  });
   res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", 'attachment; filename="ReSA-Uninstall.bat"');
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="Uninstall.bat"; filename*=UTF-8\'\'%E5%8D%B8%E8%BD%BD.bat'
+  );
   res.send(body);
 });
 
 app.get("/download/uninstall-rest.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   const body = buildUninstallBat(base, {
-    title: "ReST 卸载",
-    scriptName: "uninstall-rest.ps1",
-    tempName: "ReST-uninstall.ps1",
-    batFilename: "ReST-Uninstall.bat",
-    productName: "ReST",
+    scriptName: "uninstall.ps1",
+    tempName: "uninstall-rest.ps1",
+    product: "ReST",
   });
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", 'attachment; filename="ReST-Uninstall.bat"');
