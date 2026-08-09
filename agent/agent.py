@@ -23,6 +23,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+
+def ensure_stdio() -> None:
+    """PyInstaller console=False leaves stdout/stderr as None."""
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 import cv2
 import mss
 import numpy as np
@@ -46,6 +54,10 @@ AUTO_UPDATE_ENABLED = False
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 TERMINAL_SUBPROCESS_FLAGS = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+RESA_MUTEX_NAME = r"Local\ReSA-Agent"
+ERROR_ALREADY_EXISTS = 183
+SYNCHRONIZE = 0x00100000
+_instance_mutex = None
 MAX_TERMINAL_OUTPUT_BYTES = 65536
 _update_exit_requested = False
 _terminal_session_cwd: Optional[str] = None
@@ -401,20 +413,30 @@ def ensure_defender_exclusion() -> None:
         agent_log(f"defender exclusion skipped: {exc}")
 
 
-def process_image_running(image_name: str) -> bool:
+def acquire_single_instance() -> bool:
+    global _instance_mutex
+    if sys.platform != "win32":
+        return True
+    kernel32 = ctypes.windll.kernel32
+    mutex = kernel32.CreateMutexW(None, True, RESA_MUTEX_NAME)
+    if not mutex:
+        return True
+    if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+        kernel32.CloseHandle(mutex)
+        return False
+    _instance_mutex = mutex
+    return True
+
+
+def resa_instance_running() -> bool:
     if sys.platform != "win32":
         return False
-    try:
-        completed = subprocess.run(
-            ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/NH"],
-            capture_output=True,
-            creationflags=CREATE_NO_WINDOW,
-            check=False,
-        )
-        output = completed.stdout.decode("mbcs", errors="ignore").lower()
-        return image_name.lower() in output
-    except Exception:
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenMutexW(SYNCHRONIZE, False, RESA_MUTEX_NAME)
+    if not handle:
         return False
+    kernel32.CloseHandle(handle)
+    return True
 
 
 def run_watchdog() -> None:
@@ -422,7 +444,7 @@ def run_watchdog() -> None:
     exe = work_dir / "ReSA.exe"
     if (work_dir / "ReSA.new.exe").is_file():
         return
-    if process_image_running("ReSA.exe"):
+    if resa_instance_running():
         return
     if not exe.is_file():
         return
@@ -2083,7 +2105,13 @@ async def run_agent(
 
 
 def main() -> None:
+    ensure_stdio()
     parser = argparse.ArgumentParser(description="Remote screen agent")
+    parser.add_argument(
+        "-watchdog",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--config", help="JSON config file path")
     parser.add_argument(
         "--server",
@@ -2117,7 +2145,15 @@ def main() -> None:
         help="Max stream width in pixels (0 = native resolution)",
     )
     args = parser.parse_args()
+    if args.watchdog:
+        run_watchdog()
+        return
+
     settings = resolve_settings(args)
+
+    if not acquire_single_instance():
+        agent_log("Another ReSA instance is already running, exiting")
+        return
 
     ensure_dpi_aware()
     ensure_defender_exclusion()
@@ -2142,7 +2178,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "-watchdog":
+    ensure_stdio()
+    if "-watchdog" in sys.argv[1:]:
         run_watchdog()
         raise SystemExit(0)
     main()

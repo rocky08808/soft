@@ -130,6 +130,25 @@ function Register-WatchdogTask {
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
 }
 
+function Remove-ReSAStartupTask {
+    try {
+        Unregister-ScheduledTask -TaskName "ReSA" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    } catch {
+        $null = $_
+    }
+}
+
+function Remove-ReSAStartupShortcut {
+    try {
+        $lnk = Join-Path ([Environment]::GetFolderPath("Startup")) "ReSA.lnk"
+        if (Test-Path -LiteralPath $lnk) {
+            Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        $null = $_
+    }
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
@@ -194,6 +213,7 @@ try {
     $Link.WorkingDirectory = $Dir
     $Link.WindowStyle = 7
     $Link.Save()
+    Remove-ReSAStartupTask
     $startupOk = $true
     Write-InstallLog "startup shortcut ok"
 } catch {
@@ -201,10 +221,12 @@ try {
 }
 
 if (-not $startupOk) {
+    Remove-ReSAStartupShortcut
     $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
     $Trigger = New-ScheduledTaskTrigger -AtLogOn
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    Register-ScheduledTask -TaskName "ReSA" -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName "ReSA" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
     Write-InstallLog "scheduled task ok"
 }
 
