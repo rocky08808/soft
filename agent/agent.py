@@ -572,7 +572,7 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "stream_width": (
             args.stream_width
             if args.stream_width is not None
-            else int(cfg.get("streamWidth", cfg.get("stream_width", 0)))
+            else int(cfg.get("streamWidth", cfg.get("stream_width", 1280)))
         ),
     }
 
