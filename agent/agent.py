@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 import urllib.error
@@ -99,6 +100,7 @@ KEY_MAP = {
 
 mouse = MouseController()
 keyboard = KeyboardController()
+_control_lock = threading.Lock()
 
 _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
@@ -116,6 +118,16 @@ def ensure_dpi_aware() -> None:
         ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
         pass
+
+
+def compute_stream_size(width: int, height: int, stream_width: int) -> tuple[int, int, bool]:
+    width = max(1, width)
+    height = max(1, height)
+    if stream_width > 0 and width > stream_width:
+        sw = stream_width
+        sh = max(1, int(round(height * stream_width / width)))
+        return sw, sh, True
+    return width, height, False
 
 
 def update_control_mapping(region: dict[str, int], stream_w: int, stream_h: int) -> None:
@@ -139,13 +151,15 @@ def init_control_mapping(monitor_index: int, stream_width: int) -> None:
         region = monitors[idx]
     native_w = max(1, int(region["width"]))
     native_h = max(1, int(region["height"]))
-    if stream_width > 0 and native_w > stream_width:
-        stream_w = stream_width
-        stream_h = max(1, int(native_h * stream_width / native_w))
-    else:
-        stream_w = native_w
-        stream_h = native_h
+    stream_w, stream_h, _ = compute_stream_size(native_w, native_h, stream_width)
     update_control_mapping(region, stream_w, stream_h)
+
+
+def control_coord(value: Any) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 def map_control_coords(x: int, y: int) -> tuple[int, int]:
@@ -153,13 +167,23 @@ def map_control_coords(x: int, y: int) -> tuple[int, int]:
     rh = _capture_region["height"]
     sw = _stream_size["width"]
     sh = _stream_size["height"]
-    abs_x = _capture_region["left"] + int(x * rw / sw)
-    abs_y = _capture_region["top"] + int(y * rh / sh)
+    x = max(0, min(sw - 1, x))
+    y = max(0, min(sh - 1, y))
+    left = _capture_region["left"]
+    top = _capture_region["top"]
+    abs_x = left + int(x * rw / sw)
+    abs_y = top + int(y * rh / sh)
+    abs_x = max(left, min(left + rw - 1, abs_x))
+    abs_y = max(top, min(top + rh - 1, abs_y))
     return abs_x, abs_y
 
 
 def set_mouse_position(x: int, y: int) -> None:
     abs_x, abs_y = map_control_coords(x, y)
+    if sys.platform == "win32":
+        if ctypes.windll.user32.SetCursorPos(abs_x, abs_y) == 0:
+            raise OSError(f"SetCursorPos failed at {abs_x},{abs_y}")
+        return
     mouse.position = (abs_x, abs_y)
 
 REMOTE_INPUT_IGNORE_SEC = 0.35
@@ -1211,52 +1235,63 @@ async def handle_terminal_message(ws, msg: dict[str, Any]) -> None:
 def handle_control(msg: dict) -> None:
     mark_remote_input()
     action = msg.get("action")
-    if action == "mouse_move":
-        set_mouse_position(int(msg["x"]), int(msg["y"]))
-        return
+    with _control_lock:
+        try:
+            if action == "mouse_move":
+                set_mouse_position(
+                    control_coord(msg.get("x")),
+                    control_coord(msg.get("y")),
+                )
+                return
 
-    if action == "mouse_click":
-        if "x" in msg and "y" in msg:
-            set_mouse_position(int(msg["x"]), int(msg["y"]))
-        button_name = msg.get("button", "left")
-        down = bool(msg.get("down", True))
-        button = {
-            "left": Button.left,
-            "right": Button.right,
-            "middle": Button.middle,
-        }.get(button_name, Button.left)
-        if down:
-            mouse.press(button)
-        else:
-            mouse.release(button)
-        return
+            if action == "mouse_click":
+                if "x" in msg and "y" in msg:
+                    set_mouse_position(
+                        control_coord(msg.get("x")),
+                        control_coord(msg.get("y")),
+                    )
+                button_name = msg.get("button", "left")
+                down = bool(msg.get("down", True))
+                button = {
+                    "left": Button.left,
+                    "right": Button.right,
+                    "middle": Button.middle,
+                }.get(button_name, Button.left)
+                if down:
+                    mouse.press(button)
+                else:
+                    mouse.release(button)
+                return
 
-    if action == "scroll":
-        if "x" in msg and "y" in msg:
-            set_mouse_position(int(msg["x"]), int(msg["y"]))
-        mouse.scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
-        return
+            if action == "scroll":
+                if "x" in msg and "y" in msg:
+                    set_mouse_position(
+                        control_coord(msg.get("x")),
+                        control_coord(msg.get("y")),
+                    )
+                mouse.scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+                return
 
-    if action == "key":
-        key = resolve_key(msg.get("key", ""))
-        if key is None:
-            return
-        down = bool(msg.get("down", True))
-        if down:
-            keyboard.press(key)
-        else:
-            keyboard.release(key)
+            if action == "key":
+                key = resolve_key(msg.get("key", ""))
+                if key is None:
+                    return
+                down = bool(msg.get("down", True))
+                if down:
+                    keyboard.press(key)
+                else:
+                    keyboard.release(key)
+        except Exception as exc:
+            agent_log(f"control error ({action}): {exc}")
 
 
 def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
     height, width = frame.shape[:2]
-    if stream_width > 0 and width > stream_width:
-        scale = stream_width / width
-        new_width = stream_width
-        new_height = max(1, int(height * scale))
+    sw, sh, scaled = compute_stream_size(width, height, stream_width)
+    if scaled:
         return cv2.resize(
             frame,
-            (new_width, new_height),
+            (sw, sh),
             interpolation=cv2.INTER_LINEAR,
         )
     return frame
@@ -1969,10 +2004,11 @@ async def receive_loop(
                 else:
                     agent_log("screen recording disabled")
                 continue
+            loop = asyncio.get_running_loop()
             try:
-                handle_control(msg)
+                await loop.run_in_executor(None, handle_control, msg)
             except Exception as exc:
-                print(f"[control] error: {exc}", file=sys.stderr)
+                agent_log(f"control failed: {exc}")
         elif msg_type == "file":
             req_id = msg.get("id")
             action = str(msg.get("action", ""))

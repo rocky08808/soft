@@ -169,6 +169,7 @@ function setStatus(text, online) {
 
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!agentOnline) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
 }
 
@@ -799,18 +800,23 @@ function isMouseTrackEnabled() {
 }
 
 function sendMouseMove(clientX, clientY) {
-  if (!remoteWidth) return;
-  const { x, y } = mapCoords(clientX, clientY);
-  sendControl({ action: "mouse_move", x, y });
+  const coords = mapCoords(clientX, clientY);
+  if (!coords) return;
+  sendControl({ action: "mouse_move", x: coords.x, y: coords.y });
 }
 
 function mapCoords(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  const x = ((clientX - rect.left) / rect.width) * remoteWidth;
-  const y = ((clientY - rect.top) / rect.height) * remoteHeight;
+  const frameW = remoteWidth || canvas.width;
+  const frameH = remoteHeight || canvas.height;
+  if (!rect.width || !rect.height || !frameW || !frameH) {
+    return null;
+  }
+  const x = ((clientX - rect.left) / rect.width) * frameW;
+  const y = ((clientY - rect.top) / rect.height) * frameH;
   return {
-    x: Math.max(0, Math.min(remoteWidth, Math.round(x))),
-    y: Math.max(0, Math.min(remoteHeight, Math.round(y))),
+    x: Math.max(0, Math.min(frameW, Math.round(x))),
+    y: Math.max(0, Math.min(frameH, Math.round(y))),
   };
 }
 
@@ -1592,14 +1598,18 @@ canvas.addEventListener("mousemove", (e) => {
 canvas.addEventListener("mousedown", (e) => {
   canvas.focus();
   e.preventDefault();
-  const { x, y } = mapCoords(e.clientX, e.clientY);
+  const coords = mapCoords(e.clientX, e.clientY);
+  if (!coords) return;
+  const { x, y } = coords;
   if (!isMouseTrackEnabled()) sendControl({ action: "mouse_move", x, y });
   const button = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
   sendControl({ action: "mouse_click", button, down: true, x, y });
 });
 
 canvas.addEventListener("mouseup", (e) => {
-  const { x, y } = mapCoords(e.clientX, e.clientY);
+  const coords = mapCoords(e.clientX, e.clientY);
+  if (!coords) return;
+  const { x, y } = coords;
   const button = e.button === 2 ? "right" : e.button === 1 ? "middle" : "left";
   sendControl({ action: "mouse_click", button, down: false, x, y });
 });
@@ -1610,7 +1620,9 @@ canvas.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
-    const { x, y } = mapCoords(e.clientX, e.clientY);
+    const coords = mapCoords(e.clientX, e.clientY);
+    if (!coords) return;
+    const { x, y } = coords;
     const dy = e.deltaY > 0 ? -1 : 1;
     sendControl({ action: "scroll", dx: 0, dy, x, y });
   },
