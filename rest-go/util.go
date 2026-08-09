@@ -98,11 +98,17 @@ func splitCommandLines(command string) []string {
 	}
 	lines := strings.Split(normalized, "\n")
 	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		line = stringsTrim(line)
-		if line != "" {
-			out = append(out, line)
-		}
-	}
 	return out
+}
+
+func shellExecArgs(shell, command string) []string {
+	hiddenPS := []string{
+		"-NoProfile", "-NonInteractive",
+		"-WindowStyle", "Hidden",
+		"-ExecutionPolicy", "Bypass",
+	}
+	if shell == "powershell" {
+		return append(append([]string{"powershell.exe"}, hiddenPS...), "-Command", command)
+	}
+	return []string{"cmd.exe", "/Q", "/C", command}
 }

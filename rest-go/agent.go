@@ -32,7 +32,9 @@ func (a *agent) run() {
 		}
 		if err := a.connectOnce(url); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "replaced") {
-				return
+				agentLog("Connection replaced, reconnecting in 3s...")
+				time.Sleep(3 * time.Second)
+				continue
 			}
 			agentLog(fmt.Sprintf("Disconnected: %v. Retry in 3s...", err))
 			time.Sleep(3 * time.Second)
@@ -53,9 +55,10 @@ func (a *agent) connectOnce(url string) error {
 	defer conn.Close()
 
 	conn.SetReadLimit(2 * 1024 * 1024)
-	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	readTimeout := 180 * time.Second
+	_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return conn.SetReadDeadline(time.Now().Add(readTimeout))
 	})
 
 	logURL := url
@@ -90,12 +93,12 @@ func (a *agent) connectOnce(url string) error {
 		if err != nil {
 			if ce, ok := err.(*websocket.CloseError); ok && ce.Code == 4000 &&
 				strings.Contains(strings.ToLower(ce.Text), "replaced") {
-				agentLog("Connection replaced by newer ReST instance, exiting")
+				agentLog("Connection replaced, will reconnect")
 				return fmt.Errorf("replaced")
 			}
 			return err
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 
 		var msg map[string]any
 		if json.Unmarshal(raw, &msg) != nil {

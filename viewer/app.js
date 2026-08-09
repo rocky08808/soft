@@ -101,6 +101,8 @@ let lastMoveAt = 0;
 let termOnline = false;
 let agentOnline = false;
 let terminalReqSeq = 0;
+const pendingTerminal = new Map();
+const TERMINAL_CMD_TIMEOUT_MS = 130000;
 let fileReqSeq = 0;
 let fileCurrentPath = "";
 let updateReqSeq = 0;
@@ -631,6 +633,12 @@ function appendTerminalBlock(title, text) {
   }
 }
 
+function clearPendingTerminal(reason) {
+  for (const timer of pendingTerminal.values()) clearTimeout(timer);
+  pendingTerminal.clear();
+  if (reason) setTerminalHint(reason);
+}
+
 function sendTerminalCommand(command) {
   const cmd = String(command || "").trim();
   if (!cmd) return;
@@ -642,7 +650,7 @@ function sendTerminalCommand(command) {
     setTerminalHint("终端离线，请确认 ReST 已运行");
     return;
   }
-  const shell = terminalShellEl?.value || "cmd";
+  const shell = terminalShellEl?.value || "powershell";
   const id = `t-${Date.now()}-${++terminalReqSeq}`;
   appendTerminalBlock(`> [${shell}]\n${cmd}\n`, "");
   pushTerminalHistory(cmd);
@@ -651,6 +659,14 @@ function sendTerminalCommand(command) {
   if (terminalSessionCwd) payload.cwd = terminalSessionCwd;
   ws.send(JSON.stringify(payload));
   setTerminalHint(`设备: ${currentDeviceId()} · 命令已发送`);
+  const timer = setTimeout(() => {
+    if (!pendingTerminal.has(id)) return;
+    pendingTerminal.delete(id);
+    appendTerminalBlock("", "命令超时 (130s)，ReST 可能已退出或卡住\n");
+    appendTerminalBlock("[exit timeout]\n", "");
+    setTerminalHint(`设备: ${currentDeviceId()} · 命令超时`);
+  }, TERMINAL_CMD_TIMEOUT_MS);
+  pendingTerminal.set(id, timer);
 }
 
 function autoScreenshotStorageKey(deviceId) {
@@ -1503,13 +1519,17 @@ function connect() {
 
     if (msg.type === "term_offline" && msg.deviceId === deviceId) {
       termOnline = false;
+      clearPendingTerminal(`设备: ${deviceId} · 终端已离线`);
       updateTerminalUi();
       updateTerminalModalTitle();
-      setTerminalHint(`设备: ${deviceId} · 终端已离线`);
       return;
     }
 
     if (msg.type === "terminal_result") {
+      if (msg.id && pendingTerminal.has(msg.id)) {
+        clearTimeout(pendingTerminal.get(msg.id));
+        pendingTerminal.delete(msg.id);
+      }
       if (msg.cwd) setTerminalCwd(msg.cwd);
       if (msg.stdout) appendTerminalBlock("", msg.stdout);
       if (msg.stderr) appendTerminalBlock("", msg.stderr);
@@ -1538,6 +1558,7 @@ function connect() {
     screenshotBtn.disabled = true;
     termOnline = false;
     agentOnline = false;
+    clearPendingTerminal();
     fileCurrentPath = "";
     deviceAgentVersion = "";
     deviceTermVersion = "";

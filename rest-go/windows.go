@@ -8,17 +8,19 @@ import (
 	"unsafe"
 )
 
+const createNoWindow = 0x08000000
+
 func hideChildExec(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
-		CreationFlags: 0x08000000 | 0x00000200,
+		CreationFlags: createNoWindow,
 	}
 }
 
 func hideExec(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
-		CreationFlags: 0x08000000 | 0x00000200,
+		CreationFlags: createNoWindow,
 	}
 }
 

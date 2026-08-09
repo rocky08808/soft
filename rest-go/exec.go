@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -63,16 +65,7 @@ func runSingleLine(line, shell string) execResult {
 	}
 
 	workdir = defaultCWD()
-	var args []string
-	if shell == "powershell" {
-		args = []string{
-			"powershell.exe", "-NoProfile", "-NonInteractive",
-			"-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
-			"-Command", command,
-		}
-	} else {
-		args = []string{"cmd.exe", "/c", command}
-	}
+	args := shellExecArgs(shell, command)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -81,13 +74,7 @@ func runSingleLine(line, shell string) execResult {
 	cmd.Dir = workdir
 	hideChildExec(cmd)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	stdoutText := decodeConsoleBytes(stdout.Bytes())
-	stderrText := decodeConsoleBytes(stderr.Bytes())
+	stdoutText, stderrText, err := runHiddenCommand(cmd)
 	if ctx.Err() == context.DeadlineExceeded {
 		return execResult{
 			Stderr:   "command timeout (120s)",
@@ -174,4 +161,34 @@ func runCommand(command, shell, cwd string) execResult {
 		Truncated: truncated || outTrunc || errTrunc,
 		CWD:       final,
 	}
+}
+
+func runHiddenCommand(cmd *exec.Cmd) (stdoutText, stderrText string, err error) {
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", "", err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", "", err
+	}
+
+	readLimit := int64(maxOutputBytes + 8192)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(&stdoutBuf, io.LimitReader(stdoutPipe, readLimit))
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(&stderrBuf, io.LimitReader(stderrPipe, readLimit))
+	}()
+	wg.Wait()
+	err = cmd.Wait()
+	return decodeConsoleBytes(stdoutBuf.Bytes()), decodeConsoleBytes(stderrBuf.Bytes()), err
 }

