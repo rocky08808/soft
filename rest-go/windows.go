@@ -29,7 +29,7 @@ func acquireSingleInstance() bool {
 	createMutex := kernel32.NewProc("CreateMutexW")
 	getLastError := kernel32.NewProc("GetLastError")
 
-	name, _ := syscall.UTF16PtrFromString(`Local\ReST-TermAgent`)
+	name, _ := syscall.UTF16PtrFromString(restMutexName)
 	_, _, _ = createMutex.Call(0, 1, uintptr(unsafe.Pointer(name)))
 	errCode, _, _ := getLastError.Call()
 	if errCode == 183 {

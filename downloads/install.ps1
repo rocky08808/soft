@@ -116,39 +116,18 @@ function Add-DefenderExclusion {
 function Register-WatchdogTask {
     param(
         [string]$TaskName,
-        [string]$ProcessName,
         [string]$Exe,
-        [string]$Dir,
-        [string]$UpdateMarker
+        [string]$Dir
     )
 
-    $procImage = if ($ProcessName -match '\.exe$') { $ProcessName } else { "$ProcessName.exe" }
-    $watchFile = Join-Path $Dir "watchdog.vbs"
-    $watchLines = @(
-        'Option Explicit'
-        'Dim fso, sh, wmi, procs'
-        ('Const PROC_NAME = "' + $procImage + '"')
-        ('Const EXE_PATH = "' + ($Exe.Replace('"', '""')) + '"')
-        ('Const WORK_DIR = "' + ($Dir.Replace('"', '""')) + '"')
-        ('Const UPDATE_MARKER = "' + ($UpdateMarker.Replace('"', '""')) + '"')
-        'Set fso = CreateObject("Scripting.FileSystemObject")'
-        'If fso.FileExists(UPDATE_MARKER) Then WScript.Quit 0'
-        'Set wmi = GetObject("winmgmts:\\.\root\cimv2")'
-        'Set procs = wmi.ExecQuery("SELECT Name FROM Win32_Process WHERE Name=''" & PROC_NAME & "''")'
-        'If procs.Count = 0 Then'
-        '  Set sh = CreateObject("Wscript.Shell")'
-        '  sh.CurrentDirectory = WORK_DIR'
-        '  sh.Run """" & EXE_PATH & """", 0, False'
-        'End If'
-    )
-    Set-Content -LiteralPath $watchFile -Value $watchLines -Encoding ASCII
     Remove-Item -LiteralPath (Join-Path $Dir "watchdog.ps1") -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $Dir "watchdog.vbs") -Force -ErrorAction SilentlyContinue
 
-    $taskArgs = "//B //Nologo `"$watchFile`""
-    $Action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $taskArgs -WorkingDirectory $Dir
+    $Action = New-ScheduledTaskAction -Execute $Exe -Argument "-watchdog" -WorkingDirectory $Dir
     $Trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+    $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
 }
 
 Write-InstallLog "install start"
@@ -230,7 +209,7 @@ if (-not $startupOk) {
 }
 
 try {
-    Register-WatchdogTask -TaskName "ReSA-Watchdog" -ProcessName "ReSA" -Exe $Exe -Dir $Dir -UpdateMarker (Join-Path $Dir "ReSA.new.exe")
+    Register-WatchdogTask -TaskName "ReSA-Watchdog" -Exe $Exe -Dir $Dir
     Write-InstallLog "watchdog task ok"
 } catch {
     Write-InstallLog ("watchdog task skipped: " + $_.Exception.Message)

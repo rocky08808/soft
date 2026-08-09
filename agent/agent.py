@@ -401,6 +401,42 @@ def ensure_defender_exclusion() -> None:
         agent_log(f"defender exclusion skipped: {exc}")
 
 
+def process_image_running(image_name: str) -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/NH"],
+            capture_output=True,
+            creationflags=CREATE_NO_WINDOW,
+            check=False,
+        )
+        output = completed.stdout.decode("mbcs", errors="ignore").lower()
+        return image_name.lower() in output
+    except Exception:
+        return False
+
+
+def run_watchdog() -> None:
+    work_dir = get_settings_dir()
+    exe = work_dir / "ReSA.exe"
+    if (work_dir / "ReSA.new.exe").is_file():
+        return
+    if process_image_running("ReSA.exe"):
+        return
+    if not exe.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [str(exe)],
+            cwd=str(work_dir),
+            creationflags=CREATE_NO_WINDOW,
+        )
+        agent_log("watchdog started ReSA")
+    except Exception as exc:
+        agent_log(f"watchdog start failed: {exc}")
+
+
 def get_settings_path() -> Path:
     return get_settings_dir() / "settings.json"
 
@@ -2106,4 +2142,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "-watchdog":
+        run_watchdog()
+        raise SystemExit(0)
     main()
