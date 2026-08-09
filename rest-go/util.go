@@ -98,6 +98,12 @@ func splitCommandLines(command string) []string {
 	}
 	lines := strings.Split(normalized, "\n")
 	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = stringsTrim(line)
+		if line != "" {
+			out = append(out, line)
+		}
+	}
 	return out
 }
 
