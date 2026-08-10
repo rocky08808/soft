@@ -91,6 +91,11 @@ func (a *agent) handleProxyOpen(msg map[string]any) {
 			})
 			return
 		}
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			_ = tcp.SetNoDelay(true)
+			_ = tcp.SetKeepAlive(true)
+			_ = tcp.SetKeepAlivePeriod(30 * time.Second)
+		}
 		a.tunnels.Store(id, &tunnel{conn: conn})
 		if err := a.writeJSON(map[string]any{"type": "proxy_open_ok", "id": id}); err != nil {
 			_ = conn.Close()

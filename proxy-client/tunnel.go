@@ -319,7 +319,9 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 			if ch, ok := value.(chan []byte); ok {
 				select {
 				case ch <- data:
-				default:
+				case <-time.After(45 * time.Second):
+					m.log(fmt.Sprintf("代理数据阻塞，关闭连接 %s", id))
+					m.closeTunnel(id)
 				}
 			}
 		}
@@ -371,7 +373,7 @@ func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, 
 		return "", nil, err
 	}
 	resultCh := make(chan openResult, 1)
-	streamCh := make(chan []byte, 32)
+	streamCh := make(chan []byte, 256)
 	m.opens.Store(id, resultCh)
 	m.streams.Store(id, streamCh)
 
