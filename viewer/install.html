@@ -256,25 +256,58 @@
         <strong>如何查看 ReProxy 设备 ID</strong>
         <p class="note" style="margin: 0.5rem 0 0;">ProxyClient 的「设备 ID」填被控机 ReProxy 生成的 ID，与 ReSA / ReST 的 ID <strong>不一定相同</strong>。安装并首次运行 <code>Proxy.exe</code> 后才会生成。</p>
         <p class="note" style="margin: 0.75rem 0 0;"><strong>方法一：在被控机本地查看</strong></p>
-        <p class="note" style="margin: 0.35rem 0 0;">用记事本打开：</p>
-        <div class="cmd-box" id="cmdProxyDeviceIdPath">%LOCALAPPDATA%\ReProxy\device.id</div>
+        <p class="note" style="margin: 0.35rem 0 0;">文件路径（资源管理器地址栏粘贴）：</p>
+        <div class="cmd-box" id="cmdProxyDeviceIdPath">%USERPROFILE%\AppData\Local\ReProxy\device.id</div>
         <div class="install-actions">
           <button type="button" id="copyProxyDeviceIdPathBtn">复制路径</button>
         </div>
-        <p class="note" style="margin: 0.35rem 0 0;">CMD / PowerShell：</p>
-        <div class="cmd-box" id="cmdProxyDeviceIdLocal">type %LOCALAPPDATA%\ReProxy\device.id</div>
+        <p class="note" style="margin: 0.75rem 0 0;"><strong>ReST 终端：先确认 Shell 类型</strong></p>
+        <p class="note" style="margin: 0.35rem 0 0;">终端 Shell 下拉框：<strong>PowerShell</strong> 用 <code>$env:...</code>；选 <strong>CMD</strong> 用 <code>%USERPROFILE%</code>。不要混用，否则报「语法不正确」或「找不到路径」。</p>
+        <p class="note" style="margin: 0.35rem 0 0;">检查是否已安装（PowerShell）：</p>
+        <div class="cmd-box" id="cmdProxyCheckRest">dir "$env:USERPROFILE\AppData\Local\ReProxy"</div>
         <div class="install-actions">
-          <button type="button" id="copyProxyDeviceIdLocalBtn">复制本地命令</button>
+          <button type="button" id="copyProxyCheckRestBtn">复制检查命令 (PowerShell)</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">检查是否已安装（CMD）：</p>
+        <div class="cmd-box" id="cmdProxyCheckCmd">dir "%USERPROFILE%\AppData\Local\ReProxy"</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyCheckCmdBtn">复制检查命令 (CMD)</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">查设备 ID（CMD / Win+R，路径含空格务必加英文引号）：</p>
+        <div class="cmd-box" id="cmdProxyDeviceIdLocal">type "%USERPROFILE%\AppData\Local\ReProxy\device.id"</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyDeviceIdLocalBtn">复制 CMD 命令</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">若文件不存在，先启动代理（CMD）：</p>
+        <div class="cmd-box" id="cmdProxyStartCmd">start "" "%USERPROFILE%\AppData\Local\ReProxy\Proxy.exe"</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyStartCmdBtn">复制 CMD 启动命令</button>
         </div>
         <p class="note" style="margin: 0.75rem 0 0;"><strong>方法二：用 ReST 远程终端查看</strong>（无需到被控机跟前）</p>
-        <p class="note" style="margin: 0.35rem 0 0;">前提：被控机已装 ReST。在<a href="/">控制端</a>填入 ReST 的设备 ID 并连接 → 点「打开终端」→ 执行：</p>
-        <div class="cmd-box multiline" id="cmdProxyDeviceIdRest">type %LOCALAPPDATA%\ReProxy\device.id</div>
+        <p class="note" style="margin: 0.35rem 0 0;">前提：被控机已装 ReST。在<a href="/">控制端</a>连接后点「打开终端」。Shell 选 <strong>PowerShell</strong> 时：</p>
+        <div class="cmd-box multiline" id="cmdProxyDeviceIdRest">Get-Content "$env:USERPROFILE\AppData\Local\ReProxy\device.id"</div>
         <div class="install-actions">
           <button type="button" id="copyProxyDeviceIdRestBtn">复制 ReST 终端命令</button>
         </div>
+        <p class="note" style="margin: 0.35rem 0 0;">若文件不存在，先启动代理（PowerShell）：</p>
+        <div class="cmd-box" id="cmdProxyStartRest">Start-Process "$env:USERPROFILE\AppData\Local\ReProxy\Proxy.exe"</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyStartRestBtn">复制启动命令 (PowerShell)</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">Shell 选 <strong>CMD</strong> 时，用上方「方法一」里带引号的 <code>type "%USERPROFILE%\..."</code> 与 <code>start "" "%USERPROFILE%\..."</code>。</p>
         <p class="note" style="margin: 0.75rem 0 0;"><strong>方法三：看 ReProxy 日志</strong></p>
-        <p class="note" style="margin: 0.35rem 0 0;">在被控机或 ReST 终端执行 <code>type %LOCALAPPDATA%\ReProxy\proxy-agent.log</code>，找 <code>Generated device ID:</code> 或上线记录中的 ID。</p>
-        <p class="note" style="margin: 0.75rem 0 0;">若文件不存在，说明 ReProxy 尚未成功运行，请先完成安装并确认 <code>Proxy.exe</code> 已启动。</p>
+        <p class="note" style="margin: 0.35rem 0 0;">PowerShell：</p>
+        <div class="cmd-box" id="cmdProxyLogRest">Get-Content "$env:USERPROFILE\AppData\Local\ReProxy\proxy-agent.log" -Tail 20</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyLogRestBtn">复制日志命令</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">CMD：</p>
+        <div class="cmd-box" id="cmdProxyLogCmd">type "%USERPROFILE%\AppData\Local\ReProxy\proxy-agent.log"</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyLogCmdBtn">复制日志命令 (CMD)</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">找 <code>Generated device ID:</code> 或上线记录中的 ID。安装失败可查：<code>%TEMP%\ReProxy-install.log</code></p>
+        <p class="note" style="margin: 0.75rem 0 0;">若文件夹不存在，说明 ReProxy 尚未成功安装，请重新运行上方「一键安装」命令。</p>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>命令行一键安装（被控机）</strong>
@@ -572,9 +605,15 @@
     const cmdProxy = buildPsLaunch(buildProxyInstallInner(base), true);
     const proxyClientCmd =
       `ProxyClient.exe --server ${wsOrigin} --device-id 被控机ReProxy的device.id --token YOUR_TOKEN --listen 127.0.0.1:1080`;
-    const cmdProxyDeviceIdPath = "%LOCALAPPDATA%\\ReProxy\\device.id";
-    const cmdProxyDeviceIdLocal = "type %LOCALAPPDATA%\\ReProxy\\device.id";
-    const cmdProxyDeviceIdRest = "type %LOCALAPPDATA%\\ReProxy\\device.id";
+    const cmdProxyDeviceIdPath = "%USERPROFILE%\\AppData\\Local\\ReProxy\\device.id";
+    const cmdProxyCheckRest = 'dir "$env:USERPROFILE\\AppData\\Local\\ReProxy"';
+    const cmdProxyCheckCmd = 'dir "%USERPROFILE%\\AppData\\Local\\ReProxy"';
+    const cmdProxyDeviceIdLocal = 'type "%USERPROFILE%\\AppData\\Local\\ReProxy\\device.id"';
+    const cmdProxyDeviceIdRest = 'Get-Content "$env:USERPROFILE\\AppData\\Local\\ReProxy\\device.id"';
+    const cmdProxyStartRest = 'Start-Process "$env:USERPROFILE\\AppData\\Local\\ReProxy\\Proxy.exe"';
+    const cmdProxyStartCmd = 'start "" "%USERPROFILE%\\AppData\\Local\\ReProxy\\Proxy.exe"';
+    const cmdProxyLogRest = 'Get-Content "$env:USERPROFILE\\AppData\\Local\\ReProxy\\proxy-agent.log" -Tail 20';
+    const cmdProxyLogCmd = 'type "%USERPROFILE%\\AppData\\Local\\ReProxy\\proxy-agent.log"';
     const cmdUninstallAll = buildPsLaunch(buildUninstallInner(base, "uninstall.ps1"), true);
     const cmdUninstallResa = buildPsLaunch(
       buildUninstallInner(base, "uninstall-resa.ps1", "ReSA"),
@@ -608,8 +647,14 @@
     document.getElementById("cmdProxy").textContent = cmdProxy;
     document.getElementById("cmdProxyClient").textContent = proxyClientCmd;
     document.getElementById("cmdProxyDeviceIdPath").textContent = cmdProxyDeviceIdPath;
+    document.getElementById("cmdProxyCheckRest").textContent = cmdProxyCheckRest;
+    document.getElementById("cmdProxyCheckCmd").textContent = cmdProxyCheckCmd;
     document.getElementById("cmdProxyDeviceIdLocal").textContent = cmdProxyDeviceIdLocal;
     document.getElementById("cmdProxyDeviceIdRest").textContent = cmdProxyDeviceIdRest;
+    document.getElementById("cmdProxyStartRest").textContent = cmdProxyStartRest;
+    document.getElementById("cmdProxyStartCmd").textContent = cmdProxyStartCmd;
+    document.getElementById("cmdProxyLogRest").textContent = cmdProxyLogRest;
+    document.getElementById("cmdProxyLogCmd").textContent = cmdProxyLogCmd;
     document.getElementById("cmdUninstallAll").textContent = cmdUninstallAll;
     document.getElementById("cmdUninstallResa").textContent = cmdUninstallResa;
     document.getElementById("cmdUninstallRest").textContent = cmdUninstallRest;
@@ -673,11 +718,29 @@
     document.getElementById("copyProxyDeviceIdPathBtn").addEventListener("click", () =>
       copyText(cmdProxyDeviceIdPath, "ReProxy device.id 路径")
     );
+    document.getElementById("copyProxyCheckRestBtn").addEventListener("click", () =>
+      copyText(cmdProxyCheckRest, "检查命令 (PowerShell)")
+    );
+    document.getElementById("copyProxyCheckCmdBtn").addEventListener("click", () =>
+      copyText(cmdProxyCheckCmd, "检查命令 (CMD)")
+    );
     document.getElementById("copyProxyDeviceIdLocalBtn").addEventListener("click", () =>
       copyText(cmdProxyDeviceIdLocal, "本地查看命令")
     );
     document.getElementById("copyProxyDeviceIdRestBtn").addEventListener("click", () =>
       copyText(cmdProxyDeviceIdRest, "ReST 终端命令")
+    );
+    document.getElementById("copyProxyStartRestBtn").addEventListener("click", () =>
+      copyText(cmdProxyStartRest, "启动 Proxy 命令 (PowerShell)")
+    );
+    document.getElementById("copyProxyStartCmdBtn").addEventListener("click", () =>
+      copyText(cmdProxyStartCmd, "启动 Proxy 命令 (CMD)")
+    );
+    document.getElementById("copyProxyLogRestBtn").addEventListener("click", () =>
+      copyText(cmdProxyLogRest, "日志命令")
+    );
+    document.getElementById("copyProxyLogCmdBtn").addEventListener("click", () =>
+      copyText(cmdProxyLogCmd, "日志命令 (CMD)")
     );
     document.getElementById("copyCmdUninstallAllBtn").addEventListener("click", () =>
       copyText(cmdUninstallAll, "全部卸载命令")

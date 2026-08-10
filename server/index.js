@@ -317,6 +317,19 @@ app.get("/download/Proxy-Install.ps1", (req, res) => {
   );
 });
 
+app.get("/download/ReProxy-Install.ps1", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendPs1Download(
+    res,
+    "ReProxy-Install.ps1",
+    buildInstallWrapperPs1(base, {
+      installScript: "install-proxy.ps1",
+      tempScript: "ReProxy-install.ps1",
+      logFile: "ReProxy-install.log",
+    })
+  );
+});
+
 app.get("/download/uninstall.ps1", (req, res) => {
   sendDownloadAsset(res, "uninstall.ps1", "text/plain; charset=utf-8");
 });
