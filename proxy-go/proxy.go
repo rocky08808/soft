@@ -32,8 +32,7 @@ func (a *agent) writeJSON(msg map[string]any) error {
 	if a.send == nil {
 		return fmt.Errorf("sender not ready")
 	}
-	a.writeMu.Lock()
-	defer a.writeMu.Unlock()
+	// sendJSON already serializes writes; locking here deadlocks.
 	return a.send(msg)
 }
 
