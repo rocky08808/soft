@@ -3,11 +3,20 @@
 package main
 
 import (
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
 
 const proxyMutexName = `Local\ReProxy-Agent`
+const createNoWindow = 0x08000000
+
+func hideExec(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: createNoWindow,
+	}
+}
 
 func acquireSingleInstance() bool {
 	kernel32 := syscall.NewLazyDLL("kernel32.dll")
