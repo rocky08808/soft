@@ -14,4 +14,7 @@ func restoreWinProxy(backup winProxyBackup) error {
 	return nil
 }
 
-func restoreOrphanedWinProxy() {}
+func restoreWinProxyOrForce(backup winProxyBackup) {}
+func emergencyRestoreNetwork()                      {}
+func forceDisableReProxyWinProxy() error            { return nil }
+func isReProxyWinProxyActive() bool                 { return false }

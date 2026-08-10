@@ -42,6 +42,8 @@
     #startBtn:disabled { background: #475569; cursor: not-allowed; }
     #stopBtn { background: #334155; color: #fff; }
     #stopBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #restoreNetBtn { background: #b45309; color: #fff; }
+    #restoreNetBtn:hover { background: #92400e; }
     .hint {
       margin-top: 1rem;
       padding: 0.75rem;
@@ -112,6 +114,7 @@
       <button type="button" id="startBtn">启动代理</button>
       <button type="button" id="stopBtn" disabled>停止</button>
       <button type="button" id="testIpBtn" disabled>检测出口 IP</button>
+      <button type="button" id="restoreNetBtn">恢复本机网络</button>
     </div>
 
     <p class="sub" style="margin-top:0.75rem;">本机 IP: <strong id="directIp">—</strong> · 代理出口: <strong id="testProxyIp">—</strong></p>
@@ -123,7 +126,8 @@
       3. 点 <strong>「检测出口 IP」</strong> 验证 SOCKS 隧道（仅测 HTTP:80）<br />
       4. Chrome/Edge 走代理需勾选上方「系统代理」；勾选后请<strong>完全关闭并重新打开浏览器</strong><br />
       <br />
-      若网络异常：点 <strong>停止</strong>，或重新打开 ProxyClient（会自动恢复系统代理）。<br />
+      若网络异常：点 <strong>「恢复本机网络」</strong> 或 <strong>停止</strong>；<strong>不要用任务管理器强杀</strong> ProxyClient。<br />
+      也可运行 <code>restore-network.ps1</code>，或 <code>ProxyClient.exe -restore-network</code><br />
       Firefox 需手动设 SOCKS5 <code>127.0.0.1:1080</code> 并勾选「代理 DNS」。
     </div>
 
@@ -140,6 +144,7 @@
       startBtn: document.getElementById("startBtn"),
       stopBtn: document.getElementById("stopBtn"),
       testIpBtn: document.getElementById("testIpBtn"),
+      restoreNetBtn: document.getElementById("restoreNetBtn"),
       directIp: document.getElementById("directIp"),
       testProxyIp: document.getElementById("testProxyIp"),
       log: document.getElementById("log"),
@@ -255,6 +260,18 @@
     els.stopBtn.addEventListener("click", async () => {
       await fetch("/api/stop", { method: "POST" });
       await refreshStatus();
+    });
+
+    els.restoreNetBtn.addEventListener("click", async () => {
+      if (!confirm("将关闭 ReProxy 设置的系统代理/PAC，恢复本机直连网络。继续？")) return;
+      try {
+        const res = await fetch("/api/restore-network", { method: "POST" });
+        const data = await res.json();
+        if (data.ok) alert("已恢复本机网络。请完全关闭并重新打开 Chrome/Edge。");
+        await refreshStatus();
+      } catch (e) {
+        alert("恢复失败: " + String(e));
+      }
     });
 
     els.testIpBtn.addEventListener("click", async () => {

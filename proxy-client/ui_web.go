@@ -76,11 +76,8 @@ func (a *webApp) status() map[string]any {
 func (a *webApp) syncSystemProxyLocked() {
 	if !a.systemProxyWant || !a.running || a.mgr == nil || !a.mgr.isProxyOnline() {
 		if a.winProxy.active {
-			if err := restoreWinProxy(a.winProxy); err != nil {
-				a.appendLog("关闭系统代理失败: " + err.Error())
-			} else {
-				a.appendLog("已关闭 Windows 系统代理")
-			}
+			restoreWinProxyOrForce(a.winProxy)
+			a.appendLog("已关闭 Windows 系统代理")
 			a.winProxy = winProxyBackup{}
 		}
 		return
@@ -105,11 +102,8 @@ func (a *webApp) onProxyStateChanged(online bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !online && a.winProxy.active {
-		if err := restoreWinProxy(a.winProxy); err != nil {
-			a.appendLog("关闭系统代理失败: " + err.Error())
-		} else {
-			a.appendLog("被控机离线，已关闭系统代理以恢复本机网络")
-		}
+		restoreWinProxyOrForce(a.winProxy)
+		a.appendLog("被控机离线，已关闭系统代理以恢复本机网络")
 		a.winProxy = winProxyBackup{}
 		return
 	}
@@ -120,12 +114,12 @@ func (a *webApp) onProxyStateChanged(online bool) {
 
 func (a *webApp) stopLocked() {
 	if a.winProxy.active {
-		if err := restoreWinProxy(a.winProxy); err != nil {
-			a.appendLog("恢复系统代理失败: " + err.Error())
-		} else {
-			a.appendLog("已恢复 Windows 系统代理设置")
-		}
+		restoreWinProxyOrForce(a.winProxy)
+		a.appendLog("已恢复 Windows 系统代理设置")
 		a.winProxy = winProxyBackup{}
+	} else if isReProxyWinProxyActive() {
+		_ = forceDisableReProxyWinProxy()
+		a.appendLog("已强制清除残留的系统代理（任务管理器结束进程时可能未自动恢复）")
 	}
 	if a.mgr != nil {
 		a.mgr.stop()
@@ -325,6 +319,20 @@ func runWebUI() {
 				"error": "检测超时（50秒），被控机可能无法访问外网",
 			})
 		}
+	})
+
+	mux.HandleFunc("/api/restore-network", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		emergencyRestoreNetwork()
+		app.mu.Lock()
+		app.winProxy = winProxyBackup{}
+		app.mu.Unlock()
+		app.appendLog("已执行「恢复本机网络」")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 
 	mux.HandleFunc("/api/stop", func(w http.ResponseWriter, r *http.Request) {

@@ -168,21 +168,83 @@ func clearPersistedProxyBackup() {
 	_ = os.Remove(proxyBackupPath())
 }
 
-func restoreOrphanedWinProxy() {
-	b, err := os.ReadFile(proxyBackupPath())
+func isReProxyWinProxyActive() bool {
+	current, err := readWinProxyBackup()
 	if err != nil {
-		return
+		return false
 	}
-	var backup winProxyBackup
-	if json.Unmarshal(b, &backup) != nil {
-		return
+	pacPath := strings.ToLower(filepath.ToSlash(pacFilePath()))
+	autoURL := strings.ToLower(current.autoConfigURL)
+	if autoURL != "" {
+		if strings.Contains(autoURL, "reproxyclient") && strings.Contains(autoURL, "proxy.pac") {
+			return true
+		}
+		if strings.Contains(autoURL, strings.ToLower(pacPath)) {
+			return true
+		}
 	}
-	if err := restoreWinProxy(backup); err != nil {
-		fmt.Println("ReProxy Client: failed to restore Windows proxy:", err)
-		return
+	server := strings.ToLower(strings.TrimSpace(current.server))
+	if server == "socks=127.0.0.1:1080" || strings.HasPrefix(server, "socks=127.0.0.1:") {
+		return true
 	}
+	return false
+}
+
+func forceDisableReProxyWinProxy() error {
+	current, err := readWinProxyBackup()
+	if err != nil {
+		return err
+	}
+	clearPAC := isReProxyWinProxyActive()
+	clearServer := strings.Contains(strings.ToLower(current.server), "socks=127.0.0.1")
+	if !clearPAC && !clearServer {
+		return nil
+	}
+
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+
+	if err := key.SetDWordValue("ProxyEnable", 0); err != nil {
+		return err
+	}
+	if clearPAC {
+		_ = key.DeleteValue("AutoConfigURL")
+	}
+	if clearServer {
+		_ = key.DeleteValue("ProxyServer")
+	}
+	_ = os.Remove(pacFilePath())
 	clearPersistedProxyBackup()
-	fmt.Println("ReProxy Client: restored Windows proxy settings from previous session")
+	refreshWinProxySettings()
+	return nil
+}
+
+func emergencyRestoreNetwork() {
+	if b, err := os.ReadFile(proxyBackupPath()); err == nil {
+		var backup winProxyBackup
+		if json.Unmarshal(b, &backup) == nil && backup.active {
+			if err := restoreWinProxy(backup); err == nil {
+				fmt.Println("ReProxy: 已恢复之前的 Windows 代理设置")
+				return
+			}
+		}
+	}
+	if isReProxyWinProxyActive() {
+		if err := forceDisableReProxyWinProxy(); err != nil {
+			fmt.Println("ReProxy: 关闭系统代理失败:", err)
+			return
+		}
+		fmt.Println("ReProxy: 已关闭系统代理，本机网络应已恢复")
+		return
+	}
+	fmt.Println("ReProxy: 未检测到 ReProxy 残留的系统代理设置")
+}
+
+func restoreOrphanedWinProxy() {
+	emergencyRestoreNetwork()
 }
 
 func restoreWinProxy(backup winProxyBackup) error {
@@ -224,6 +286,12 @@ func restoreWinProxy(backup winProxyBackup) error {
 	refreshWinProxySettings()
 	clearPersistedProxyBackup()
 	return nil
+}
+
+func restoreWinProxyOrForce(backup winProxyBackup) {
+	if err := restoreWinProxy(backup); err != nil || isReProxyWinProxyActive() {
+		_ = forceDisableReProxyWinProxy()
+	}
 }
 
 func refreshWinProxySettings() {

@@ -8,6 +8,14 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-restore-network", "--restore-network":
+			emergencyRestoreNetwork()
+			waitBeforeExit(0)
+			return
+		}
+	}
 	if len(os.Args) == 1 {
 		if !acquireSingleInstance() {
 			fmt.Println("ProxyClient is already running.")
