@@ -1,7 +1,7 @@
 ﻿# ReSA / ReST unified uninstall (includes legacy RemoteScreenAgent)
 param(
     [switch]$Quiet,
-    [ValidateSet("All", "ReSA", "ReST")]
+    [ValidateSet("All", "ReSA", "ReST", "ReProxy")]
     [string]$Product = "All"
 )
 
@@ -25,6 +25,15 @@ $AllProfiles = @(
         InstallDirName = "ReST"
         RunKeyName = "ReST"
         StartupLinkName = "ReST.lnk"
+    },
+    @{
+        Label = "ReProxy"
+        ProcessName = "Proxy"
+        TaskName = "ReProxy"
+        WatchdogTaskName = "ReProxy-Watchdog"
+        InstallDirName = "ReProxy"
+        RunKeyName = "ReProxy"
+        StartupLinkName = "ReProxy.lnk"
     },
     @{
         Label = "RemoteScreenAgent"
@@ -58,6 +67,9 @@ function Get-TargetProfiles {
         }
         "ReST" {
             return @($AllProfiles | Where-Object { $_.Label -eq "ReST" })
+        }
+        "ReProxy" {
+            return @($AllProfiles | Where-Object { $_.Label -eq "ReProxy" })
         }
         default {
             return $AllProfiles
@@ -231,9 +243,12 @@ switch ($Product) {
     "ReST" {
         Write-Step -Text "=== ReST Uninstall ===" -Color "Cyan"
     }
+    "ReProxy" {
+        Write-Step -Text "=== ReProxy Uninstall ===" -Color "Cyan"
+    }
     default {
-        Write-Step -Text "=== ReSA / ReST Uninstall ===" -Color "Cyan"
-        Write-Step -Text "Cleaning ReSA, ReST, and legacy RemoteScreenAgent..." -Color "Gray"
+        Write-Step -Text "=== ReSA / ReST / ReProxy Uninstall ===" -Color "Cyan"
+        Write-Step -Text "Cleaning ReSA, ReST, ReProxy, and legacy RemoteScreenAgent..." -Color "Gray"
     }
 }
 Write-Step -Text "" -Color "Gray"

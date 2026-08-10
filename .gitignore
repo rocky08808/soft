@@ -9,6 +9,10 @@ agent/device.id
 agent/_version.py
 rest-go/agent.config.json
 rest-go/version.txt
+proxy-go/agent.config.json
+proxy-go/version.txt
+proxy-go/dist/
+proxy-client/dist/
 
 # Python / Agent build
 agent/dist/

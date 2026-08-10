@@ -17,6 +17,8 @@ const MAX_RECORDINGS = Number(process.env.MAX_RECORDINGS) || 20;
 
 const agents = new Map();
 const termAgents = new Map();
+const proxyAgents = new Map();
+const proxyClients = new Map();
 const agentMeta = new Map();
 const viewers = new Map();
 const dashboardClients = new Set();
@@ -281,6 +283,40 @@ app.get("/download/install-rest.ps1", (req, res) => {
   sendDownloadAsset(res, "install-rest.ps1", "text/plain; charset=utf-8");
 });
 
+app.get("/download/install-proxy.ps1", (req, res) => {
+  sendDownloadAsset(res, "install-proxy.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/Proxy-Setup.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="Proxy-Setup.bat"; filename*=UTF-8\'\'ReProxy%E5%AE%89%E8%A3%85.bat'
+  );
+  res.send(
+    buildSetupBat(base, {
+      wrapperName: "ReProxy-Install.ps1",
+      installScript: "install-proxy.ps1",
+      tempScript: "ReProxy-install.ps1",
+      logFile: "ReProxy-install.log",
+    })
+  );
+});
+
+app.get("/download/Proxy-Install.ps1", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendPs1Download(
+    res,
+    "ReProxy-Install.ps1",
+    buildInstallWrapperPs1(base, {
+      installScript: "install-proxy.ps1",
+      tempScript: "ReProxy-install.ps1",
+      logFile: "ReProxy-install.log",
+    })
+  );
+});
+
 app.get("/download/uninstall.ps1", (req, res) => {
   sendDownloadAsset(res, "uninstall.ps1", "text/plain; charset=utf-8");
 });
@@ -303,6 +339,14 @@ app.get("/download/ReST.zip", (req, res) => {
 
 app.get("/download/ReST.msi", (req, res) => {
   sendDownloadAsset(res, "ReST.msi", "application/x-msi");
+});
+
+app.get("/download/Proxy.exe", (req, res) => {
+  sendDownloadAsset(res, "Proxy.exe", "application/octet-stream");
+});
+
+app.get("/download/ProxyClient.exe", (req, res) => {
+  sendDownloadAsset(res, "ProxyClient.exe", "application/octet-stream");
 });
 
 app.get("/download/versions.json", (req, res) => {
@@ -575,11 +619,13 @@ function deviceSnapshot(deviceId) {
     deviceId,
     online: agents.has(deviceId),
     termOnline: termAgents.has(deviceId),
+    proxyOnline: proxyAgents.has(deviceId),
     viewerCount,
-    hostname: meta.hostname || meta.termHostname || "",
-    platform: meta.platform || meta.termPlatform || "",
+    hostname: meta.hostname || meta.termHostname || meta.proxyHostname || "",
+    platform: meta.platform || meta.termPlatform || meta.proxyPlatform || "",
     agentVersion: meta.agentVersion || "",
     termVersion: meta.termVersion || "",
+    proxyVersion: meta.proxyVersion || "",
     monitor: meta.monitor ?? null,
     connectedAt: meta.connectedAt || null,
     lastSeen: meta.lastSeen || null,
@@ -590,6 +636,7 @@ function listDevices() {
   const ids = new Set([
     ...agents.keys(),
     ...termAgents.keys(),
+    ...proxyAgents.keys(),
     ...agentMeta.keys(),
   ]);
   return [...ids]
@@ -628,6 +675,23 @@ function notifyViewersTermOnline(deviceId) {
   for (const viewer of set) {
     send(viewer, { type: "term_online", deviceId });
   }
+}
+
+function notifyProxyClientOnline(deviceId) {
+  const client = proxyClients.get(deviceId);
+  if (!client) return;
+  send(client, { type: "proxy_online", deviceId, proxyOnline: true });
+}
+
+function isProxyMessage(msg) {
+  const type = String(msg?.type || "");
+  return (
+    type === "proxy_open" ||
+    type === "proxy_open_ok" ||
+    type === "proxy_open_err" ||
+    type === "proxy_data" ||
+    type === "proxy_close"
+  );
 }
 
 function authMiddleware(req, res, next) {
@@ -844,6 +908,37 @@ wss.on("connection", (ws, req) => {
     addAudit("term_online", { deviceId, ip: clientIp });
     broadcastDashboard("devices_changed", { devices: listDevices() });
     console.log(`[term] online: ${deviceId} (${clientIp})`);
+  } else if (role === "proxy") {
+    const prev = proxyAgents.get(deviceId);
+    if (prev && prev !== ws) prev.close(4000, "replaced");
+    proxyAgents.set(deviceId, ws);
+
+    const meta = agentMeta.get(deviceId) || {};
+    meta.lastSeen = new Date().toISOString();
+    meta.ip = clientIp;
+    agentMeta.set(deviceId, meta);
+
+    send(ws, {
+      type: "registered",
+      role: "proxy",
+      deviceId,
+    });
+    notifyProxyClientOnline(deviceId);
+    addAudit("proxy_online", { deviceId, ip: clientIp });
+    broadcastDashboard("devices_changed", { devices: listDevices() });
+    console.log(`[proxy] online: ${deviceId} (${clientIp})`);
+  } else if (role === "proxy_client") {
+    const prev = proxyClients.get(deviceId);
+    if (prev && prev !== ws) prev.close(4000, "replaced");
+    proxyClients.set(deviceId, ws);
+    send(ws, {
+      type: "registered",
+      role: "proxy_client",
+      deviceId,
+      proxyOnline: proxyAgents.has(deviceId),
+    });
+    addAudit("proxy_client_connect", { deviceId, ip: clientIp });
+    console.log(`[proxy_client] connected -> ${deviceId} (${clientIp})`);
   } else if (role === "viewer") {
     if (!viewers.has(deviceId)) viewers.set(deviceId, new Set());
     viewers.get(deviceId).add(ws);
@@ -853,6 +948,7 @@ wss.on("connection", (ws, req) => {
       deviceId,
       agentOnline: agents.has(deviceId),
       termOnline: termAgents.has(deviceId),
+      proxyOnline: proxyAgents.has(deviceId),
       device: deviceSnapshot(deviceId),
       clipboard: getClipboardEntries(deviceId, 300),
       keyboard: getKeyboardEntries(deviceId, 300),
@@ -1063,6 +1159,40 @@ wss.on("connection", (ws, req) => {
     if (ws.role === "viewer" && msg.type === "control") {
       const agent = agents.get(deviceId);
       if (agent) send(agent, msg);
+      return;
+    }
+
+    if (ws.role === "proxy_client" && isProxyMessage(msg)) {
+      const proxy = proxyAgents.get(deviceId);
+      if (!proxy) {
+        if (msg.type === "proxy_open") {
+          send(ws, {
+            type: "proxy_open_err",
+            id: msg.id,
+            error: "proxy agent offline",
+          });
+        }
+        return;
+      }
+      send(proxy, msg);
+      return;
+    }
+
+    if (ws.role === "proxy" && msg.type === "proxy_info") {
+      const meta = agentMeta.get(deviceId) || {};
+      meta.proxyHostname = msg.hostname || meta.proxyHostname;
+      meta.proxyPlatform = msg.platform || meta.proxyPlatform;
+      if (msg.version) meta.proxyVersion = msg.version;
+      meta.lastSeen = new Date().toISOString();
+      agentMeta.set(deviceId, meta);
+      broadcastDashboard("devices_changed", { devices: listDevices() });
+      return;
+    }
+
+    if (ws.role === "proxy" && isProxyMessage(msg)) {
+      const client = proxyClients.get(deviceId);
+      if (client) send(client, msg);
+      return;
     }
   });
 
@@ -1096,6 +1226,25 @@ wss.on("connection", (ws, req) => {
       addAudit("term_offline", { deviceId, ip: clientIp });
       broadcastDashboard("devices_changed", { devices: listDevices() });
       console.log(`[term] offline: ${deviceId}`);
+    }
+
+    if (ws.role === "proxy" && proxyAgents.get(deviceId) === ws) {
+      proxyAgents.delete(deviceId);
+      const meta = agentMeta.get(deviceId);
+      if (meta) meta.lastSeen = new Date().toISOString();
+      const client = proxyClients.get(deviceId);
+      if (client) {
+        send(client, { type: "proxy_offline", deviceId, proxyOnline: false });
+      }
+      addAudit("proxy_offline", { deviceId, ip: clientIp });
+      broadcastDashboard("devices_changed", { devices: listDevices() });
+      console.log(`[proxy] offline: ${deviceId}`);
+    }
+
+    if (ws.role === "proxy_client" && proxyClients.get(deviceId) === ws) {
+      proxyClients.delete(deviceId);
+      addAudit("proxy_client_disconnect", { deviceId, ip: clientIp });
+      console.log(`[proxy_client] disconnected <- ${deviceId}`);
     }
 
     if (ws.role === "viewer") {

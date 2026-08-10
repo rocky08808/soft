@@ -22,12 +22,17 @@ PRODUCTS = {
         "url": "/download/ReST.zip",
         "minSize": 524_288,
     },
+    "proxy": {
+        "dir": ROOT / "proxy-go",
+        "url": "/download/Proxy.exe",
+        "minSize": 262_144,
+    },
 }
 
 
 def main() -> None:
     if len(sys.argv) < 2:
-        raise SystemExit("usage: write_versions.py <resa|rest> [version]")
+        raise SystemExit("usage: write_versions.py <resa|rest|proxy> [version]")
 
     product = sys.argv[1].strip().lower()
     if product not in PRODUCTS:
@@ -57,9 +62,9 @@ def main() -> None:
     )
 
     version_file = meta["dir"] / (
-        "version.txt" if product == "rest" else "_version.py"
+        "version.txt" if product in ("rest", "proxy") else "_version.py"
     )
-    if product == "rest":
+    if product in ("rest", "proxy"):
         version_file.write_text(f"{version}\n", encoding="utf-8")
     else:
         version_file.write_text(f'VERSION = "{version}"\n', encoding="utf-8")

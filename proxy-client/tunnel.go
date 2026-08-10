@@ -1,0 +1,284 @@
+package main
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+type tunnelManager struct {
+	settings settings
+	conn     *websocket.Conn
+	writeMu  sync.Mutex
+	ready    chan struct{}
+	opens    sync.Map
+	streams  sync.Map
+}
+
+func newTunnelManager(s settings) *tunnelManager {
+	return &tunnelManager{
+		settings: s,
+		ready:    make(chan struct{}),
+	}
+}
+
+func (m *tunnelManager) run() {
+	url := buildWSURL(m.settings.Server, m.settings.DeviceID, m.settings.Token)
+	for {
+		if err := m.connect(url); err != nil {
+			fmt.Printf("proxy tunnel disconnected: %v (retry in 3s)\n", err)
+			m.resetConnection()
+			time.Sleep(3 * time.Second)
+			continue
+		}
+	}
+}
+
+func (m *tunnelManager) resetConnection() {
+	m.writeMu.Lock()
+	if m.conn != nil {
+		_ = m.conn.Close()
+		m.conn = nil
+	}
+	m.writeMu.Unlock()
+	m.ready = make(chan struct{})
+	m.opens.Range(func(key, value any) bool {
+		if ch, ok := value.(chan openResult); ok {
+			select {
+			case ch <- openResult{err: fmt.Errorf("connection lost")}:
+			default:
+			}
+		}
+		m.opens.Delete(key)
+		return true
+	})
+	m.streams.Range(func(key, value any) bool {
+		if ch, ok := value.(chan []byte); ok {
+			close(ch)
+		}
+		m.streams.Delete(key)
+		return true
+	})
+}
+
+func (m *tunnelManager) connect(url string) error {
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 30 * time.Second,
+		Proxy:            http.ProxyFromEnvironment,
+	}
+	conn, _, err := dialer.Dial(url, nil)
+	if err != nil {
+		return err
+	}
+
+	m.writeMu.Lock()
+	m.conn = conn
+	m.writeMu.Unlock()
+	close(m.ready)
+
+	logURL := url
+	if i := strings.Index(logURL, "token="); i >= 0 {
+		logURL = logURL[:i] + "token=***"
+	}
+	fmt.Println("proxy tunnel connected:", logURL)
+
+	defer m.resetConnection()
+
+	conn.SetReadLimit(4 * 1024 * 1024)
+	_ = conn.SetReadDeadline(time.Now().Add(180 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(180 * time.Second))
+	})
+
+	stopPing := make(chan struct{})
+	go m.pingLoop(conn, stopPing)
+	defer close(stopPing)
+
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(180 * time.Second))
+
+		var msg map[string]any
+		if json.Unmarshal(raw, &msg) != nil {
+			continue
+		}
+		m.dispatch(msg)
+	}
+}
+
+func (m *tunnelManager) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
+	ticker := time.NewTicker(20 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			m.writeMu.Lock()
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			m.writeMu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+type openResult struct {
+	ok  bool
+	err error
+}
+
+func (m *tunnelManager) dispatch(msg map[string]any) {
+	id := stringsTrim(fmt.Sprint(msg["id"]))
+	if id == "" {
+		return
+	}
+	switch fmt.Sprint(msg["type"]) {
+	case "proxy_open_ok":
+		if value, ok := m.opens.Load(id); ok {
+			if ch, ok := value.(chan openResult); ok {
+				select {
+				case ch <- openResult{ok: true}:
+				default:
+				}
+			}
+			m.opens.Delete(id)
+		}
+	case "proxy_open_err":
+		errText := fmt.Sprint(msg["error"])
+		if value, ok := m.opens.Load(id); ok {
+			if ch, ok := value.(chan openResult); ok {
+				select {
+				case ch <- openResult{err: fmt.Errorf("%s", errText)}:
+				default:
+				}
+			}
+			m.opens.Delete(id)
+		}
+	case "proxy_data":
+		raw, ok := msg["data"].(string)
+		if !ok {
+			return
+		}
+		data, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil || len(data) == 0 {
+			return
+		}
+		if value, ok := m.streams.Load(id); ok {
+			if ch, ok := value.(chan []byte); ok {
+				select {
+				case ch <- data:
+				default:
+				}
+			}
+		}
+	case "proxy_close":
+		if value, ok := m.streams.LoadAndDelete(id); ok {
+			if ch, ok := value.(chan []byte); ok {
+				close(ch)
+			}
+		}
+	}
+}
+
+func (m *tunnelManager) waitReady() {
+	<-m.ready
+}
+
+func (m *tunnelManager) writeJSON(msg map[string]any) error {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	if m.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+	return m.conn.WriteMessage(websocket.TextMessage, raw)
+}
+
+func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, error) {
+	m.waitReady()
+	id, err := newTunnelID()
+	if err != nil {
+		return "", nil, err
+	}
+	resultCh := make(chan openResult, 1)
+	streamCh := make(chan []byte, 32)
+	m.opens.Store(id, resultCh)
+	m.streams.Store(id, streamCh)
+
+	if err := m.writeJSON(map[string]any{
+		"type": "proxy_open",
+		"id":   id,
+		"host": host,
+		"port": port,
+	}); err != nil {
+		m.opens.Delete(id)
+		m.streams.Delete(id)
+		close(streamCh)
+		return "", nil, err
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			m.streams.Delete(id)
+			close(streamCh)
+			return "", nil, res.err
+		}
+		if !res.ok {
+			m.streams.Delete(id)
+			close(streamCh)
+			return "", nil, fmt.Errorf("proxy open failed")
+		}
+		return id, streamCh, nil
+	case <-time.After(45 * time.Second):
+		m.opens.Delete(id)
+		m.streams.Delete(id)
+		close(streamCh)
+		_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
+		return "", nil, fmt.Errorf("proxy open timeout")
+	}
+}
+
+func (m *tunnelManager) sendData(id string, data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	return m.writeJSON(map[string]any{
+		"type": "proxy_data",
+		"id":   id,
+		"data": base64.StdEncoding.EncodeToString(data),
+	})
+}
+
+func (m *tunnelManager) closeTunnel(id string) {
+	_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
+	if value, ok := m.streams.LoadAndDelete(id); ok {
+		if ch, ok := value.(chan []byte); ok {
+			close(ch)
+		}
+	}
+}
+
+func newTunnelID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
