@@ -1,8 +1,11 @@
 package main
 
 import (
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 func stringsTrim(s string) string { return strings.TrimSpace(s) }
@@ -19,4 +22,18 @@ func sanitizeDeviceID(value string) string {
 		return cleaned[:48]
 	}
 	return cleaned
+}
+
+func fetchPublicIP() string {
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Get("https://ifconfig.me/ip")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return ""
+	}
+	return stringsTrim(string(b))
 }

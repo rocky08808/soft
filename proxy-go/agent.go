@@ -75,6 +75,7 @@ func (w *wsAgent) connectOnce(url string) error {
 		return err
 	}
 	agentLog(fmt.Sprintf("Proxy agent online: %s (%s) v%s", w.settings.DeviceID, hostname, localVersion()))
+	go w.reportPublicIP()
 
 	stopPing := make(chan struct{})
 	go w.pingLoop(conn, stopPing)
@@ -125,4 +126,16 @@ func (w *wsAgent) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
 			}
 		}
 	}
+}
+
+func (w *wsAgent) reportPublicIP() {
+	ip := fetchPublicIP()
+	if ip == "" {
+		return
+	}
+	agentLog("Public IP: " + ip)
+	_ = w.sendJSON(map[string]any{
+		"type":     "proxy_info",
+		"publicIp": ip,
+	})
 }

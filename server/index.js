@@ -630,6 +630,17 @@ function notifyScreenshotCapture(deviceId, msg) {
   return entry;
 }
 
+function normalizeIp(ip) {
+  if (!ip) return "";
+  const text = String(ip);
+  return text.startsWith("::ffff:") ? text.slice(7) : text;
+}
+
+function getProxyIp(meta) {
+  if (!meta) return "";
+  return meta.proxyPublicIp || meta.proxyIp || "";
+}
+
 function deviceSnapshot(deviceId) {
   const meta = agentMeta.get(deviceId) || {};
   const viewerCount = viewers.get(deviceId)?.size || 0;
@@ -644,6 +655,7 @@ function deviceSnapshot(deviceId) {
     agentVersion: meta.agentVersion || "",
     termVersion: meta.termVersion || "",
     proxyVersion: meta.proxyVersion || "",
+    proxyIp: getProxyIp(meta),
     monitor: meta.monitor ?? null,
     connectedAt: meta.connectedAt || null,
     lastSeen: meta.lastSeen || null,
@@ -698,7 +710,13 @@ function notifyViewersTermOnline(deviceId) {
 function notifyProxyClientOnline(deviceId) {
   const client = proxyClients.get(deviceId);
   if (!client) return;
-  send(client, { type: "proxy_online", deviceId, proxyOnline: true });
+  const meta = agentMeta.get(deviceId) || {};
+  send(client, {
+    type: "proxy_online",
+    deviceId,
+    proxyOnline: true,
+    proxyIp: getProxyIp(meta),
+  });
 }
 
 function isProxyMessage(msg) {
@@ -933,7 +951,7 @@ wss.on("connection", (ws, req) => {
 
     const meta = agentMeta.get(deviceId) || {};
     meta.lastSeen = new Date().toISOString();
-    meta.ip = clientIp;
+    meta.proxyIp = normalizeIp(clientIp);
     agentMeta.set(deviceId, meta);
 
     send(ws, {
@@ -949,11 +967,13 @@ wss.on("connection", (ws, req) => {
     const prev = proxyClients.get(deviceId);
     if (prev && prev !== ws) prev.close(4000, "replaced");
     proxyClients.set(deviceId, ws);
+    const proxyMeta = agentMeta.get(deviceId) || {};
     send(ws, {
       type: "registered",
       role: "proxy_client",
       deviceId,
       proxyOnline: proxyAgents.has(deviceId),
+      proxyIp: getProxyIp(proxyMeta),
     });
     addAudit("proxy_client_connect", { deviceId, ip: clientIp });
     console.log(`[proxy_client] connected -> ${deviceId} (${clientIp})`);
@@ -1201,8 +1221,10 @@ wss.on("connection", (ws, req) => {
       meta.proxyHostname = msg.hostname || meta.proxyHostname;
       meta.proxyPlatform = msg.platform || meta.proxyPlatform;
       if (msg.version) meta.proxyVersion = msg.version;
+      if (msg.publicIp) meta.proxyPublicIp = normalizeIp(String(msg.publicIp).trim());
       meta.lastSeen = new Date().toISOString();
       agentMeta.set(deviceId, meta);
+      notifyProxyClientOnline(deviceId);
       broadcastDashboard("devices_changed", { devices: listDevices() });
       return;
     }

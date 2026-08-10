@@ -80,7 +80,7 @@
 <body>
   <div class="wrap">
     <h1>ReProxy Client</h1>
-    <p class="sub">本地 SOCKS5 → 被控机出口 · 状态: <span id="statusBadge" class="badge badge-off">未运行</span> · 被控机: <span id="proxyBadge" class="badge badge-off">未知</span></p>
+    <p class="sub">本地 SOCKS5 → 被控机出口 · 状态: <span id="statusBadge" class="badge badge-off">未运行</span> · 被控机: <span id="proxyBadge" class="badge badge-off">未知</span> · 出口 IP: <strong id="proxyIp">—</strong></p>
 
     <label for="server">服务器 (wss://)</label>
     <input id="server" placeholder="wss://olxp.cc" />
@@ -124,12 +124,14 @@
       log: document.getElementById("log"),
       badge: document.getElementById("statusBadge"),
       proxyBadge: document.getElementById("proxyBadge"),
+      proxyIp: document.getElementById("proxyIp"),
     };
 
-    function setProxyOnline(online, running) {
+    function setProxyOnline(online, running, ip) {
       if (!running) {
         els.proxyBadge.textContent = "—";
         els.proxyBadge.className = "badge badge-off";
+        els.proxyIp.textContent = "—";
         return;
       }
       if (online) {
@@ -139,6 +141,7 @@
         els.proxyBadge.textContent = "离线";
         els.proxyBadge.className = "badge badge-off";
       }
+      els.proxyIp.textContent = ip || "获取中…";
     }
 
     function payload() {
@@ -162,7 +165,7 @@
         const res = await fetch("/api/status");
         const data = await res.json();
         setRunning(!!data.running);
-        setProxyOnline(!!data.proxyOnline, !!data.running);
+        setProxyOnline(!!data.proxyOnline, !!data.running, data.proxyIp);
         if (Array.isArray(data.logs) && data.logs.length) {
           els.log.textContent = data.logs.join("\n");
           els.log.scrollTop = els.log.scrollHeight;

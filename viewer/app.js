@@ -898,12 +898,13 @@ function renderDevices(devices) {
     if (termOn) badges.push("终端");
     if (proxyOn) badges.push("代理");
     const badgeText = badges.length ? badges.join("+") : "离线";
+    const ipPart = proxyOn && d.proxyIp ? ` · 出口 ${escapeHtml(d.proxyIp)}` : "";
     li.innerHTML = `
       <div class="device-row">
         <strong>${d.deviceId}</strong>
         <span class="badge">${badgeText}</span>
       </div>
-      <div class="device-sub">${d.hostname || "—"} · 观看 ${d.viewerCount || 0}</div>
+      <div class="device-sub">${escapeHtml(d.hostname || "—")}${ipPart} · 观看 ${d.viewerCount || 0}</div>
     `;
     if (anyOn) {
       li.addEventListener("click", () => {

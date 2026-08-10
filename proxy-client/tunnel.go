@@ -26,6 +26,8 @@ type tunnelManager struct {
 	stopOnce sync.Once
 	proxyOnline bool
 	proxyMu     sync.RWMutex
+	proxyIP     string
+	proxyIPMu   sync.RWMutex
 }
 
 func (m *tunnelManager) setProxyOnline(online bool) {
@@ -38,6 +40,25 @@ func (m *tunnelManager) isProxyOnline() bool {
 	m.proxyMu.RLock()
 	defer m.proxyMu.RUnlock()
 	return m.proxyOnline
+}
+
+func (m *tunnelManager) setProxyIP(ip string) {
+	ip = stringsTrim(ip)
+	m.proxyIPMu.Lock()
+	m.proxyIP = ip
+	m.proxyIPMu.Unlock()
+}
+
+func (m *tunnelManager) getProxyIP() string {
+	m.proxyIPMu.RLock()
+	defer m.proxyIPMu.RUnlock()
+	return m.proxyIP
+}
+
+func (m *tunnelManager) applyProxyIP(msg map[string]any) {
+	if ip := stringsTrim(fmt.Sprint(msg["proxyIp"])); ip != "" && ip != "<nil>" {
+		m.setProxyIP(ip)
+	}
 }
 
 func (m *tunnelManager) log(line string) {
@@ -101,6 +122,7 @@ func (m *tunnelManager) run() {
 
 func (m *tunnelManager) resetConnection() {
 	m.setProxyOnline(false)
+	m.setProxyIP("")
 	m.writeMu.Lock()
 	if m.conn != nil {
 		_ = m.conn.Close()
@@ -203,8 +225,14 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 	case "registered":
 		if online, ok := msg["proxyOnline"].(bool); ok {
 			m.setProxyOnline(online)
+			m.applyProxyIP(msg)
 			if online {
-				m.log("被控机 Proxy 已在线，请在浏览器设置 SOCKS5 代理后访问 ifconfig.me")
+				ip := m.getProxyIP()
+				if ip != "" {
+					m.log("被控机 Proxy 已在线，出口 IP: " + ip)
+				} else {
+					m.log("被控机 Proxy 已在线，请在浏览器设置 SOCKS5 代理后访问 ifconfig.me")
+				}
 			} else {
 				m.log("警告：被控机 Proxy 未在线。请确认被控机已装 ReProxy 且 device.id 与这里填的完全一致")
 			}
@@ -212,10 +240,17 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		return
 	case "proxy_online":
 		m.setProxyOnline(true)
-		m.log("被控机 Proxy 已上线")
+		m.applyProxyIP(msg)
+		ip := m.getProxyIP()
+		if ip != "" {
+			m.log("被控机 Proxy 已上线，出口 IP: " + ip)
+		} else {
+			m.log("被控机 Proxy 已上线")
+		}
 		return
 	case "proxy_offline":
 		m.setProxyOnline(false)
+		m.setProxyIP("")
 		m.log("被控机 Proxy 已离线")
 		return
 	}

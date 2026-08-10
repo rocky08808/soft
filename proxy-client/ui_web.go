@@ -50,8 +50,10 @@ func (a *webApp) status() map[string]any {
 	a.mu.Lock()
 	running := a.running
 	var proxyOnline bool
+	var proxyIP string
 	if a.mgr != nil {
 		proxyOnline = a.mgr.isProxyOnline()
+		proxyIP = a.mgr.getProxyIP()
 	}
 	a.mu.Unlock()
 	a.logMu.Lock()
@@ -61,6 +63,7 @@ func (a *webApp) status() map[string]any {
 	return map[string]any{
 		"running":     running,
 		"proxyOnline": proxyOnline,
+		"proxyIp":     proxyIP,
 		"logs":        logs,
 	}
 }
