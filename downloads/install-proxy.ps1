@@ -69,6 +69,50 @@ function Download-File {
     Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing
 }
 
+function Get-CacheBustStamp {
+    return (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+}
+
+function Get-LatestProxyVersion {
+    param([string]$Base)
+    $stamp = Get-CacheBustStamp
+    $manifestUrl = "$Base/versions.json?t=$stamp"
+    try {
+        $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+        if (Test-Path -LiteralPath $curl) {
+            $json = & $curl -fsSL $manifestUrl 2>$null
+        } else {
+            $json = (Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing).Content
+        }
+        if ($json) {
+            $data = $json | ConvertFrom-Json
+            if ($data.proxy -and $data.proxy.version) {
+                return [string]$data.proxy.version
+            }
+        }
+    } catch {
+        $null = $_
+    }
+    return ""
+}
+
+function Build-DownloadUrl {
+    param(
+        [string]$Base,
+        [string]$RelativePath,
+        [string]$Version
+    )
+    $stamp = Get-CacheBustStamp
+    $url = "$Base/$RelativePath"
+    $sep = "?"
+    if ($Version) {
+        $url += "$sep" + "v=" + [Uri]::EscapeDataString($Version)
+        $sep = "&"
+    }
+    $url += "$sep" + "t=$stamp"
+    return $url
+}
+
 function Register-WatchdogTask {
     param(
         [string]$TaskName,
@@ -96,7 +140,13 @@ try {
 }
 
 try {
-    $url = $BaseUrl + "/Proxy.exe"
+    $latestVersion = Get-LatestProxyVersion -Base $BaseUrl
+    if ($latestVersion) {
+        Write-InstallLog ("latest version: " + $latestVersion)
+    } else {
+        Write-InstallLog "latest version: unknown (downloading anyway)"
+    }
+    $url = Build-DownloadUrl -Base $BaseUrl -RelativePath "Proxy.exe" -Version $latestVersion
     Write-InstallLog ("download: " + $url)
     Download-File -Url $url -OutFile $Temp
     if (-not (Test-Path -LiteralPath $Temp)) {
@@ -108,6 +158,10 @@ try {
     }
     Move-Item -LiteralPath $Temp -Destination $Exe -Force
     Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+    if ($latestVersion) {
+        Set-Content -LiteralPath (Join-Path $Dir "version.txt") -Value $latestVersion -Encoding ASCII -NoNewline
+        Write-InstallLog ("installed version: " + $latestVersion)
+    }
     Write-InstallLog "download ok"
 } catch {
     Fail-Install ("download error: " + $_.Exception.Message)

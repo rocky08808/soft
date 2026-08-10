@@ -187,6 +187,7 @@ function sendDownloadAsset(res, filename, contentType) {
     res.setHeader("Content-Type", contentType);
     return res.send(Buffer.from(text, "utf8"));
   }
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", contentType);
   res.sendFile(filePath);
 }
