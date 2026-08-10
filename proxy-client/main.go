@@ -9,6 +9,11 @@ import (
 
 func main() {
 	if len(os.Args) == 1 {
+		if !acquireSingleInstance() {
+			fmt.Println("ProxyClient is already running.")
+			waitBeforeExit(0)
+			return
+		}
 		runWebUI()
 		return
 	}

@@ -22,6 +22,8 @@ type tunnelManager struct {
 	opens    sync.Map
 	streams  sync.Map
 	logf     func(string)
+	stopCh   chan struct{}
+	stopOnce sync.Once
 }
 
 func (m *tunnelManager) log(line string) {
@@ -36,16 +38,48 @@ func newTunnelManager(s settings) *tunnelManager {
 	return &tunnelManager{
 		settings: s,
 		ready:    make(chan struct{}),
+		stopCh:   make(chan struct{}),
 	}
+}
+
+func (m *tunnelManager) stopped() bool {
+	select {
+	case <-m.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *tunnelManager) stop() {
+	m.stopOnce.Do(func() {
+		close(m.stopCh)
+		m.resetConnection()
+	})
 }
 
 func (m *tunnelManager) run() {
 	url := buildWSURL(m.settings.Server, m.settings.DeviceID, m.settings.Token)
 	for {
+		if m.stopped() {
+			return
+		}
 		if err := m.connect(url); err != nil {
+			if m.stopped() {
+				return
+			}
+			errText := strings.ToLower(err.Error())
+			if strings.Contains(errText, "4000") && strings.Contains(errText, "replaced") {
+				m.log("连接被另一个 ProxyClient 顶替。请结束多余的 ProxyClient.exe，只保留一个后再点「启动代理」。")
+				return
+			}
 			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 3s)", err))
 			m.resetConnection()
-			time.Sleep(3 * time.Second)
+			select {
+			case <-m.stopCh:
+				return
+			case <-time.After(3 * time.Second):
+			}
 			continue
 		}
 	}

@@ -60,12 +60,22 @@ func (a *webApp) status() map[string]any {
 	}
 }
 
+func (a *webApp) stopLocked() {
+	if a.mgr != nil {
+		a.mgr.stop()
+		a.mgr = nil
+	}
+	if a.srv != nil {
+		_ = a.srv.Close()
+		a.srv = nil
+	}
+	a.running = false
+}
+
 func (a *webApp) start(s settings) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.running {
-		return fmt.Errorf("proxy already running")
-	}
+	a.stopLocked()
 	if s.Listen == "" {
 		s.Listen = "127.0.0.1:1080"
 	}
@@ -97,11 +107,7 @@ func (a *webApp) start(s settings) error {
 func (a *webApp) stop() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.srv != nil {
-		_ = a.srv.Close()
-		a.srv = nil
-	}
-	a.running = false
+	a.stopLocked()
 	a.appendLog("Stopped")
 }
 
