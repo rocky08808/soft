@@ -359,7 +359,7 @@ func runWebUI() {
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": "请先点击「启动代理」"})
 			return
 		}
-		exe, err := launchBrowserWithSOCKS(listen, "https://ip.sb/")
+		exe, err := launchBrowserWithSOCKS(listen, "http://ip.sb/")
 		if err != nil {
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
 			return

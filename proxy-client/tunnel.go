@@ -251,23 +251,21 @@ func (m *tunnelManager) notifyProxyState(online bool) {
 }
 
 func (m *tunnelManager) deliverStreamData(id string, data []byte) {
+	value, ok := m.streams.Load(id)
+	if !ok {
+		return
+	}
+	ch, ok := value.(chan []byte)
+	if !ok {
+		return
+	}
 	payload := append([]byte(nil), data...)
-	go func() {
-		value, ok := m.streams.Load(id)
-		if !ok {
-			return
-		}
-		ch, ok := value.(chan []byte)
-		if !ok {
-			return
-		}
-		select {
-		case ch <- payload:
-		case <-time.After(45 * time.Second):
-			m.log(fmt.Sprintf("代理数据阻塞，关闭连接 %s", id))
-			m.closeTunnel(id)
-		}
-	}()
+	select {
+	case ch <- payload:
+	case <-time.After(45 * time.Second):
+		m.log(fmt.Sprintf("代理数据阻塞，关闭连接 %s", id))
+		m.closeTunnel(id)
+	}
 }
 
 func (m *tunnelManager) dispatch(msg map[string]any) {

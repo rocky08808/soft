@@ -28,7 +28,7 @@ func launchBrowserWithSOCKS(listen, openURL string) (string, error) {
 		return "", err
 	}
 	if openURL == "" {
-		openURL = "https://ip.sb/"
+		openURL = "http://ip.sb/"
 	}
 
 	proxyArg := fmt.Sprintf("--proxy-server=socks5://%s:%s", host, port)
