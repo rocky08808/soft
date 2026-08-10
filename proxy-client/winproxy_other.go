@@ -13,3 +13,5 @@ func applyWinProxy(listen string) (winProxyBackup, error) {
 func restoreWinProxy(backup winProxyBackup) error {
 	return nil
 }
+
+func restoreOrphanedWinProxy() {}

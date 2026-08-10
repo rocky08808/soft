@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -89,8 +91,42 @@ func applyWinProxy(listen string) (winProxyBackup, error) {
 	}
 
 	backup.active = true
+	if err := persistProxyBackup(backup); err != nil {
+		_ = restoreWinProxy(backup)
+		return winProxyBackup{}, err
+	}
 	refreshWinProxySettings()
 	return backup, nil
+}
+
+func persistProxyBackup(backup winProxyBackup) error {
+	_ = os.MkdirAll(clientSettingsDir(), 0o755)
+	b, err := json.Marshal(backup)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(proxyBackupPath(), b, 0o644)
+}
+
+func clearPersistedProxyBackup() {
+	_ = os.Remove(proxyBackupPath())
+}
+
+func restoreOrphanedWinProxy() {
+	b, err := os.ReadFile(proxyBackupPath())
+	if err != nil {
+		return
+	}
+	var backup winProxyBackup
+	if json.Unmarshal(b, &backup) != nil {
+		return
+	}
+	if err := restoreWinProxy(backup); err != nil {
+		fmt.Println("ReProxy Client: failed to restore Windows proxy:", err)
+		return
+	}
+	clearPersistedProxyBackup()
+	fmt.Println("ReProxy Client: restored Windows proxy settings from previous session")
 }
 
 func restoreWinProxy(backup winProxyBackup) error {
@@ -122,6 +158,7 @@ func restoreWinProxy(backup winProxyBackup) error {
 	}
 
 	refreshWinProxySettings()
+	clearPersistedProxyBackup()
 	return nil
 }
 

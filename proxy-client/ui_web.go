@@ -16,14 +16,16 @@ import (
 var uiFiles embed.FS
 
 type webApp struct {
-	mu      sync.Mutex
-	logMu   sync.Mutex
-	mgr     *tunnelManager
-	srv     *socksServer
-	running bool
-	logs    []string
-	maxLogs int
-	winProxy winProxyBackup
+	mu               sync.Mutex
+	logMu            sync.Mutex
+	mgr              *tunnelManager
+	srv              *socksServer
+	running          bool
+	systemProxyWant  bool
+	listen           string
+	logs             []string
+	maxLogs          int
+	winProxy         winProxyBackup
 }
 
 func newWebApp() *webApp {
@@ -62,10 +64,56 @@ func (a *webApp) status() map[string]any {
 	copy(logs, a.logs)
 	a.logMu.Unlock()
 	return map[string]any{
-		"running":     running,
-		"proxyOnline": proxyOnline,
-		"proxyIp":     proxyIP,
-		"logs":        logs,
+		"running":           running,
+		"proxyOnline":       proxyOnline,
+		"proxyIp":           proxyIP,
+		"systemProxyActive": a.winProxy.active,
+		"logs":              logs,
+	}
+}
+
+func (a *webApp) syncSystemProxyLocked() {
+	if !a.systemProxyWant || !a.running || a.mgr == nil || !a.mgr.isProxyOnline() {
+		if a.winProxy.active {
+			if err := restoreWinProxy(a.winProxy); err != nil {
+				a.appendLog("关闭系统代理失败: " + err.Error())
+			} else {
+				a.appendLog("已关闭 Windows 系统代理")
+			}
+			a.winProxy = winProxyBackup{}
+		}
+		return
+	}
+	if a.winProxy.active {
+		return
+	}
+	listen := a.listen
+	if listen == "" {
+		listen = "127.0.0.1:1080"
+	}
+	backup, err := applyWinProxy(listen)
+	if err != nil {
+		a.appendLog("设置系统代理失败: " + err.Error())
+		return
+	}
+	a.winProxy = backup
+	a.appendLog("已启用 Windows 系统代理 → SOCKS5 " + listen)
+}
+
+func (a *webApp) onProxyStateChanged(online bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !online && a.winProxy.active {
+		if err := restoreWinProxy(a.winProxy); err != nil {
+			a.appendLog("关闭系统代理失败: " + err.Error())
+		} else {
+			a.appendLog("被控机离线，已关闭系统代理以恢复本机网络")
+		}
+		a.winProxy = winProxyBackup{}
+		return
+	}
+	if online {
+		a.syncSystemProxyLocked()
 	}
 }
 
@@ -89,7 +137,7 @@ func (a *webApp) stopLocked() {
 	a.running = false
 }
 
-func (a *webApp) start(s settings) error {
+func (a *webApp) start(s settings, systemProxy bool) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.stopLocked()
@@ -100,18 +148,14 @@ func (a *webApp) start(s settings) error {
 		s.Token = defaultClientSettings().Token
 	}
 
+	a.systemProxyWant = systemProxy
+	a.listen = s.Listen
 	a.mgr = newTunnelManager(s)
 	a.mgr.logf = a.appendLog
+	a.mgr.onProxyState = a.onProxyStateChanged
 	go a.mgr.run()
 	a.srv = newSocksServer(s.Listen, a.mgr)
 	a.running = true
-
-	if backup, err := applyWinProxy(s.Listen); err != nil {
-		a.appendLog("设置系统代理失败: " + err.Error() + "（请手动在浏览器设 SOCKS5）")
-	} else if backup.active {
-		a.winProxy = backup
-		a.appendLog("已自动设置 Windows 系统代理 → SOCKS5 " + s.Listen)
-	}
 
 	go func() {
 		err := a.srv.Serve()
@@ -125,6 +169,11 @@ func (a *webApp) start(s settings) error {
 	}()
 
 	a.appendLog("Started · SOCKS5 " + s.Listen + " · device " + s.DeviceID)
+	if systemProxy {
+		a.appendLog("已勾选系统代理：被控机在线后将自动启用（未在线时不影响本机网络）")
+	} else {
+		a.appendLog("未启用系统代理，本机网络不受影响；可用 Firefox 手动设 SOCKS5")
+	}
 	return nil
 }
 
@@ -136,6 +185,7 @@ func (a *webApp) stop() {
 }
 
 func runWebUI() {
+	restoreOrphanedWinProxy()
 	app := newWebApp()
 	saved := loadClientSettings()
 
@@ -191,7 +241,7 @@ func runWebUI() {
 			DeviceID: body.DeviceID,
 			Token:    body.Token,
 			Listen:   body.Listen,
-		})
+		}, body.SystemProxy)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return

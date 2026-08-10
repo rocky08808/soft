@@ -11,10 +11,11 @@ import (
 var defaultClientConfig []byte
 
 type clientSettings struct {
-	Server   string `json:"server"`
-	DeviceID string `json:"deviceId"`
-	Token    string `json:"token"`
-	Listen   string `json:"listen"`
+	Server      string `json:"server"`
+	DeviceID    string `json:"deviceId"`
+	Token       string `json:"token"`
+	Listen      string `json:"listen"`
+	SystemProxy bool   `json:"systemProxy"`
 }
 
 func clientSettingsDir() string {
@@ -27,6 +28,10 @@ func clientSettingsDir() string {
 
 func clientSettingsPath() string {
 	return filepath.Join(clientSettingsDir(), "settings.json")
+}
+
+func proxyBackupPath() string {
+	return filepath.Join(clientSettingsDir(), "proxy-backup.json")
 }
 
 func defaultClientSettings() clientSettings {

@@ -29,6 +29,7 @@ type tunnelManager struct {
 	proxyIP     string
 	proxyIPMu   sync.RWMutex
 	connected   atomic.Uint32
+	onProxyState func(online bool)
 }
 
 func (m *tunnelManager) setProxyOnline(online bool) {
@@ -234,6 +235,12 @@ type openResult struct {
 	err error
 }
 
+func (m *tunnelManager) notifyProxyState(online bool) {
+	if m.onProxyState != nil {
+		m.onProxyState(online)
+	}
+}
+
 func (m *tunnelManager) dispatch(msg map[string]any) {
 	switch fmt.Sprint(msg["type"]) {
 	case "registered":
@@ -250,6 +257,7 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 			} else {
 				m.log("警告：被控机 Proxy 未在线。请确认被控机已装 ReProxy 且 device.id 与这里填的完全一致")
 			}
+			m.notifyProxyState(online)
 		}
 		return
 	case "proxy_online":
@@ -261,11 +269,13 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		} else {
 			m.log("被控机 Proxy 已上线")
 		}
+		m.notifyProxyState(true)
 		return
 	case "proxy_offline":
 		m.setProxyOnline(false)
 		m.setProxyIP("")
 		m.log("被控机 Proxy 已离线")
+		m.notifyProxyState(false)
 		return
 	}
 
