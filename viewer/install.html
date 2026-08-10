@@ -47,6 +47,17 @@
       font-size: 1.05rem;
     }
     .btn-rest:hover { background: #047857; }
+    .btn-proxy {
+      display: inline-block;
+      padding: 0.9rem 1.5rem;
+      background: #7c3aed;
+      color: #fff;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+    }
+    .btn-proxy:hover { background: #6d28d9; }
     .product-tag {
       display: inline-block;
       margin-bottom: 0.5rem;
@@ -58,6 +69,7 @@
     }
     .tag-resa { background: #1e3a8a; color: #bfdbfe; }
     .tag-rest { background: #064e3b; color: #a7f3d0; }
+    .tag-proxy { background: #4c1d95; color: #ddd6fe; }
     .hero-tip {
       margin-top: 1rem;
       padding: 0.85rem 1rem;
@@ -160,13 +172,14 @@
     }
     .toast.show { opacity: 1; }
     #afterResaDownload[hidden],
-    #afterRestDownload[hidden] { display: none; }
+    #afterRestDownload[hidden],
+    #afterProxyDownload[hidden] { display: none; }
   </style>
 </head>
 <body>
   <div class="install-page">
     <h1>Agent 远程安装</h1>
-    <p class="note"><strong>ReSA</strong>（屏幕监控）与 <strong>ReST</strong>（远程终端）相互独立，可只装其中一个，也可分别安装。</p>
+    <p class="note"><strong>ReSA</strong>（屏幕监控）、<strong>ReST</strong>（远程终端）、<strong>ReProxy</strong>（出口代理）相互独立，可只装其中一个，也可分别安装。</p>
 
     <div class="hero">
       <span class="product-tag tag-resa">ReSA · 屏幕</span>
@@ -224,14 +237,49 @@
       </div>
     </div>
 
+    <div class="hero">
+      <span class="product-tag tag-proxy">ReProxy · 出口代理</span>
+      <p>在被控机安装 Proxy.exe，控制端用 ProxyClient 走被控机网络出口</p>
+      <a id="proxySetupBtn" class="btn-proxy" href="/download/Proxy-Setup.bat" download>下载 ReProxy 安装脚本</a>
+      <p class="note" style="margin-top: 0.75rem;">不依赖 ReSA / ReST。安装后可在控制端浏览器设 SOCKS5，流量从被控机公网 IP 出去。</p>
+      <div id="afterProxyDownload" class="hero-tip" hidden>
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>Proxy-Setup.bat</code>（或 <code>ReProxy安装.bat</code>）。<br />
+        若出现安全提示，点<strong>仍要运行</strong>。
+      </div>
+      <div class="steps">
+        <div class="step"><span class="step-num">1</span><span>在被控机下载并运行 ReProxy 安装脚本</span></div>
+        <div class="step"><span class="step-num">2</span><span>在被控机查看设备 ID：<code>%LOCALAPPDATA%\ReProxy\device.id</code></span></div>
+        <div class="step"><span class="step-num">3</span><span>在控制机下载 <code>ProxyClient.exe</code> 并运行（见下方「控制端用法」）</span></div>
+        <div class="step"><span class="step-num">4</span><span>浏览器 SOCKS5 设为 <code>127.0.0.1:1080</code>，打开 ifconfig.me 验证 IP</span></div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>命令行一键安装（被控机）</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到 CMD、Win+R 或 PowerShell：</p>
+        <div class="cmd-box" id="cmdProxyBat"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdProxyBatBtn">复制 ReProxy 一键命令</button>
+        </div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>控制端用法</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">先<a id="proxyClientDownload" href="/download/ProxyClient.exe" download>下载 ProxyClient.exe</a>，在控制机运行（把 device-id 换成被控机上的 ID，token 与 server 配置一致）：</p>
+        <div class="cmd-box multiline" id="cmdProxyClient"></div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyClientBtn">复制控制端命令</button>
+          <button type="button" id="copyProxyClientUrlBtn">复制 ProxyClient 下载地址</button>
+        </div>
+        <p class="note" style="margin-top: 0.75rem;">支持 TCP（HTTPS 网页可用）。暂不支持 UDP / 系统级 VPN，需手动设浏览器或系统 SOCKS5 代理。</p>
+      </div>
+    </div>
+
     <div class="install-card warn-card">
       <h2>Windows 安全中心误杀？</h2>
-      <p class="note">ReSA / ReST 均为未签名远程工具，Defender 可能提示「发现威胁」或拦截运行。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
+      <p class="note">ReSA / ReST / ReProxy 均为未签名远程工具，Defender 可能提示「发现威胁」或拦截运行。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 保护历史记录</span></div>
-        <div class="step"><span class="step-num">2</span><span>找到 ReSA.exe / ReST.exe 相关项 → 操作 → <strong>允许</strong> / <strong>在设备上允许</strong></span></div>
-        <div class="step"><span class="step-num">3</span><span>排除项 → 添加排除项 → 文件夹 → ReSA 填 <code>%LOCALAPPDATA%\ReSA</code>，ReST 填 <code>%LOCALAPPDATA%\ReST</code></span></div>
-        <div class="step"><span class="step-num">4</span><span>再添加排除项 → 进程 → ReSA 填 <code>ReSA.exe</code>，ReST 填 <code>ReST.exe</code></span></div>
+        <div class="step"><span class="step-num">2</span><span>找到 ReSA.exe / ReST.exe / Proxy.exe 相关项 → 操作 → <strong>允许</strong> / <strong>在设备上允许</strong></span></div>
+        <div class="step"><span class="step-num">3</span><span>排除项 → 文件夹 → ReSA <code>%LOCALAPPDATA%\ReSA</code>，ReST <code>%LOCALAPPDATA%\ReST</code>，ReProxy <code>%LOCALAPPDATA%\ReProxy</code></span></div>
+        <div class="step"><span class="step-num">4</span><span>再添加排除项 → 进程 → <code>ReSA.exe</code> / <code>ReST.exe</code> / <code>Proxy.exe</code></span></div>
         <div class="step"><span class="step-num">5</span><span>重新运行安装脚本，或重启 Agent 后再试</span></div>
       </div>
     </div>
@@ -262,6 +310,13 @@
         </div>
       </div>
       <div class="link-row">
+        <label>ReProxy 安装脚本（Proxy-Setup.bat）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="proxySetupUrl"></div>
+          <button type="button" id="copyProxySetupBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
         <label>屏幕 Agent（ReSA.exe）</label>
         <div class="link-row-inner">
           <div class="link-box" id="resaUrl"></div>
@@ -281,6 +336,20 @@
         <div class="link-row-inner">
           <div class="link-box" id="restUrl"></div>
           <button type="button" id="copyRestBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
+        <label>代理 Agent（Proxy.exe，被控端）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="proxyUrl"></div>
+          <button type="button" id="copyProxyBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
+        <label>代理客户端（ProxyClient.exe，控制端）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="proxyClientUrl"></div>
+          <button type="button" id="copyProxyClientLinkBtn">复制</button>
         </div>
       </div>
       <div class="link-row">
@@ -309,6 +378,11 @@
         <div class="install-actions">
           <button type="button" id="copyCmdRestBtn">复制 ReST 命令</button>
         </div>
+        <p class="note" style="margin-top: 1rem;">ReProxy Win+R 一行命令：</p>
+        <div class="cmd-box" id="cmdProxy"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdProxyBtn">复制 ReProxy 命令</button>
+        </div>
       </details>
     </div>
 
@@ -324,12 +398,17 @@
       <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReST\device.id</code></p>
       <p class="note">日志：<code>%LOCALAPPDATA%\ReST\term-agent.log</code></p>
       <p class="note">安装日志：<code>%TEMP%\ReST-install.log</code></p>
+      <p class="note" style="margin-top: 1rem;"><strong>ReProxy</strong></p>
+      <p class="note">程序：<code>%LOCALAPPDATA%\ReProxy\Proxy.exe</code></p>
+      <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReProxy\device.id</code>（控制端 ProxyClient 要用）</p>
+      <p class="note">日志：<code>%LOCALAPPDATA%\ReProxy\proxy-agent.log</code></p>
+      <p class="note">安装日志：<code>%TEMP%\ReProxy-install.log</code></p>
     </div>
 
     <div class="install-card">
       <h2>卸载</h2>
       <p class="note">推荐 Win+R 粘贴一键命令，避免下载 bat 时出现「无法验证发布者」安全提示。</p>
-      <p class="note"><strong>卸载 ReSA + ReST（推荐）</strong></p>
+      <p class="note"><strong>卸载 ReSA + ReST + ReProxy（推荐）</strong></p>
       <div class="cmd-box" id="cmdUninstallAll"></div>
       <div class="install-actions">
         <button type="button" id="copyCmdUninstallAllBtn">复制全部卸载命令</button>
@@ -343,6 +422,11 @@
       <div class="cmd-box" id="cmdUninstallRest"></div>
       <div class="install-actions">
         <button type="button" id="copyCmdUninstallRestBtn">复制 ReST 卸载命令</button>
+      </div>
+      <p class="note" style="margin-top: 1rem;"><strong>仅卸载 ReProxy</strong></p>
+      <div class="cmd-box" id="cmdUninstallProxy"></div>
+      <div class="install-actions">
+        <button type="button" id="copyCmdUninstallProxyBtn">复制 ReProxy 卸载命令</button>
       </div>
       <details style="margin-top: 1rem;">
         <summary>备用：下载 bat（双击可能仍出现 Windows 安全提示）</summary>
@@ -368,6 +452,10 @@
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.zip";
     const restMsiUrl = base + "/ReST.msi";
+    const proxySetupUrl = base + "/Proxy-Setup.bat";
+    const proxyUrl = base + "/Proxy.exe";
+    const proxyClientUrl = base + "/ProxyClient.exe";
+    const wsOrigin = origin.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
 
     function toPsEncodedCommand(script) {
       const bytes = [];
@@ -422,6 +510,19 @@
       ].join("; ");
     }
 
+    function buildProxyInstallInner(downloadBase) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$env:RESA_INSTALL_BASE='${safeBase}'`,
+        `$f = Join-Path $env:TEMP 'ReProxy-Install.ps1'`,
+        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReProxy-Install.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReProxy-Install.ps1') -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `& $f -Silent`,
+      ].join("; ");
+    }
+
     function buildUninstallInner(downloadBase, tempName, product) {
       const safeBase = downloadBase.replace(/'/g, "''");
       const productArg = product ? ` -Product ${product}` : "";
@@ -439,9 +540,13 @@
 
     const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
     const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
+    const cmdProxyBat = buildBatInstallCommand(base, "Proxy-Setup.bat");
     const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdResa = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
+    const cmdProxy = buildPsLaunch(buildProxyInstallInner(base), true);
+    const proxyClientCmd =
+      `ProxyClient.exe --server ${wsOrigin} --device-id 被控机device.id --token YOUR_TOKEN --listen 127.0.0.1:1080`;
     const cmdUninstallAll = buildPsLaunch(buildUninstallInner(base, "uninstall.ps1"), true);
     const cmdUninstallResa = buildPsLaunch(
       buildUninstallInner(base, "uninstall-resa.ps1", "ReSA"),
@@ -451,22 +556,33 @@
       buildUninstallInner(base, "uninstall-rest.ps1", "ReST"),
       true
     );
+    const cmdUninstallProxy = buildPsLaunch(
+      buildUninstallInner(base, "uninstall-proxy.ps1", "ReProxy"),
+      true
+    );
 
     document.getElementById("pageLink").textContent = pageUrl;
     document.getElementById("setupUrl").textContent = setupUrl;
     document.getElementById("restSetupUrl").textContent = restSetupUrl;
+    document.getElementById("proxySetupUrl").textContent = proxySetupUrl;
     document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("resaUrl").textContent = resaUrl;
     document.getElementById("restUrl").textContent = restUrl;
     document.getElementById("restMsiUrl").textContent = restMsiUrl;
+    document.getElementById("proxyUrl").textContent = proxyUrl;
+    document.getElementById("proxyClientUrl").textContent = proxyClientUrl;
     document.getElementById("cmdResaBat").textContent = cmdResaBat;
     document.getElementById("cmdRestBat").textContent = cmdRestBat;
+    document.getElementById("cmdProxyBat").textContent = cmdProxyBat;
     document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
     document.getElementById("cmdResa").textContent = cmdResa;
     document.getElementById("cmdRest").textContent = cmdRest;
+    document.getElementById("cmdProxy").textContent = cmdProxy;
+    document.getElementById("cmdProxyClient").textContent = proxyClientCmd;
     document.getElementById("cmdUninstallAll").textContent = cmdUninstallAll;
     document.getElementById("cmdUninstallResa").textContent = cmdUninstallResa;
     document.getElementById("cmdUninstallRest").textContent = cmdUninstallRest;
+    document.getElementById("cmdUninstallProxy").textContent = cmdUninstallProxy;
 
     function bindAfterDownload(btnId, tipId) {
       const btn = document.getElementById(btnId);
@@ -480,6 +596,7 @@
     }
     bindAfterDownload("resaSetupBtn", "afterResaDownload");
     bindAfterDownload("restSetupBtn", "afterRestDownload");
+    bindAfterDownload("proxySetupBtn", "afterProxyDownload");
 
     const toast = document.getElementById("toast");
     function showToast(text) {
@@ -499,16 +616,29 @@
 
     document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "ReSA 安装脚本"));
     document.getElementById("copyRestSetupBtn").addEventListener("click", () => copyText(restSetupUrl, "ReST 安装脚本"));
+    document.getElementById("copyProxySetupBtn").addEventListener("click", () => copyText(proxySetupUrl, "ReProxy 安装脚本"));
     document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.zip 地址"));
     document.getElementById("copyRestMsiBtn").addEventListener("click", () => copyText(restMsiUrl, "ReST.msi 地址"));
+    document.getElementById("copyProxyBtn").addEventListener("click", () => copyText(proxyUrl, "Proxy.exe 地址"));
+    document.getElementById("copyProxyClientLinkBtn").addEventListener("click", () =>
+      copyText(proxyClientUrl, "ProxyClient.exe 地址")
+    );
     document.getElementById("copyLinkBtn").addEventListener("click", () => copyText(pageUrl, "安装页链接"));
     document.getElementById("copyBatBtn").addEventListener("click", () => copyText(batUrl, "bat 地址"));
     document.getElementById("copyCmdResaBatBtn").addEventListener("click", () => copyText(cmdResaBat, "ReSA 一键命令"));
     document.getElementById("copyCmdRestBatBtn").addEventListener("click", () => copyText(cmdRestBat, "ReST 一键命令"));
+    document.getElementById("copyCmdProxyBatBtn").addEventListener("click", () => copyText(cmdProxyBat, "ReProxy 一键命令"));
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
+    document.getElementById("copyCmdProxyBtn").addEventListener("click", () => copyText(cmdProxy, "ReProxy Win+R 命令"));
+    document.getElementById("copyProxyClientBtn").addEventListener("click", () =>
+      copyText(proxyClientCmd, "ProxyClient 命令")
+    );
+    document.getElementById("copyProxyClientUrlBtn").addEventListener("click", () =>
+      copyText(proxyClientUrl, "ProxyClient 下载地址")
+    );
     document.getElementById("copyCmdUninstallAllBtn").addEventListener("click", () =>
       copyText(cmdUninstallAll, "全部卸载命令")
     );
@@ -517,6 +647,9 @@
     );
     document.getElementById("copyCmdUninstallRestBtn").addEventListener("click", () =>
       copyText(cmdUninstallRest, "ReST 卸载命令")
+    );
+    document.getElementById("copyCmdUninstallProxyBtn").addEventListener("click", () =>
+      copyText(cmdUninstallProxy, "ReProxy 卸载命令")
     );
   </script>
 </body>
