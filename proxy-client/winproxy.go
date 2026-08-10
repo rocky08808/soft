@@ -22,22 +22,6 @@ type winProxyBackup struct {
 	active        bool
 }
 
-func parseListenHostPort(listen string) (host, port string, err error) {
-	listen = stringsTrim(listen)
-	if listen == "" {
-		return "127.0.0.1", "1080", nil
-	}
-	if strings.HasPrefix(listen, "[") {
-		if i := strings.LastIndex(listen, "]:"); i >= 0 {
-			return listen[1:i], listen[i+2:], nil
-		}
-	}
-	if i := strings.LastIndex(listen, ":"); i >= 0 {
-		return listen[:i], listen[i+1:], nil
-	}
-	return listen, "1080", nil
-}
-
 func pacFilePath() string {
 	return filepath.Join(clientSettingsDir(), "proxy.pac")
 }
@@ -54,7 +38,7 @@ func pacAutoConfigURL(path string) string {
 	return "file://" + p
 }
 
-func writePACFile(host, port string) error {
+func writePACFile(httpListen string) error {
 	content := fmt.Sprintf(`function FindProxyForURL(url, host) {
   if (host === "localhost" ||
       host === "127.0.0.1" ||
@@ -72,9 +56,9 @@ func writePACFile(host, port string) error {
       shExpMatch(host, "172.31.*")) {
     return "DIRECT";
   }
-  return "SOCKS5 %s:%s";
+  return "PROXY %s";
 }
-`, host, port)
+`, httpListen)
 	path := pacFilePath()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return err
@@ -113,18 +97,13 @@ func readWinProxyBackup() (winProxyBackup, error) {
 	}, nil
 }
 
-func applyWinProxy(listen string) (winProxyBackup, error) {
-	host, port, err := parseListenHostPort(listen)
-	if err != nil {
+func applyWinProxy(httpListen string) (winProxyBackup, error) {
+	if err := writePACFile(httpListen); err != nil {
 		return winProxyBackup{}, err
 	}
 
 	backup, err := readWinProxyBackup()
 	if err != nil {
-		return winProxyBackup{}, err
-	}
-
-	if err := writePACFile(host, port); err != nil {
 		return winProxyBackup{}, err
 	}
 
@@ -138,10 +117,12 @@ func applyWinProxy(listen string) (winProxyBackup, error) {
 	if err := key.SetDWordValue("ProxyEnable", 1); err != nil {
 		return winProxyBackup{}, err
 	}
+	if err := key.SetStringValue("ProxyServer", httpListen); err != nil {
+		return winProxyBackup{}, err
+	}
 	if err := key.SetStringValue("AutoConfigURL", pacURL); err != nil {
 		return winProxyBackup{}, err
 	}
-	_ = key.DeleteValue("ProxyServer")
 	if err := key.SetStringValue("ProxyOverride", "<local>;127.0.0.1;localhost"); err != nil {
 		return winProxyBackup{}, err
 	}
@@ -184,7 +165,10 @@ func isReProxyWinProxyActive() bool {
 		}
 	}
 	server := strings.ToLower(strings.TrimSpace(current.server))
-	if server == "socks=127.0.0.1:1080" || strings.HasPrefix(server, "socks=127.0.0.1:") {
+	if server == "127.0.0.1:8080" || strings.HasPrefix(server, "socks=127.0.0.1") {
+		return true
+	}
+	if strings.HasPrefix(server, "127.0.0.1:") {
 		return true
 	}
 	return false
@@ -196,7 +180,7 @@ func forceDisableReProxyWinProxy() error {
 		return err
 	}
 	clearPAC := isReProxyWinProxyActive()
-	clearServer := strings.Contains(strings.ToLower(current.server), "socks=127.0.0.1")
+	clearServer := strings.Contains(strings.ToLower(current.server), "127.0.0.1")
 	if !clearPAC && !clearServer {
 		return nil
 	}

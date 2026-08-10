@@ -127,8 +127,8 @@
       1. 被控机 Proxy 显示<strong>在线</strong>后，流量才能走隧道<br />
       2. device.id 必须与被控机 <code>ReProxy\device.id</code> 一致<br />
       3. 点 <strong>「检测出口 IP」</strong> 验证 SOCKS 隧道（仅测 HTTP:80）<br />
-      4. Chrome/Edge 系统代理常不可靠；<strong>IP 检测成功 ≠ 浏览器已走代理</strong><br />
-      5. 点 <strong>「用代理打开 ip.sb」</strong> 验证浏览器出口，或 Firefox 手动设 SOCKS5<br />
+      4. 勾选「系统代理」后 Chrome 走 <strong>127.0.0.1:8080</strong> HTTP 代理（比 SOCKS 更可靠）<br />
+      5. 仍不变请点 <strong>「用代理打开 ip.sb」</strong>，或 Firefox 手动 SOCKS5 <code>127.0.0.1:1080</code><br />
       <br />
       若网络异常：点 <strong>「恢复本机网络」</strong> 或 <strong>停止</strong>；<strong>不要用任务管理器强杀</strong> ProxyClient。<br />
       也可运行 <code>restore-network.ps1</code>，或 <code>ProxyClient.exe -restore-network</code><br />

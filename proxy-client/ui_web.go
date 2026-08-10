@@ -21,6 +21,8 @@ type webApp struct {
 	logMu            sync.Mutex
 	mgr              *tunnelManager
 	srv              *socksServer
+	httpSrv          *httpProxyServer
+	httpListen       string
 	running          bool
 	systemProxyWant  bool
 	listen           string
@@ -89,13 +91,14 @@ func (a *webApp) syncSystemProxyLocked() {
 	if listen == "" {
 		listen = "127.0.0.1:1080"
 	}
-	backup, err := applyWinProxy(listen)
+	httpListen := httpProxyListenForSOCKS(listen)
+	backup, err := applyWinProxy(httpListen)
 	if err != nil {
 		a.appendLog("设置系统代理失败: " + err.Error())
 		return
 	}
 	a.winProxy = backup
-	a.appendLog("已启用 Windows 系统代理 (PAC/SOCKS5) → " + listen)
+	a.appendLog("已启用 Windows 系统代理 (HTTP " + httpListen + " + PAC)")
 }
 
 func (a *webApp) onProxyStateChanged(online bool) {
@@ -129,6 +132,10 @@ func (a *webApp) stopLocked() {
 		_ = a.srv.Close()
 		a.srv = nil
 	}
+	if a.httpSrv != nil {
+		_ = a.httpSrv.Close()
+		a.httpSrv = nil
+	}
 	a.running = false
 }
 
@@ -145,11 +152,13 @@ func (a *webApp) start(s settings, systemProxy bool) error {
 
 	a.systemProxyWant = systemProxy
 	a.listen = s.Listen
+	a.httpListen = httpProxyListenForSOCKS(s.Listen)
 	a.mgr = newTunnelManager(s)
 	a.mgr.logf = a.appendLog
 	a.mgr.onProxyState = a.onProxyStateChanged
 	go a.mgr.run()
 	a.srv = newSocksServer(s.Listen, a.mgr)
+	a.httpSrv = newHTTPProxyServer(a.httpListen, a.mgr)
 	a.running = true
 
 	go func() {
@@ -162,8 +171,19 @@ func (a *webApp) start(s settings, systemProxy bool) error {
 		a.srv = nil
 		a.mu.Unlock()
 	}()
+	go func() {
+		err := a.httpSrv.Serve()
+		if err != nil {
+			a.appendLog("HTTP proxy stopped: " + err.Error())
+		}
+		a.mu.Lock()
+		if a.httpSrv != nil {
+			a.httpSrv = nil
+		}
+		a.mu.Unlock()
+	}()
 
-	a.appendLog("Started · SOCKS5 " + s.Listen + " · device " + s.DeviceID)
+	a.appendLog("Started · SOCKS5 " + s.Listen + " · HTTP " + a.httpListen + " · device " + s.DeviceID)
 	if systemProxy {
 		a.appendLog("已勾选系统代理：被控机在线后将自动启用（未在线时不影响本机网络）")
 	} else {
