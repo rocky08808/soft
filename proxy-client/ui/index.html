@@ -44,6 +44,8 @@
     #stopBtn:disabled { opacity: 0.5; cursor: not-allowed; }
     #restoreNetBtn { background: #b45309; color: #fff; }
     #restoreNetBtn:hover { background: #92400e; }
+    #openBrowserBtn { background: #0369a1; color: #fff; }
+    #openBrowserBtn:hover { background: #075985; }
     .hint {
       margin-top: 1rem;
       padding: 0.75rem;
@@ -115,6 +117,7 @@
       <button type="button" id="stopBtn" disabled>停止</button>
       <button type="button" id="testIpBtn" disabled>检测出口 IP</button>
       <button type="button" id="restoreNetBtn">恢复本机网络</button>
+      <button type="button" id="openBrowserBtn" disabled>用代理打开 ip.sb</button>
     </div>
 
     <p class="sub" style="margin-top:0.75rem;">本机 IP: <strong id="directIp">—</strong> · 代理出口: <strong id="testProxyIp">—</strong></p>
@@ -124,7 +127,8 @@
       1. 被控机 Proxy 显示<strong>在线</strong>后，流量才能走隧道<br />
       2. device.id 必须与被控机 <code>ReProxy\device.id</code> 一致<br />
       3. 点 <strong>「检测出口 IP」</strong> 验证 SOCKS 隧道（仅测 HTTP:80）<br />
-      4. Chrome/Edge 走代理需勾选上方「系统代理」；勾选后请<strong>完全关闭并重新打开浏览器</strong><br />
+      4. Chrome/Edge 系统代理常不可靠；<strong>IP 检测成功 ≠ 浏览器已走代理</strong><br />
+      5. 点 <strong>「用代理打开 ip.sb」</strong> 验证浏览器出口，或 Firefox 手动设 SOCKS5<br />
       <br />
       若网络异常：点 <strong>「恢复本机网络」</strong> 或 <strong>停止</strong>；<strong>不要用任务管理器强杀</strong> ProxyClient。<br />
       也可运行 <code>restore-network.ps1</code>，或 <code>ProxyClient.exe -restore-network</code><br />
@@ -145,6 +149,7 @@
       stopBtn: document.getElementById("stopBtn"),
       testIpBtn: document.getElementById("testIpBtn"),
       restoreNetBtn: document.getElementById("restoreNetBtn"),
+      openBrowserBtn: document.getElementById("openBrowserBtn"),
       directIp: document.getElementById("directIp"),
       testProxyIp: document.getElementById("testProxyIp"),
       log: document.getElementById("log"),
@@ -188,6 +193,7 @@
       if (!testingIp) {
         els.testIpBtn.disabled = !running;
       }
+      els.openBrowserBtn.disabled = !running;
       els.badge.textContent = running ? "运行中" : "未运行";
       els.badge.className = "badge " + (running ? "badge-on" : "badge-off");
     }
@@ -271,6 +277,21 @@
         await refreshStatus();
       } catch (e) {
         alert("恢复失败: " + String(e));
+      }
+    });
+
+    els.openBrowserBtn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/open-browser", { method: "POST" });
+        const data = await res.json();
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+        alert("已用 SOCKS5 代理打开 ip.sb，页面上应显示被控机出口 IP。");
+        await refreshStatus();
+      } catch (e) {
+        alert("打开失败: " + String(e));
       }
     });
 

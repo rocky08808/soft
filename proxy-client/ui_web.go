@@ -321,6 +321,33 @@ func runWebUI() {
 		}
 	})
 
+	mux.HandleFunc("/api/open-browser", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		app.mu.Lock()
+		running := app.running
+		listen := app.listen
+		if listen == "" {
+			listen = "127.0.0.1:1080"
+		}
+		app.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if !running {
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "请先点击「启动代理」"})
+			return
+		}
+		exe, err := launchBrowserWithSOCKS(listen, "https://ip.sb/")
+		if err != nil {
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
+			return
+		}
+		app.appendLog("已用 SOCKS5 代理打开浏览器: " + exe)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "browser": exe})
+	})
+
 	mux.HandleFunc("/api/restore-network", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
