@@ -49,14 +49,19 @@ func (a *webApp) snapshotLogs() []string {
 func (a *webApp) status() map[string]any {
 	a.mu.Lock()
 	running := a.running
+	var proxyOnline bool
+	if a.mgr != nil {
+		proxyOnline = a.mgr.isProxyOnline()
+	}
 	a.mu.Unlock()
 	a.logMu.Lock()
 	logs := make([]string, len(a.logs))
 	copy(logs, a.logs)
 	a.logMu.Unlock()
 	return map[string]any{
-		"running": running,
-		"logs":    logs,
+		"running":     running,
+		"proxyOnline": proxyOnline,
+		"logs":        logs,
 	}
 }
 

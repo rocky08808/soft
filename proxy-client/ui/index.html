@@ -80,7 +80,7 @@
 <body>
   <div class="wrap">
     <h1>ReProxy Client</h1>
-    <p class="sub">本地 SOCKS5 → 被控机出口 · 状态: <span id="statusBadge" class="badge badge-off">未运行</span></p>
+    <p class="sub">本地 SOCKS5 → 被控机出口 · 状态: <span id="statusBadge" class="badge badge-off">未运行</span> · 被控机: <span id="proxyBadge" class="badge badge-off">未知</span></p>
 
     <label for="server">服务器 (wss://)</label>
     <input id="server" placeholder="wss://olxp.cc" />
@@ -100,9 +100,14 @@
     </div>
 
     <div class="hint">
-      启动后：浏览器 SOCKS5 设为上方本地地址，打开
-      <a href="https://ifconfig.me" target="_blank" rel="noopener" style="color:#a78bfa">ifconfig.me</a>
-      验证是否为被控机 IP。
+      <strong>「运行中」只表示本地 SOCKS5 已开。</strong>IP 要变需同时满足：<br />
+      1. 被控机 Proxy 显示<strong>在线</strong>（上方「被控机」徽章）<br />
+      2. device.id 与被控机 <code>ReProxy\device.id</code> 完全一致<br />
+      3. 浏览器手动设 SOCKS5 为上方本地地址（不是仅改系统代理）<br />
+      <br />
+      <strong>Chrome / Edge：</strong>设置 → 系统 → 打开代理设置 → 手动代理 → SOCKS <code>127.0.0.1</code> 端口 <code>1080</code><br />
+      <strong>Firefox：</strong>设置 → 网络 → 手动代理 → SOCKS5 <code>127.0.0.1:1080</code>，勾选「代理 DNS」<br />
+      然后打开 <a href="https://ifconfig.me" target="_blank" rel="noopener" style="color:#a78bfa">ifconfig.me</a> 查看 IP。
     </div>
 
     <div class="log" id="log">等待启动…</div>
@@ -118,7 +123,23 @@
       stopBtn: document.getElementById("stopBtn"),
       log: document.getElementById("log"),
       badge: document.getElementById("statusBadge"),
+      proxyBadge: document.getElementById("proxyBadge"),
     };
+
+    function setProxyOnline(online, running) {
+      if (!running) {
+        els.proxyBadge.textContent = "—";
+        els.proxyBadge.className = "badge badge-off";
+        return;
+      }
+      if (online) {
+        els.proxyBadge.textContent = "在线";
+        els.proxyBadge.className = "badge badge-on";
+      } else {
+        els.proxyBadge.textContent = "离线";
+        els.proxyBadge.className = "badge badge-off";
+      }
+    }
 
     function payload() {
       return {
@@ -141,6 +162,7 @@
         const res = await fetch("/api/status");
         const data = await res.json();
         setRunning(!!data.running);
+        setProxyOnline(!!data.proxyOnline, !!data.running);
         if (Array.isArray(data.logs) && data.logs.length) {
           els.log.textContent = data.logs.join("\n");
           els.log.scrollTop = els.log.scrollHeight;

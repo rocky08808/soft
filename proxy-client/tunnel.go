@@ -24,6 +24,20 @@ type tunnelManager struct {
 	logf     func(string)
 	stopCh   chan struct{}
 	stopOnce sync.Once
+	proxyOnline bool
+	proxyMu     sync.RWMutex
+}
+
+func (m *tunnelManager) setProxyOnline(online bool) {
+	m.proxyMu.Lock()
+	m.proxyOnline = online
+	m.proxyMu.Unlock()
+}
+
+func (m *tunnelManager) isProxyOnline() bool {
+	m.proxyMu.RLock()
+	defer m.proxyMu.RUnlock()
+	return m.proxyOnline
 }
 
 func (m *tunnelManager) log(line string) {
@@ -86,6 +100,7 @@ func (m *tunnelManager) run() {
 }
 
 func (m *tunnelManager) resetConnection() {
+	m.setProxyOnline(false)
 	m.writeMu.Lock()
 	if m.conn != nil {
 		_ = m.conn.Close()
@@ -184,6 +199,27 @@ type openResult struct {
 }
 
 func (m *tunnelManager) dispatch(msg map[string]any) {
+	switch fmt.Sprint(msg["type"]) {
+	case "registered":
+		if online, ok := msg["proxyOnline"].(bool); ok {
+			m.setProxyOnline(online)
+			if online {
+				m.log("被控机 Proxy 已在线，请在浏览器设置 SOCKS5 代理后访问 ifconfig.me")
+			} else {
+				m.log("警告：被控机 Proxy 未在线。请确认被控机已装 ReProxy 且 device.id 与这里填的完全一致")
+			}
+		}
+		return
+	case "proxy_online":
+		m.setProxyOnline(true)
+		m.log("被控机 Proxy 已上线")
+		return
+	case "proxy_offline":
+		m.setProxyOnline(false)
+		m.log("被控机 Proxy 已离线")
+		return
+	}
+
 	id := stringsTrim(fmt.Sprint(msg["id"]))
 	if id == "" {
 		return
@@ -201,6 +237,7 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		}
 	case "proxy_open_err":
 		errText := fmt.Sprint(msg["error"])
+		m.log(fmt.Sprintf("代理连接失败: %s", errText))
 		if value, ok := m.opens.Load(id); ok {
 			if ch, ok := value.(chan openResult); ok {
 				select {
