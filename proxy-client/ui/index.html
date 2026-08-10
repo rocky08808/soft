@@ -264,8 +264,19 @@
     });
 
     els.stopBtn.addEventListener("click", async () => {
-      await fetch("/api/stop", { method: "POST" });
-      await refreshStatus();
+      els.stopBtn.disabled = true;
+      els.stopBtn.textContent = "停止中…";
+      try {
+        const res = await fetch("/api/stop", { method: "POST" });
+        if (!res.ok) {
+          alert("停止失败: " + (await res.text()));
+        }
+        await refreshStatus();
+      } catch (e) {
+        alert("停止失败: " + String(e));
+      } finally {
+        els.stopBtn.textContent = "停止";
+      }
     });
 
     els.restoreNetBtn.addEventListener("click", async () => {

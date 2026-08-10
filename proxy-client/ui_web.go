@@ -78,9 +78,12 @@ func (a *webApp) status() map[string]any {
 func (a *webApp) syncSystemProxyLocked() {
 	if !a.systemProxyWant || !a.running || a.mgr == nil || !a.mgr.isProxyOnline() {
 		if a.winProxy.active {
-			restoreWinProxyOrForce(a.winProxy)
-			a.appendLog("已关闭 Windows 系统代理")
+			backup := a.winProxy
 			a.winProxy = winProxyBackup{}
+			go func(b winProxyBackup) {
+				restoreWinProxyOrForce(b)
+				a.appendLog("已关闭 Windows 系统代理")
+			}(backup)
 		}
 		return
 	}
@@ -92,57 +95,80 @@ func (a *webApp) syncSystemProxyLocked() {
 		listen = "127.0.0.1:1080"
 	}
 	httpListen := httpProxyListenForSOCKS(listen)
-	backup, err := applyWinProxy(httpListen)
-	if err != nil {
-		a.appendLog("设置系统代理失败: " + err.Error())
-		return
-	}
-	a.winProxy = backup
-	a.appendLog("已启用 Windows 系统代理 (HTTP " + httpListen + " + PAC)")
+	go func(httpListen string) {
+		backup, err := applyWinProxy(httpListen)
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if !a.running {
+			if err == nil && backup.active {
+				_ = restoreWinProxy(backup)
+			}
+			return
+		}
+		if err != nil {
+			a.appendLog("设置系统代理失败: " + err.Error())
+			return
+		}
+		a.winProxy = backup
+		a.appendLog("已启用 Windows 系统代理 (HTTP " + httpListen + " + PAC)")
+	}(httpListen)
 }
 
 func (a *webApp) onProxyStateChanged(online bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !online && a.winProxy.active {
-		restoreWinProxyOrForce(a.winProxy)
-		a.appendLog("被控机离线，已关闭系统代理以恢复本机网络")
-		a.winProxy = winProxyBackup{}
-		return
-	}
-	if online {
-		a.syncSystemProxyLocked()
-	}
+	go func() {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if !a.running {
+			return
+		}
+		if !online && a.winProxy.active {
+			backup := a.winProxy
+			a.winProxy = winProxyBackup{}
+			go func(b winProxyBackup) {
+				restoreWinProxyOrForce(b)
+				a.appendLog("被控机离线，已关闭系统代理以恢复本机网络")
+			}(backup)
+			return
+		}
+		if online {
+			a.syncSystemProxyLocked()
+		}
+	}()
 }
 
-func (a *webApp) stopLocked() {
-	if a.winProxy.active {
-		restoreWinProxyOrForce(a.winProxy)
+func (a *webApp) shutdownProxy() {
+	a.mu.Lock()
+	mgr := a.mgr
+	srv := a.srv
+	httpSrv := a.httpSrv
+	winProxy := a.winProxy
+	a.mgr = nil
+	a.srv = nil
+	a.httpSrv = nil
+	a.running = false
+	a.winProxy = winProxyBackup{}
+	a.mu.Unlock()
+
+	if winProxy.active {
+		restoreWinProxyOrForce(winProxy)
 		a.appendLog("已恢复 Windows 系统代理设置")
-		a.winProxy = winProxyBackup{}
 	} else if isReProxyWinProxyActive() {
 		_ = forceDisableReProxyWinProxy()
-		a.appendLog("已强制清除残留的系统代理（任务管理器结束进程时可能未自动恢复）")
+		a.appendLog("已强制清除残留的系统代理")
 	}
-	if a.mgr != nil {
-		a.mgr.stop()
-		a.mgr = nil
+	if mgr != nil {
+		mgr.stop()
 	}
-	if a.srv != nil {
-		_ = a.srv.Close()
-		a.srv = nil
+	if srv != nil {
+		_ = srv.Close()
 	}
-	if a.httpSrv != nil {
-		_ = a.httpSrv.Close()
-		a.httpSrv = nil
+	if httpSrv != nil {
+		_ = httpSrv.Close()
 	}
-	a.running = false
 }
 
 func (a *webApp) start(s settings, systemProxy bool) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.stopLocked()
+	a.shutdownProxy()
 	if s.Listen == "" {
 		s.Listen = "127.0.0.1:1080"
 	}
@@ -150,40 +176,48 @@ func (a *webApp) start(s settings, systemProxy bool) error {
 		s.Token = defaultClientSettings().Token
 	}
 
+	mgr := newTunnelManager(s)
+	srv := newSocksServer(s.Listen, mgr)
+	httpListen := httpProxyListenForSOCKS(s.Listen)
+	httpSrv := newHTTPProxyServer(httpListen, mgr)
+	mgr.logf = a.appendLog
+	mgr.onProxyState = a.onProxyStateChanged
+	go mgr.run()
+
+	a.mu.Lock()
 	a.systemProxyWant = systemProxy
 	a.listen = s.Listen
-	a.httpListen = httpProxyListenForSOCKS(s.Listen)
-	a.mgr = newTunnelManager(s)
-	a.mgr.logf = a.appendLog
-	a.mgr.onProxyState = a.onProxyStateChanged
-	go a.mgr.run()
-	a.srv = newSocksServer(s.Listen, a.mgr)
-	a.httpSrv = newHTTPProxyServer(a.httpListen, a.mgr)
+	a.httpListen = httpListen
+	a.mgr = mgr
+	a.srv = srv
+	a.httpSrv = httpSrv
 	a.running = true
+	a.mu.Unlock()
 
 	go func() {
-		err := a.srv.Serve()
+		err := srv.Serve()
 		if err != nil {
 			a.appendLog("SOCKS stopped: " + err.Error())
 		}
 		a.mu.Lock()
-		a.running = false
-		a.srv = nil
+		if a.srv == srv {
+			a.srv = nil
+		}
 		a.mu.Unlock()
 	}()
 	go func() {
-		err := a.httpSrv.Serve()
+		err := httpSrv.Serve()
 		if err != nil {
 			a.appendLog("HTTP proxy stopped: " + err.Error())
 		}
 		a.mu.Lock()
-		if a.httpSrv != nil {
+		if a.httpSrv == httpSrv {
 			a.httpSrv = nil
 		}
 		a.mu.Unlock()
 	}()
 
-	a.appendLog("Started · SOCKS5 " + s.Listen + " · HTTP " + a.httpListen + " · device " + s.DeviceID)
+	a.appendLog("Started · SOCKS5 " + s.Listen + " · HTTP " + httpListen + " · device " + s.DeviceID)
 	if systemProxy {
 		a.appendLog("已勾选系统代理：被控机在线后将自动启用（未在线时不影响本机网络）")
 	} else {
@@ -193,9 +227,7 @@ func (a *webApp) start(s settings, systemProxy bool) error {
 }
 
 func (a *webApp) stop() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.stopLocked()
+	a.shutdownProxy()
 	a.appendLog("Stopped")
 }
 
