@@ -413,6 +413,7 @@ func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, 
 		close(streamCh)
 		return "", nil, err
 	}
+	m.log(fmt.Sprintf("proxy_open sent %s -> %s:%d", id, host, port))
 
 	select {
 	case res := <-resultCh:

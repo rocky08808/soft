@@ -5,7 +5,7 @@ const http = require("http");
 const path = require("path");
 const express = require("express");
 const cookieParser = require("cookie-parser");
-const { WebSocketServer } = require("ws");
+const { WebSocketServer, WebSocket } = require("ws");
 
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
@@ -409,15 +409,15 @@ app.use(requireViewerAuthForRoot);
 app.use(express.static(path.join(__dirname, "..", "viewer")));
 
 function send(ws, payload) {
-  if (ws && ws.readyState === ws.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
     return true;
   }
   return false;
 }
 
-function wsOpen(ws) {
-  return ws && ws.readyState === ws.OPEN;
+function wsOpen(socket) {
+  return socket && socket.readyState === WebSocket.OPEN;
 }
 
 function parseBinaryFrame(raw) {
@@ -687,7 +687,7 @@ function listDevices() {
 function broadcastDashboard(type, payload) {
   const msg = JSON.stringify({ type, ...payload });
   for (const ws of dashboardClients) {
-    if (ws.readyState === ws.OPEN) ws.send(msg);
+    if (ws.readyState === WebSocket.OPEN) ws.send(msg);
   }
 }
 
@@ -747,6 +747,27 @@ function authMiddleware(req, res, next) {
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, agents: agents.size, viewers: [...viewers.values()].reduce((n, s) => n + s.size, 0) });
+});
+
+app.get("/api/proxy/status", (req, res) => {
+  const deviceId = String(req.query.deviceId || "").trim();
+  if (!deviceId) {
+    return res.status(400).json({ error: "deviceId required" });
+  }
+  const proxy = proxyAgents.get(deviceId);
+  const client = proxyClients.get(deviceId);
+  res.json({
+    deviceId,
+    proxyAgent: {
+      connected: wsOpen(proxy),
+      readyState: proxy ? proxy.readyState : null,
+    },
+    proxyClient: {
+      connected: wsOpen(client),
+      readyState: client ? client.readyState : null,
+    },
+    meta: agentMeta.get(deviceId) || {},
+  });
 });
 
 app.get("/api/devices", authMiddleware, (_req, res) => {
@@ -1209,6 +1230,9 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy_client" && isProxyMessage(msg)) {
       const proxy = proxyAgents.get(deviceId);
+      console.log(
+        `[proxy] client ${deviceId} <- ${msg.type}${msg.id ? " id=" + msg.id : ""}`
+      );
       if (!wsOpen(proxy)) {
         if (msg.type === "proxy_open") {
           send(ws, {
@@ -1220,12 +1244,29 @@ wss.on("connection", (ws, req) => {
         }
         return;
       }
+      const forward =
+        msg.type === "proxy_open"
+          ? {
+              ...msg,
+              host: String(msg.host || ""),
+              port: Number(msg.port) || 0,
+            }
+          : msg;
       if (msg.type === "proxy_open") {
         console.log(
-          `[proxy] relay open ${deviceId} -> ${msg.host}:${msg.port} id=${msg.id}`
+          `[proxy] relay open ${deviceId} -> ${forward.host}:${forward.port} id=${forward.id}`
         );
       }
-      send(proxy, msg);
+      if (!send(proxy, forward)) {
+        console.log(`[proxy] relay FAILED send to agent ${deviceId} type=${msg.type}`);
+        if (msg.type === "proxy_open") {
+          send(ws, {
+            type: "proxy_open_err",
+            id: msg.id,
+            error: "proxy agent send failed",
+          });
+        }
+      }
       return;
     }
 
@@ -1244,6 +1285,9 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy" && isProxyMessage(msg)) {
       const client = proxyClients.get(deviceId);
+      console.log(
+        `[proxy] agent ${deviceId} -> ${msg.type}${msg.id ? " id=" + msg.id : ""}`
+      );
       if (!wsOpen(client)) {
         if (msg.type === "proxy_open_ok" || msg.type === "proxy_open_err") {
           console.log(
@@ -1255,7 +1299,9 @@ wss.on("connection", (ws, req) => {
       if (msg.type === "proxy_open_ok" || msg.type === "proxy_open_err") {
         console.log(`[proxy] relay ${msg.type} ${deviceId} id=${msg.id}`);
       }
-      send(client, msg);
+      if (!send(client, msg)) {
+        console.log(`[proxy] relay FAILED send to client ${deviceId} type=${msg.type}`);
+      }
       return;
     }
   });

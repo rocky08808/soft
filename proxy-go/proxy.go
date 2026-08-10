@@ -38,13 +38,18 @@ func (a *agent) writeJSON(msg map[string]any) error {
 }
 
 func (a *agent) handleMessage(msg map[string]any) {
-	switch fmt.Sprint(msg["type"]) {
+	t := fmt.Sprint(msg["type"])
+	switch t {
 	case "proxy_open":
 		a.handleProxyOpen(msg)
 	case "proxy_data":
 		a.handleProxyData(msg)
 	case "proxy_close":
 		a.handleProxyClose(msg)
+	default:
+		if t != "" {
+			agentLog("ignore message type: " + t)
+		}
 	}
 }
 
