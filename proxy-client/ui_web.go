@@ -17,6 +17,7 @@ var uiFiles embed.FS
 
 type webApp struct {
 	mu      sync.Mutex
+	logMu   sync.Mutex
 	mgr     *tunnelManager
 	srv     *socksServer
 	running bool
@@ -29,17 +30,17 @@ func newWebApp() *webApp {
 }
 
 func (a *webApp) appendLog(line string) {
-	a.mu.Lock()
+	a.logMu.Lock()
 	a.logs = append(a.logs, line)
 	if len(a.logs) > a.maxLogs {
 		a.logs = a.logs[len(a.logs)-a.maxLogs:]
 	}
-	a.mu.Unlock()
+	a.logMu.Unlock()
 }
 
 func (a *webApp) snapshotLogs() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
 	out := make([]string, len(a.logs))
 	copy(out, a.logs)
 	return out
@@ -47,10 +48,15 @@ func (a *webApp) snapshotLogs() []string {
 
 func (a *webApp) status() map[string]any {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	running := a.running
+	a.mu.Unlock()
+	a.logMu.Lock()
+	logs := make([]string, len(a.logs))
+	copy(logs, a.logs)
+	a.logMu.Unlock()
 	return map[string]any{
-		"running": a.running,
-		"logs":    a.logs,
+		"running": running,
+		"logs":    logs,
 	}
 }
 
@@ -63,9 +69,9 @@ func (a *webApp) start(s settings) error {
 	if s.Listen == "" {
 		s.Listen = "127.0.0.1:1080"
 	}
-		if s.Token == "" {
-			s.Token = defaultClientSettings().Token
-		}
+	if s.Token == "" {
+		s.Token = defaultClientSettings().Token
+	}
 
 	a.mgr = newTunnelManager(s)
 	a.mgr.logf = a.appendLog
