@@ -21,6 +21,15 @@ type tunnelManager struct {
 	ready    chan struct{}
 	opens    sync.Map
 	streams  sync.Map
+	logf     func(string)
+}
+
+func (m *tunnelManager) log(line string) {
+	if m.logf != nil {
+		m.logf(line)
+		return
+	}
+	fmt.Println(line)
 }
 
 func newTunnelManager(s settings) *tunnelManager {
@@ -34,7 +43,7 @@ func (m *tunnelManager) run() {
 	url := buildWSURL(m.settings.Server, m.settings.DeviceID, m.settings.Token)
 	for {
 		if err := m.connect(url); err != nil {
-			fmt.Printf("proxy tunnel disconnected: %v (retry in 3s)\n", err)
+			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 3s)", err))
 			m.resetConnection()
 			time.Sleep(3 * time.Second)
 			continue
@@ -88,7 +97,7 @@ func (m *tunnelManager) connect(url string) error {
 	if i := strings.Index(logURL, "token="); i >= 0 {
 		logURL = logURL[:i] + "token=***"
 	}
-	fmt.Println("proxy tunnel connected:", logURL)
+	m.log("proxy tunnel connected: " + logURL)
 
 	defer m.resetConnection()
 

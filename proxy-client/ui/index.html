@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReProxy Client</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #0f1117;
+      color: #e8eaed;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; padding: 1.5rem 1rem 2rem; }
+    h1 { margin: 0 0 0.25rem; font-size: 1.4rem; }
+    .sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.85rem; color: #94a3b8; margin: 0.75rem 0 0.35rem; }
+    input {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      background: #1a1d27;
+      color: #e8eaed;
+      font-size: 0.95rem;
+    }
+    input:focus { outline: 2px solid #7c3aed; border-color: #7c3aed; }
+    .btns { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
+    button {
+      flex: 1;
+      padding: 0.65rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #startBtn { background: #7c3aed; color: #fff; }
+    #startBtn:hover { background: #6d28d9; }
+    #startBtn:disabled { background: #475569; cursor: not-allowed; }
+    #stopBtn { background: #334155; color: #fff; }
+    #stopBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hint {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background: #1a1d27;
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      color: #cbd5e1;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .log {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      min-height: 140px;
+      max-height: 220px;
+      overflow: auto;
+      background: #0a0c10;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      font-family: Consolas, monospace;
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      color: #a5b4fc;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-off { background: #334155; color: #cbd5e1; }
+    .badge-on { background: #065f46; color: #a7f3d0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ReProxy Client</h1>
+    <p class="sub">本地 SOCKS5 → 被控机出口 · 状态: <span id="statusBadge" class="badge badge-off">未运行</span></p>
+
+    <label for="server">服务器 (wss://)</label>
+    <input id="server" placeholder="wss://your-domain.com" />
+
+    <label for="deviceId">被控机 device.id</label>
+    <input id="deviceId" placeholder="%LOCALAPPDATA%\ReProxy\device.id" />
+
+    <label for="token">Token</label>
+    <input id="token" type="password" placeholder="与控制端相同" />
+
+    <label for="listen">本地 SOCKS5</label>
+    <input id="listen" value="127.0.0.1:1080" />
+
+    <div class="btns">
+      <button type="button" id="startBtn">启动代理</button>
+      <button type="button" id="stopBtn" disabled>停止</button>
+    </div>
+
+    <div class="hint">
+      启动后：浏览器 SOCKS5 设为上方本地地址，打开
+      <a href="https://ifconfig.me" target="_blank" rel="noopener" style="color:#a78bfa">ifconfig.me</a>
+      验证是否为被控机 IP。
+    </div>
+
+    <div class="log" id="log">等待启动…</div>
+  </div>
+
+  <script>
+    const els = {
+      server: document.getElementById("server"),
+      deviceId: document.getElementById("deviceId"),
+      token: document.getElementById("token"),
+      listen: document.getElementById("listen"),
+      startBtn: document.getElementById("startBtn"),
+      stopBtn: document.getElementById("stopBtn"),
+      log: document.getElementById("log"),
+      badge: document.getElementById("statusBadge"),
+    };
+
+    function payload() {
+      return {
+        server: els.server.value.trim(),
+        deviceId: els.deviceId.value.trim(),
+        token: els.token.value.trim(),
+        listen: els.listen.value.trim() || "127.0.0.1:1080",
+      };
+    }
+
+    function setRunning(running) {
+      els.startBtn.disabled = running;
+      els.stopBtn.disabled = !running;
+      els.badge.textContent = running ? "运行中" : "未运行";
+      els.badge.className = "badge " + (running ? "badge-on" : "badge-off");
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        setRunning(!!data.running);
+        if (Array.isArray(data.logs) && data.logs.length) {
+          els.log.textContent = data.logs.join("\n");
+          els.log.scrollTop = els.log.scrollHeight;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings");
+        const data = await res.json();
+        if (data.server) els.server.value = data.server;
+        if (data.deviceId) els.deviceId.value = data.deviceId;
+        if (data.token) els.token.value = data.token;
+        if (data.listen) els.listen.value = data.listen;
+      } catch {
+        // ignore
+      }
+    }
+
+    els.startBtn.addEventListener("click", async () => {
+      const body = payload();
+      if (!body.server || !body.deviceId) {
+        alert("请填写服务器和设备 ID");
+        return;
+      }
+      try {
+        const res = await fetch("/api/start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          alert(await res.text());
+          return;
+        }
+        await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        await refreshStatus();
+      } catch (e) {
+        alert(String(e));
+      }
+    });
+
+    els.stopBtn.addEventListener("click", async () => {
+      await fetch("/api/stop", { method: "POST" });
+      await refreshStatus();
+    });
+
+    loadSettings();
+    refreshStatus();
+    setInterval(refreshStatus, 1500);
+  </script>
+</body>
+</html>

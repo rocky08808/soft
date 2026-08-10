@@ -10,18 +10,8 @@ import (
 )
 
 func serveSOCKS(listen string, mgr *tunnelManager) error {
-	ln, err := net.Listen("tcp", listen)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("SOCKS5 listening on %s (device %s)\n", listen, mgr.settings.DeviceID)
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return err
-		}
-		go handleSOCKSConn(conn, mgr)
-	}
+	srv := newSocksServer(listen, mgr)
+	return srv.Serve()
 }
 
 func handleSOCKSConn(conn net.Conn, mgr *tunnelManager) {
@@ -68,7 +58,7 @@ func handleSOCKSConn(conn net.Conn, mgr *tunnelManager) {
 
 	id, stream, err := mgr.openTunnel(host, port)
 	if err != nil {
-		fmt.Printf("proxy open %s:%d failed: %v\n", host, port, err)
+		mgr.log(fmt.Sprintf("proxy open %s:%d failed: %v", host, port, err))
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}

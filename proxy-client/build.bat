@@ -9,8 +9,8 @@ if errorlevel 1 (
 )
 
 if not exist dist mkdir dist
-echo Building ProxyClient ...
-go build -trimpath -ldflags "-s -w" -o dist\ProxyClient.exe .
+echo Building ProxyClient (Web UI) ...
+go build -trimpath -ldflags "-s -w -H windowsgui" -o dist\ProxyClient.exe .
 if errorlevel 1 (
     echo Build failed.
     pause
