@@ -307,10 +307,7 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 	case "proxy_open_ok":
 		if value, ok := m.opens.Load(id); ok {
 			if ch, ok := value.(chan openResult); ok {
-				select {
-				case ch <- openResult{ok: true}:
-				default:
-				}
+				ch <- openResult{ok: true}
 			}
 			m.opens.Delete(id)
 		}
@@ -319,10 +316,7 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		m.log(fmt.Sprintf("代理连接失败: %s", errText))
 		if value, ok := m.opens.Load(id); ok {
 			if ch, ok := value.(chan openResult); ok {
-				select {
-				case ch <- openResult{err: fmt.Errorf("%s", errText)}:
-				default:
-				}
+				ch <- openResult{err: fmt.Errorf("%s", errText)}
 			}
 			m.opens.Delete(id)
 		}
@@ -413,12 +407,12 @@ func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, 
 			return "", nil, fmt.Errorf("proxy open failed")
 		}
 		return id, streamCh, nil
-	case <-time.After(20 * time.Second):
+	case <-time.After(15 * time.Second):
 		m.opens.Delete(id)
 		m.streams.Delete(id)
 		close(streamCh)
 		_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
-		return "", nil, fmt.Errorf("被控机建立连接超时")
+		return "", nil, fmt.Errorf("被控机无响应（请更新被控机 Proxy.exe 并确认服务器已部署最新 index.js）")
 	}
 }
 

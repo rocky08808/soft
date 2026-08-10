@@ -410,7 +410,13 @@ app.use(express.static(path.join(__dirname, "..", "viewer")));
 function send(ws, payload) {
   if (ws && ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(payload));
+    return true;
   }
+  return false;
+}
+
+function wsOpen(ws) {
+  return ws && ws.readyState === ws.OPEN;
 }
 
 function parseBinaryFrame(raw) {
@@ -1202,15 +1208,21 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy_client" && isProxyMessage(msg)) {
       const proxy = proxyAgents.get(deviceId);
-      if (!proxy) {
+      if (!wsOpen(proxy)) {
         if (msg.type === "proxy_open") {
           send(ws, {
             type: "proxy_open_err",
             id: msg.id,
             error: "proxy agent offline",
           });
+          console.log(`[proxy] open rejected: agent offline for ${deviceId}`);
         }
         return;
+      }
+      if (msg.type === "proxy_open") {
+        console.log(
+          `[proxy] relay open ${deviceId} -> ${msg.host}:${msg.port} id=${msg.id}`
+        );
       }
       send(proxy, msg);
       return;
@@ -1231,7 +1243,18 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy" && isProxyMessage(msg)) {
       const client = proxyClients.get(deviceId);
-      if (client) send(client, msg);
+      if (!wsOpen(client)) {
+        if (msg.type === "proxy_open_ok" || msg.type === "proxy_open_err") {
+          console.log(
+            `[proxy] ${msg.type} dropped: client offline for ${deviceId}`
+          );
+        }
+        return;
+      }
+      if (msg.type === "proxy_open_ok" || msg.type === "proxy_open_err") {
+        console.log(`[proxy] relay ${msg.type} ${deviceId} id=${msg.id}`);
+      }
+      send(client, msg);
       return;
     }
   });

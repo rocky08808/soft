@@ -125,15 +125,21 @@ func fetchDirectIP() (string, error) {
 
 func fetchIPViaSOCKS(listen string) (string, error) {
 	var lastErr error
-	for _, target := range ipTargets {
+	for i, target := range ipTargets {
 		ip, err := fetchIPViaSOCKSOnce(listen, target.host, target.path, 5*time.Second)
 		if err == nil && ip != "" {
 			return ip, nil
 		}
 		lastErr = err
+		if i == 0 && err != nil {
+			// First target failed; log-friendly short-circuit if clearly offline
+			if strings.Contains(err.Error(), "offline") || strings.Contains(err.Error(), "SOCKS 隧道失败: socks connect failed") {
+				break
+			}
+		}
 	}
 	if lastErr != nil {
-		return "", fmt.Errorf("代理出口检测失败: %v", lastErr)
+		return "", lastErr
 	}
 	return "", fmt.Errorf("代理出口检测失败")
 }
