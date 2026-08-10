@@ -248,9 +248,33 @@
       </div>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>在被控机下载并运行 ReProxy 安装脚本</span></div>
-        <div class="step"><span class="step-num">2</span><span>在被控机查看设备 ID：<code>%LOCALAPPDATA%\ReProxy\device.id</code></span></div>
+        <div class="step"><span class="step-num">2</span><span>查看 ReProxy 设备 ID（见下方「如何查看设备 ID」）</span></div>
         <div class="step"><span class="step-num">3</span><span>在控制机下载 <code>ProxyClient.exe</code> 并运行（见下方「控制端用法」）</span></div>
         <div class="step"><span class="step-num">4</span><span>浏览器 SOCKS5 设为 <code>127.0.0.1:1080</code>，打开 ifconfig.me 验证 IP</span></div>
+      </div>
+      <div class="hero-tip" style="margin-top: 1rem;">
+        <strong>如何查看 ReProxy 设备 ID</strong>
+        <p class="note" style="margin: 0.5rem 0 0;">ProxyClient 的「设备 ID」填被控机 ReProxy 生成的 ID，与 ReSA / ReST 的 ID <strong>不一定相同</strong>。安装并首次运行 <code>Proxy.exe</code> 后才会生成。</p>
+        <p class="note" style="margin: 0.75rem 0 0;"><strong>方法一：在被控机本地查看</strong></p>
+        <p class="note" style="margin: 0.35rem 0 0;">用记事本打开：</p>
+        <div class="cmd-box" id="cmdProxyDeviceIdPath">%LOCALAPPDATA%\ReProxy\device.id</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyDeviceIdPathBtn">复制路径</button>
+        </div>
+        <p class="note" style="margin: 0.35rem 0 0;">CMD / PowerShell：</p>
+        <div class="cmd-box" id="cmdProxyDeviceIdLocal">type %LOCALAPPDATA%\ReProxy\device.id</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyDeviceIdLocalBtn">复制本地命令</button>
+        </div>
+        <p class="note" style="margin: 0.75rem 0 0;"><strong>方法二：用 ReST 远程终端查看</strong>（无需到被控机跟前）</p>
+        <p class="note" style="margin: 0.35rem 0 0;">前提：被控机已装 ReST。在<a href="/">控制端</a>填入 ReST 的设备 ID 并连接 → 点「打开终端」→ 执行：</p>
+        <div class="cmd-box multiline" id="cmdProxyDeviceIdRest">type %LOCALAPPDATA%\ReProxy\device.id</div>
+        <div class="install-actions">
+          <button type="button" id="copyProxyDeviceIdRestBtn">复制 ReST 终端命令</button>
+        </div>
+        <p class="note" style="margin: 0.75rem 0 0;"><strong>方法三：看 ReProxy 日志</strong></p>
+        <p class="note" style="margin: 0.35rem 0 0;">在被控机或 ReST 终端执行 <code>type %LOCALAPPDATA%\ReProxy\proxy-agent.log</code>，找 <code>Generated device ID:</code> 或上线记录中的 ID。</p>
+        <p class="note" style="margin: 0.75rem 0 0;">若文件不存在，说明 ReProxy 尚未成功运行，请先完成安装并确认 <code>Proxy.exe</code> 已启动。</p>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>命令行一键安装（被控机）</strong>
@@ -262,7 +286,7 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>控制端用法</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">先<a id="proxyClientDownload" href="/download/ProxyClient.exe" download>下载 ProxyClient.exe</a>，<strong>双击</strong>打开图形界面（自动弹出浏览器），填服务器、device.id、Token 后点「启动代理」。</p>
+        <p class="note" style="margin: 0.5rem 0 0;">先<a id="proxyClientDownload" href="/download/ProxyClient.exe" download>下载 ProxyClient.exe</a>，<strong>双击</strong>打开图形界面（自动弹出浏览器）。服务器与 Token 已默认填入，只需粘贴 ReProxy 设备 ID 后点「启动代理」。</p>
         <p class="note" style="margin: 0.5rem 0 0;">命令行方式（可选）：</p>
         <div class="cmd-box multiline" id="cmdProxyClient"></div>
         <div class="install-actions">
@@ -547,7 +571,10 @@
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
     const cmdProxy = buildPsLaunch(buildProxyInstallInner(base), true);
     const proxyClientCmd =
-      `ProxyClient.exe --server ${wsOrigin} --device-id 被控机device.id --token YOUR_TOKEN --listen 127.0.0.1:1080`;
+      `ProxyClient.exe --server ${wsOrigin} --device-id 被控机ReProxy的device.id --token YOUR_TOKEN --listen 127.0.0.1:1080`;
+    const cmdProxyDeviceIdPath = "%LOCALAPPDATA%\\ReProxy\\device.id";
+    const cmdProxyDeviceIdLocal = "type %LOCALAPPDATA%\\ReProxy\\device.id";
+    const cmdProxyDeviceIdRest = "type %LOCALAPPDATA%\\ReProxy\\device.id";
     const cmdUninstallAll = buildPsLaunch(buildUninstallInner(base, "uninstall.ps1"), true);
     const cmdUninstallResa = buildPsLaunch(
       buildUninstallInner(base, "uninstall-resa.ps1", "ReSA"),
@@ -580,6 +607,9 @@
     document.getElementById("cmdRest").textContent = cmdRest;
     document.getElementById("cmdProxy").textContent = cmdProxy;
     document.getElementById("cmdProxyClient").textContent = proxyClientCmd;
+    document.getElementById("cmdProxyDeviceIdPath").textContent = cmdProxyDeviceIdPath;
+    document.getElementById("cmdProxyDeviceIdLocal").textContent = cmdProxyDeviceIdLocal;
+    document.getElementById("cmdProxyDeviceIdRest").textContent = cmdProxyDeviceIdRest;
     document.getElementById("cmdUninstallAll").textContent = cmdUninstallAll;
     document.getElementById("cmdUninstallResa").textContent = cmdUninstallResa;
     document.getElementById("cmdUninstallRest").textContent = cmdUninstallRest;
@@ -639,6 +669,15 @@
     );
     document.getElementById("copyProxyClientUrlBtn").addEventListener("click", () =>
       copyText(proxyClientUrl, "ProxyClient 下载地址")
+    );
+    document.getElementById("copyProxyDeviceIdPathBtn").addEventListener("click", () =>
+      copyText(cmdProxyDeviceIdPath, "ReProxy device.id 路径")
+    );
+    document.getElementById("copyProxyDeviceIdLocalBtn").addEventListener("click", () =>
+      copyText(cmdProxyDeviceIdLocal, "本地查看命令")
+    );
+    document.getElementById("copyProxyDeviceIdRestBtn").addEventListener("click", () =>
+      copyText(cmdProxyDeviceIdRest, "ReST 终端命令")
     );
     document.getElementById("copyCmdUninstallAllBtn").addEventListener("click", () =>
       copyText(cmdUninstallAll, "全部卸载命令")

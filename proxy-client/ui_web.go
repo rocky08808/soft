@@ -63,9 +63,9 @@ func (a *webApp) start(s settings) error {
 	if s.Listen == "" {
 		s.Listen = "127.0.0.1:1080"
 	}
-	if s.Token == "" {
-		s.Token = "remote-screen-dev"
-	}
+		if s.Token == "" {
+			s.Token = defaultClientSettings().Token
+		}
 
 	a.mgr = newTunnelManager(s)
 	a.mgr.logf = a.appendLog

@@ -26,11 +26,11 @@ func resolveSettings() (settings, error) {
 
 	s := stringsTrim(*server)
 	if s == "" {
-		s = "ws://localhost:8080"
+		s = defaultClientSettings().Server
 	}
 	t := stringsTrim(*token)
 	if t == "" {
-		t = "remote-screen-dev"
+		t = defaultClientSettings().Token
 	}
 	d := stringsTrim(*device)
 	if len(os.Args) > 1 && d == "" {
