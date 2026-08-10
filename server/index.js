@@ -8,7 +8,6 @@ const cookieParser = require("cookie-parser");
 const { WebSocketServer } = require("ws");
 
 const PORT = Number(process.env.PORT) || 8080;
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN || "remote-screen-dev";
 const MAX_AUDIT = Number(process.env.MAX_AUDIT) || 200;
 const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
 const MAX_KEYBOARD = Number(process.env.MAX_KEYBOARD) || 300;
@@ -429,8 +428,8 @@ function parseQuery(url) {
   return query;
 }
 
-function verifyToken(token) {
-  return Boolean(token) && token === ACCESS_TOKEN;
+function verifyToken(_token) {
+  return true;
 }
 
 function extractToken(req, query) {
@@ -1278,6 +1277,5 @@ server.listen(PORT, () => {
   console.log(`Server: http://localhost:${PORT}`);
   console.log(`Viewer: http://localhost:${PORT}/?device=PC-001`);
   console.log(`WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`Access token: ${ACCESS_TOKEN}`);
-  console.log(`Set ACCESS_TOKEN env var before production.`);
+  console.log(`Access token check: disabled (WebSocket/API open)`);
 });
