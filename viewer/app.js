@@ -858,8 +858,12 @@ function drawFrame(base64, width, height) {
   img.src = "data:image/jpeg;base64," + base64;
 }
 
+function isDeviceOnline(d) {
+  return !!(d.online || d.termOnline || d.proxyOnline);
+}
+
 function maybeAutoSelectDevice(devices) {
-  const online = devices.filter((d) => d.online);
+  const online = devices.filter(isDeviceOnline);
   if (online.length === 1 && !params.get("device")) {
     deviceInput.value = online[0].deviceId;
   }
@@ -869,19 +873,30 @@ function renderDevices(devices) {
   deviceListEl.innerHTML = "";
   maybeAutoSelectDevice(devices);
   if (!devices.length) {
-    deviceListEl.innerHTML = '<li class="empty">暂无在线设备</li>';
+    deviceListEl.innerHTML =
+      '<li class="empty">暂无设备。请在被控机安装 ReSA / ReST / ReProxy，并确认 Agent 已连上服务器（可点「刷新」）</li>';
     return;
+  }
+
+  const anyOnline = devices.some(isDeviceOnline);
+  if (!anyOnline) {
+    const tip = document.createElement("li");
+    tip.className = "empty";
+    tip.textContent = "有历史设备记录，但当前全部离线";
+    deviceListEl.appendChild(tip);
   }
 
   for (const d of devices) {
     const li = document.createElement("li");
     const screenOn = !!d.online;
     const termOn = !!d.termOnline;
-    const anyOn = screenOn || termOn;
+    const proxyOn = !!d.proxyOnline;
+    const anyOn = isDeviceOnline(d);
     li.className = `device-item ${anyOn ? "online" : "offline"}`;
     const badges = [];
     if (screenOn) badges.push("屏幕");
     if (termOn) badges.push("终端");
+    if (proxyOn) badges.push("代理");
     const badgeText = badges.length ? badges.join("+") : "离线";
     li.innerHTML = `
       <div class="device-row">
@@ -1337,7 +1352,7 @@ async function refreshDashboard() {
     renderDevices(devices);
     renderAudit(entries);
   } catch {
-    deviceListEl.innerHTML = '<li class="empty">无法加载（检查令牌）</li>';
+    deviceListEl.innerHTML = '<li class="empty">无法加载设备列表（检查网络或重新登录）</li>';
   }
 }
 

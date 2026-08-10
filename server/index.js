@@ -371,8 +371,14 @@ app.use("/download", express.static(downloadsDir));
 
 // Middleware to verify viewer password - only for root
 function requireViewerAuthForRoot(req, res, next) {
-  // 允许 /install.html, /login.html, /login 等不需要密码
-  if (req.path && (req.path === '/login.html' || req.path === '/install.html' || req.path.startsWith('/assets'))) {
+  // 允许 /install.html, /login.html, /api/* 等
+  if (
+    req.path &&
+    (req.path === "/login.html" ||
+      req.path === "/install.html" ||
+      req.path.startsWith("/assets") ||
+      req.path.startsWith("/api/"))
+  ) {
     return next();
   }
   const token = req.cookies?.[VIEWER_TOKEN_KEY];
