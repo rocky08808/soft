@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -28,6 +28,7 @@ type tunnelManager struct {
 	proxyMu     sync.RWMutex
 	proxyIP     string
 	proxyIPMu   sync.RWMutex
+	connected   atomic.Uint32
 }
 
 func (m *tunnelManager) setProxyOnline(online bool) {
@@ -53,6 +54,18 @@ func (m *tunnelManager) getProxyIP() string {
 	m.proxyIPMu.RLock()
 	defer m.proxyIPMu.RUnlock()
 	return m.proxyIP
+}
+
+func (m *tunnelManager) setConnected(v bool) {
+	if v {
+		m.connected.Store(1)
+		return
+	}
+	m.connected.Store(0)
+}
+
+func (m *tunnelManager) isConnected() bool {
+	return m.connected.Load() == 1
 }
 
 func (m *tunnelManager) applyProxyIP(msg map[string]any) {
@@ -121,6 +134,7 @@ func (m *tunnelManager) run() {
 }
 
 func (m *tunnelManager) resetConnection() {
+	m.setConnected(false)
 	m.setProxyOnline(false)
 	m.setProxyIP("")
 	m.writeMu.Lock()
@@ -152,7 +166,6 @@ func (m *tunnelManager) resetConnection() {
 func (m *tunnelManager) connect(url string) error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 30 * time.Second,
-		Proxy:            http.ProxyFromEnvironment,
 	}
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
@@ -162,6 +175,7 @@ func (m *tunnelManager) connect(url string) error {
 	m.writeMu.Lock()
 	m.conn = conn
 	m.writeMu.Unlock()
+	m.setConnected(true)
 	close(m.ready)
 
 	logURL := url
@@ -308,8 +322,21 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 	}
 }
 
-func (m *tunnelManager) waitReady() {
-	<-m.ready
+func (m *tunnelManager) waitReady() error {
+	if m.isConnected() {
+		return nil
+	}
+	select {
+	case <-m.ready:
+		if m.isConnected() {
+			return nil
+		}
+		return fmt.Errorf("tunnel not connected")
+	case <-time.After(60 * time.Second):
+		return fmt.Errorf("tunnel not connected")
+	case <-m.stopCh:
+		return fmt.Errorf("stopped")
+	}
 }
 
 func (m *tunnelManager) writeJSON(msg map[string]any) error {
@@ -326,7 +353,9 @@ func (m *tunnelManager) writeJSON(msg map[string]any) error {
 }
 
 func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, error) {
-	m.waitReady()
+	if err := m.waitReady(); err != nil {
+		return "", nil, err
+	}
 	id, err := newTunnelID()
 	if err != nil {
 		return "", nil, err

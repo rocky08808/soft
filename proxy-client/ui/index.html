@@ -97,17 +97,19 @@
     <div class="btns">
       <button type="button" id="startBtn">启动代理</button>
       <button type="button" id="stopBtn" disabled>停止</button>
+      <button type="button" id="testIpBtn" disabled>检测出口 IP</button>
     </div>
 
+    <p class="sub" style="margin-top:0.75rem;">本机 IP: <strong id="directIp">—</strong> · 代理出口: <strong id="testProxyIp">—</strong></p>
+
     <div class="hint">
-      <strong>「运行中」只表示本地 SOCKS5 已开。</strong>IP 要变需同时满足：<br />
+      <strong>「运行中」= 本地 SOCKS5 已开；Windows 会自动设置系统代理。</strong>IP 要变还需：<br />
       1. 被控机 Proxy 显示<strong>在线</strong>（上方「被控机」徽章）<br />
       2. device.id 与被控机 <code>ReProxy\device.id</code> 完全一致<br />
-      3. 浏览器手动设 SOCKS5 为上方本地地址（不是仅改系统代理）<br />
+      3. 点 <strong>「检测出口 IP」</strong> 验证（无需浏览器设置）<br />
       <br />
-      <strong>Chrome / Edge：</strong>设置 → 系统 → 打开代理设置 → 手动代理 → SOCKS <code>127.0.0.1</code> 端口 <code>1080</code><br />
-      <strong>Firefox：</strong>设置 → 网络 → 手动代理 → SOCKS5 <code>127.0.0.1:1080</code>，勾选「代理 DNS」<br />
-      然后打开 <a href="https://ifconfig.me" target="_blank" rel="noopener" style="color:#a78bfa">ifconfig.me</a> 查看 IP。
+      <strong>Firefox</strong> 需单独设 SOCKS5 并勾选「代理 DNS」。<br />
+      验证网页：<a href="https://ifconfig.me" target="_blank" rel="noopener" style="color:#a78bfa">ifconfig.me</a>
     </div>
 
     <div class="log" id="log">等待启动…</div>
@@ -121,6 +123,9 @@
       listen: document.getElementById("listen"),
       startBtn: document.getElementById("startBtn"),
       stopBtn: document.getElementById("stopBtn"),
+      testIpBtn: document.getElementById("testIpBtn"),
+      directIp: document.getElementById("directIp"),
+      testProxyIp: document.getElementById("testProxyIp"),
       log: document.getElementById("log"),
       badge: document.getElementById("statusBadge"),
       proxyBadge: document.getElementById("proxyBadge"),
@@ -156,6 +161,7 @@
     function setRunning(running) {
       els.startBtn.disabled = running;
       els.stopBtn.disabled = !running;
+      els.testIpBtn.disabled = !running;
       els.badge.textContent = running ? "运行中" : "未运行";
       els.badge.className = "badge " + (running ? "badge-on" : "badge-off");
     }
@@ -227,6 +233,31 @@
     els.stopBtn.addEventListener("click", async () => {
       await fetch("/api/stop", { method: "POST" });
       await refreshStatus();
+    });
+
+    els.testIpBtn.addEventListener("click", async () => {
+      els.testIpBtn.disabled = true;
+      try {
+        const res = await fetch("/api/test-ip", { method: "POST" });
+        const data = await res.json();
+        if (data.directIp) els.directIp.textContent = data.directIp;
+        if (data.proxyIp) {
+          els.testProxyIp.textContent = data.proxyIp;
+          els.proxyIp.textContent = data.proxyIp;
+        }
+        if (data.error) {
+          alert(data.error);
+        } else if (data.changed) {
+          alert(`代理生效！\n本机: ${data.directIp}\n出口: ${data.proxyIp}`);
+        } else if (data.proxyIp) {
+          alert(`代理 IP 与本机相同 (${data.proxyIp})，可能未走被控机出口`);
+        }
+        await refreshStatus();
+      } catch (e) {
+        alert(String(e));
+      } finally {
+        els.testIpBtn.disabled = false;
+      }
     });
 
     loadSettings();

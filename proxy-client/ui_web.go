@@ -23,6 +23,7 @@ type webApp struct {
 	running bool
 	logs    []string
 	maxLogs int
+	winProxy winProxyBackup
 }
 
 func newWebApp() *webApp {
@@ -69,6 +70,14 @@ func (a *webApp) status() map[string]any {
 }
 
 func (a *webApp) stopLocked() {
+	if a.winProxy.active {
+		if err := restoreWinProxy(a.winProxy); err != nil {
+			a.appendLog("恢复系统代理失败: " + err.Error())
+		} else {
+			a.appendLog("已恢复 Windows 系统代理设置")
+		}
+		a.winProxy = winProxyBackup{}
+	}
 	if a.mgr != nil {
 		a.mgr.stop()
 		a.mgr = nil
@@ -96,6 +105,13 @@ func (a *webApp) start(s settings) error {
 	go a.mgr.run()
 	a.srv = newSocksServer(s.Listen, a.mgr)
 	a.running = true
+
+	if backup, err := applyWinProxy(s.Listen); err != nil {
+		a.appendLog("设置系统代理失败: " + err.Error() + "（请手动在浏览器设 SOCKS5）")
+	} else if backup.active {
+		a.winProxy = backup
+		a.appendLog("已自动设置 Windows 系统代理 → SOCKS5 " + s.Listen)
+	}
 
 	go func() {
 		err := a.srv.Serve()
@@ -181,6 +197,55 @@ func runWebUI() {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("/api/test-ip", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		app.mu.Lock()
+		running := app.running
+		listen := "127.0.0.1:1080"
+		proxyOnline := false
+		if app.mgr != nil {
+			proxyOnline = app.mgr.isProxyOnline()
+		}
+		if app.srv != nil {
+			listen = app.srv.listen
+		}
+		app.mu.Unlock()
+
+		directIP, directErr := fetchDirectIP()
+		out := map[string]any{
+			"running":     running,
+			"proxyOnline": proxyOnline,
+			"directIp":    directIP,
+		}
+		if directErr != nil {
+			out["directError"] = directErr.Error()
+		}
+		if !running {
+			out["error"] = "proxy not running"
+			_ = json.NewEncoder(w).Encode(out)
+			return
+		}
+		if !proxyOnline {
+			out["error"] = "remote proxy offline (check device.id on controlled machine)"
+			_ = json.NewEncoder(w).Encode(out)
+			return
+		}
+		proxyIP, err := fetchIPViaSOCKS(listen)
+		if err != nil {
+			out["error"] = err.Error()
+			_ = json.NewEncoder(w).Encode(out)
+			return
+		}
+		out["proxyIp"] = proxyIP
+		out["changed"] = directIP != "" && proxyIP != "" && directIP != proxyIP
+		app.appendLog(fmt.Sprintf("检测出口 IP: 本机 %s → 代理 %s", directIP, proxyIP))
+		_ = json.NewEncoder(w).Encode(out)
 	})
 
 	mux.HandleFunc("/api/stop", func(w http.ResponseWriter, r *http.Request) {
