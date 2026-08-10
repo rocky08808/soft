@@ -122,16 +122,41 @@ func (m *tunnelManager) run() {
 				m.log("连接被另一个 ProxyClient 顶替。请结束多余的 ProxyClient.exe，只保留一个后再点「启动代理」。")
 				return
 			}
-			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 3s)", err))
+			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 10s)", err))
 			m.resetConnection()
 			select {
 			case <-m.stopCh:
 				return
-			case <-time.After(3 * time.Second):
+			case <-time.After(10 * time.Second):
 			}
+			m.log("正在重连服务器…")
 			continue
 		}
 	}
+}
+
+func (m *tunnelManager) failPendingOpens(err error) {
+	if err == nil {
+		err = fmt.Errorf("proxy unavailable")
+	}
+	m.opens.Range(func(key, value any) bool {
+		if ch, ok := value.(chan openResult); ok {
+			select {
+			case ch <- openResult{err: err}:
+			default:
+				ch <- openResult{err: err}
+			}
+		}
+		m.opens.Delete(key)
+		return true
+	})
+	m.streams.Range(func(key, value any) bool {
+		if ch, ok := value.(chan []byte); ok {
+			close(ch)
+		}
+		m.streams.Delete(key)
+		return true
+	})
 }
 
 func (m *tunnelManager) resetConnection() {
@@ -145,23 +170,7 @@ func (m *tunnelManager) resetConnection() {
 	}
 	m.writeMu.Unlock()
 	m.ready = make(chan struct{})
-	m.opens.Range(func(key, value any) bool {
-		if ch, ok := value.(chan openResult); ok {
-			select {
-			case ch <- openResult{err: fmt.Errorf("connection lost")}:
-			default:
-			}
-		}
-		m.opens.Delete(key)
-		return true
-	})
-	m.streams.Range(func(key, value any) bool {
-		if ch, ok := value.(chan []byte); ok {
-			close(ch)
-		}
-		m.streams.Delete(key)
-		return true
-	})
+	m.failPendingOpens(fmt.Errorf("connection lost"))
 }
 
 func (m *tunnelManager) connect(url string) error {
@@ -281,10 +290,17 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		}
 		return
 	case "proxy_online":
+		wasOffline := !m.isProxyOnline()
 		m.setProxyOnline(true)
 		m.applyProxyIP(msg)
 		ip := m.getProxyIP()
-		if ip != "" {
+		if wasOffline {
+			if ip != "" {
+				m.log("被控机 Proxy 已重连，出口 IP: " + ip)
+			} else {
+				m.log("被控机 Proxy 已重连")
+			}
+		} else if ip != "" {
 			m.log("被控机 Proxy 已上线，出口 IP: " + ip)
 		} else {
 			m.log("被控机 Proxy 已上线")
@@ -292,9 +308,10 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		m.notifyProxyState(true)
 		return
 	case "proxy_offline":
+		m.failPendingOpens(fmt.Errorf("被控机 Proxy 离线"))
 		m.setProxyOnline(false)
 		m.setProxyIP("")
-		m.log("被控机 Proxy 已离线")
+		m.log("被控机 Proxy 已离线，等待自动重连…")
 		m.notifyProxyState(false)
 		return
 	}
@@ -372,6 +389,9 @@ func (m *tunnelManager) writeJSON(msg map[string]any) error {
 func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, error) {
 	if err := m.waitReady(); err != nil {
 		return "", nil, err
+	}
+	if !m.isProxyOnline() {
+		return "", nil, fmt.Errorf("被控机 Proxy 离线，等待自动重连")
 	}
 	id, err := newTunnelID()
 	if err != nil {

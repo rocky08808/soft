@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -29,12 +28,12 @@ func (w *wsAgent) run() {
 	for {
 		if err := w.connectOnce(url); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "replaced") {
-				agentLog("Connection replaced, reconnecting in 3s...")
-				time.Sleep(3 * time.Second)
-				continue
+				agentLog("Connection replaced, reconnecting in 10s...")
+			} else {
+				agentLog(fmt.Sprintf("Disconnected: %v. Retry in 10s...", err))
 			}
-			agentLog(fmt.Sprintf("Disconnected: %v. Retry in 3s...", err))
-			time.Sleep(3 * time.Second)
+			time.Sleep(10 * time.Second)
+			continue
 		}
 	}
 }
@@ -42,7 +41,6 @@ func (w *wsAgent) run() {
 func (w *wsAgent) connectOnce(url string) error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 30 * time.Second,
-		Proxy:            http.ProxyFromEnvironment,
 	}
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
