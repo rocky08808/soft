@@ -169,7 +169,7 @@ function setStatus(text, online) {
 
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  if (!agentOnline) return;
+  if (!agentOnline && !(remoteWidth > 0 && remoteHeight > 0)) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
 }
 
@@ -814,9 +814,11 @@ function mapCoords(clientX, clientY) {
   }
   const x = ((clientX - rect.left) / rect.width) * frameW;
   const y = ((clientY - rect.top) / rect.height) * frameH;
+  const maxX = Math.max(0, frameW - 1);
+  const maxY = Math.max(0, frameH - 1);
   return {
-    x: Math.max(0, Math.min(frameW, Math.round(x))),
-    y: Math.max(0, Math.min(frameH, Math.round(y))),
+    x: Math.max(0, Math.min(maxX, Math.round(x))),
+    y: Math.max(0, Math.min(maxY, Math.round(y))),
   };
 }
 
@@ -1551,6 +1553,7 @@ function connect() {
         placeholder.textContent = "收到空画面帧";
         return;
       }
+      agentOnline = true;
       setStatus(`远程控制中 · ${deviceId}`, true);
       drawFrame(msg.data, msg.width, msg.height);
     }

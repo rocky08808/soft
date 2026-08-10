@@ -186,6 +186,58 @@ def set_mouse_position(x: int, y: int) -> None:
         return
     mouse.position = (abs_x, abs_y)
 
+
+if sys.platform == "win32":
+    _MOUSEEVENTF_LEFTDOWN = 0x0002
+    _MOUSEEVENTF_LEFTUP = 0x0004
+    _MOUSEEVENTF_RIGHTDOWN = 0x0008
+    _MOUSEEVENTF_RIGHTUP = 0x0010
+    _MOUSEEVENTF_MIDDLEDOWN = 0x0020
+    _MOUSEEVENTF_MIDDLEUP = 0x0040
+    _MOUSEEVENTF_WHEEL = 0x0800
+    _MOUSEEVENTF_HWHEEL = 0x01000
+    _WHEEL_DELTA = 120
+    _MOUSE_BUTTON_FLAGS = {
+        ("left", True): _MOUSEEVENTF_LEFTDOWN,
+        ("left", False): _MOUSEEVENTF_LEFTUP,
+        ("right", True): _MOUSEEVENTF_RIGHTDOWN,
+        ("right", False): _MOUSEEVENTF_RIGHTUP,
+        ("middle", True): _MOUSEEVENTF_MIDDLEDOWN,
+        ("middle", False): _MOUSEEVENTF_MIDDLEUP,
+    }
+
+
+def win32_mouse_button(button: str, down: bool) -> None:
+    if sys.platform != "win32":
+        btn = {
+            "left": Button.left,
+            "right": Button.right,
+            "middle": Button.middle,
+        }.get(button, Button.left)
+        if down:
+            mouse.press(btn)
+        else:
+            mouse.release(btn)
+        return
+    flag = _MOUSE_BUTTON_FLAGS.get((button, down))
+    if flag is None:
+        raise ValueError(f"unknown mouse button: {button}")
+    ctypes.windll.user32.mouse_event(flag, 0, 0, 0, 0)
+
+
+def win32_mouse_scroll(dx: int, dy: int) -> None:
+    if sys.platform != "win32":
+        mouse.scroll(dx, dy)
+        return
+    if dy:
+        ctypes.windll.user32.mouse_event(
+            _MOUSEEVENTF_WHEEL, 0, 0, dy * _WHEEL_DELTA, 0
+        )
+    if dx:
+        ctypes.windll.user32.mouse_event(
+            _MOUSEEVENTF_HWHEEL, 0, 0, dx * _WHEEL_DELTA, 0
+        )
+
 REMOTE_INPUT_IGNORE_SEC = 0.35
 remote_input_ignore_until = 0.0
 keyboard_chars: list[str] = []
@@ -1250,17 +1302,11 @@ def handle_control(msg: dict) -> None:
                         control_coord(msg.get("x")),
                         control_coord(msg.get("y")),
                     )
+                    if sys.platform == "win32":
+                        time.sleep(0.008)
                 button_name = msg.get("button", "left")
                 down = bool(msg.get("down", True))
-                button = {
-                    "left": Button.left,
-                    "right": Button.right,
-                    "middle": Button.middle,
-                }.get(button_name, Button.left)
-                if down:
-                    mouse.press(button)
-                else:
-                    mouse.release(button)
+                win32_mouse_button(button_name, down)
                 return
 
             if action == "scroll":
@@ -1269,7 +1315,9 @@ def handle_control(msg: dict) -> None:
                         control_coord(msg.get("x")),
                         control_coord(msg.get("y")),
                     )
-                mouse.scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+                    if sys.platform == "win32":
+                        time.sleep(0.008)
+                win32_mouse_scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
                 return
 
             if action == "key":
