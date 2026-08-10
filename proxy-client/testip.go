@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -16,9 +17,9 @@ type ipTarget struct {
 }
 
 var ipTargets = []ipTarget{
-	{addr: "ifconfig.me:80", host: "ifconfig.me", path: "/ip"},
-	{addr: "icanhazip.com:80", host: "icanhazip.com", path: "/"},
 	{addr: "ip.sb:80", host: "ip.sb", path: "/"},
+	{addr: "icanhazip.com:80", host: "icanhazip.com", path: "/"},
+	{addr: "ifconfig.me:80", host: "ifconfig.me", path: "/ip"},
 }
 
 func socks5Connect(conn net.Conn, host string, port int) error {
@@ -138,14 +139,25 @@ func fetchIPViaSOCKS(listen string) (string, error) {
 }
 
 func fetchIPViaSOCKSOnce(listen, host, path string, timeout time.Duration) (string, error) {
-	conn, err := net.DialTimeout("tcp", listen, timeout)
+	conn, err := net.DialTimeout("tcp", listen, 5*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("连接本地 SOCKS 失败: %w", err)
 	}
 	defer conn.Close()
 
+	tunnelDeadline := time.Now().Add(35 * time.Second)
+	_ = conn.SetDeadline(tunnelDeadline)
+
 	if err := socks5Connect(conn, host, 80); err != nil {
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			return "", fmt.Errorf("等待被控机连接 %s 超时（被控机 outbound 可能受限或被墙）", host)
+		}
+		if strings.Contains(err.Error(), "code 5") {
+			return "", fmt.Errorf("被控机无法连接 %s（outbound 被拒绝）", host)
+		}
 		return "", fmt.Errorf("SOCKS 隧道失败: %w", err)
 	}
-	return readIPFromHTTP(conn, host, path, timeout+10*time.Second)
+
+	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
+	return readIPFromHTTP(conn, host, path, 15*time.Second)
 }

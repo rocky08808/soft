@@ -320,9 +320,9 @@ func runWebUI() {
 		select {
 		case res := <-done:
 			_ = json.NewEncoder(w).Encode(res.out)
-		case <-time.After(35 * time.Second):
+		case <-time.After(50 * time.Second):
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error": "检测超时（35秒），请查看下方日志",
+				"error": "检测超时（50秒），被控机可能无法访问外网",
 			})
 		}
 	})

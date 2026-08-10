@@ -413,12 +413,12 @@ func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, 
 			return "", nil, fmt.Errorf("proxy open failed")
 		}
 		return id, streamCh, nil
-	case <-time.After(45 * time.Second):
+	case <-time.After(20 * time.Second):
 		m.opens.Delete(id)
 		m.streams.Delete(id)
 		close(streamCh)
 		_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
-		return "", nil, fmt.Errorf("proxy open timeout")
+		return "", nil, fmt.Errorf("被控机建立连接超时")
 	}
 }
 

@@ -81,7 +81,7 @@ func (a *agent) handleProxyOpen(msg map[string]any) {
 
 	go func() {
 		addr := net.JoinHostPort(host, strconv.Itoa(port))
-		conn, err := net.DialTimeout("tcp", addr, 30*time.Second)
+		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 		if err != nil {
 			agentLog(fmt.Sprintf("proxy_open %s %s failed: %v", id, addr, err))
 			_ = a.writeJSON(map[string]any{
