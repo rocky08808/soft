@@ -1586,7 +1586,8 @@ async def handle_update_request(ws, server: str, req_id: str) -> None:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, apply_resa_update_sync, server, info)
         agent_log("update staged, exiting...")
-        os._exit(0)
+        await ws.close()
+        return
     except Exception as exc:
         result.update({"ok": False, "status": "failed", "error": str(exc)})
         try:
@@ -2182,7 +2183,7 @@ async def run_agent(
                     task.cancel()
                 if _update_exit_requested:
                     agent_log("exiting for update")
-                    os._exit(0)
+                    sys.exit(0)
         except Exception as exc:
             agent_log(f"Disconnected: {exc}. Retry in 3s...")
             await asyncio.sleep(3)
