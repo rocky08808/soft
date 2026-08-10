@@ -120,10 +120,11 @@
       <strong>启动后本机网络不受影响</strong>（默认不改动系统代理）。<br />
       1. 被控机 Proxy 显示<strong>在线</strong>后，流量才能走隧道<br />
       2. device.id 必须与被控机 <code>ReProxy\device.id</code> 一致<br />
-      3. 点 <strong>「检测出口 IP」</strong> 验证；需要 Chrome/Edge 自动走代理时再勾选上方选项<br />
+      3. 点 <strong>「检测出口 IP」</strong> 验证 SOCKS 隧道（仅测 HTTP:80）<br />
+      4. Chrome/Edge 走代理需勾选上方「系统代理」；勾选后请<strong>完全关闭并重新打开浏览器</strong><br />
       <br />
       若网络异常：点 <strong>停止</strong>，或重新打开 ProxyClient（会自动恢复系统代理）。<br />
-      Firefox 需单独设 SOCKS5 并勾选「代理 DNS」。
+      Firefox 需手动设 SOCKS5 <code>127.0.0.1:1080</code> 并勾选「代理 DNS」。
     </div>
 
     <div class="log" id="log">等待启动…</div>

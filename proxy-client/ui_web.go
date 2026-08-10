@@ -98,7 +98,7 @@ func (a *webApp) syncSystemProxyLocked() {
 		return
 	}
 	a.winProxy = backup
-	a.appendLog("已启用 Windows 系统代理 → SOCKS5 " + listen)
+	a.appendLog("已启用 Windows 系统代理 (PAC/SOCKS5) → " + listen)
 }
 
 func (a *webApp) onProxyStateChanged(online bool) {

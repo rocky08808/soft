@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -14,10 +15,11 @@ import (
 )
 
 type winProxyBackup struct {
-	enabled  uint32
-	server   string
-	override string
-	active   bool
+	enabled       uint32
+	server        string
+	override      string
+	autoConfigURL string
+	active        bool
 }
 
 func parseListenHostPort(listen string) (host, port string, err error) {
@@ -34,6 +36,50 @@ func parseListenHostPort(listen string) (host, port string, err error) {
 		return listen[:i], listen[i+1:], nil
 	}
 	return listen, "1080", nil
+}
+
+func pacFilePath() string {
+	return filepath.Join(clientSettingsDir(), "proxy.pac")
+}
+
+func pacAutoConfigURL(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	p := filepath.ToSlash(abs)
+	if len(p) >= 2 && p[1] == ':' {
+		p = "/" + p
+	}
+	return "file://" + p
+}
+
+func writePACFile(host, port string) error {
+	content := fmt.Sprintf(`function FindProxyForURL(url, host) {
+  if (host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "[::1]" ||
+      shExpMatch(host, "*.local") ||
+      shExpMatch(host, "127.*") ||
+      shExpMatch(host, "10.*") ||
+      shExpMatch(host, "192.168.*") ||
+      shExpMatch(host, "172.16.*") ||
+      shExpMatch(host, "172.17.*") ||
+      shExpMatch(host, "172.18.*") ||
+      shExpMatch(host, "172.19.*") ||
+      shExpMatch(host, "172.2*") ||
+      shExpMatch(host, "172.30.*") ||
+      shExpMatch(host, "172.31.*")) {
+    return "DIRECT";
+  }
+  return "SOCKS5 %s:%s";
+}
+`, host, port)
+	path := pacFilePath()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return err
+	}
+	return nil
 }
 
 func readWinProxyBackup() (winProxyBackup, error) {
@@ -55,10 +101,15 @@ func readWinProxyBackup() (winProxyBackup, error) {
 	if err != nil {
 		override = ""
 	}
+	autoConfigURL, _, err := key.GetStringValue("AutoConfigURL")
+	if err != nil {
+		autoConfigURL = ""
+	}
 	return winProxyBackup{
-		enabled:  uint32(enabled),
-		server:   server,
-		override: override,
+		enabled:       uint32(enabled),
+		server:        server,
+		override:      override,
+		autoConfigURL: autoConfigURL,
 	}, nil
 }
 
@@ -73,19 +124,24 @@ func applyWinProxy(listen string) (winProxyBackup, error) {
 		return winProxyBackup{}, err
 	}
 
+	if err := writePACFile(host, port); err != nil {
+		return winProxyBackup{}, err
+	}
+
 	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Internet Settings`, registry.SET_VALUE)
 	if err != nil {
 		return winProxyBackup{}, err
 	}
 	defer key.Close()
 
-	proxyServer := fmt.Sprintf("socks=%s:%s", host, port)
+	pacURL := pacAutoConfigURL(pacFilePath())
 	if err := key.SetDWordValue("ProxyEnable", 1); err != nil {
 		return winProxyBackup{}, err
 	}
-	if err := key.SetStringValue("ProxyServer", proxyServer); err != nil {
+	if err := key.SetStringValue("AutoConfigURL", pacURL); err != nil {
 		return winProxyBackup{}, err
 	}
+	_ = key.DeleteValue("ProxyServer")
 	if err := key.SetStringValue("ProxyOverride", "<local>;127.0.0.1;localhost"); err != nil {
 		return winProxyBackup{}, err
 	}
@@ -142,6 +198,13 @@ func restoreWinProxy(backup winProxyBackup) error {
 	if err := key.SetDWordValue("ProxyEnable", backup.enabled); err != nil {
 		return err
 	}
+	if backup.autoConfigURL != "" {
+		if err := key.SetStringValue("AutoConfigURL", backup.autoConfigURL); err != nil {
+			return err
+		}
+	} else {
+		_ = key.DeleteValue("AutoConfigURL")
+	}
 	if backup.server != "" {
 		if err := key.SetStringValue("ProxyServer", backup.server); err != nil {
 			return err
@@ -157,6 +220,7 @@ func restoreWinProxy(backup winProxyBackup) error {
 		_ = key.DeleteValue("ProxyOverride")
 	}
 
+	_ = os.Remove(pacFilePath())
 	refreshWinProxySettings()
 	clearPersistedProxyBackup()
 	return nil
@@ -177,11 +241,11 @@ func refreshWinProxySettings() {
 	const wmSettingChange = 0x001A
 	name, _ := syscall.UTF16PtrFromString("Internet Settings")
 	_, _, _ = sendTimeout.Call(
-		0xFFFF, // HWND_BROADCAST
+		0xFFFF,
 		wmSettingChange,
 		0,
 		uintptr(unsafe.Pointer(name)),
-		0x0002, // SMTO_ABORTIFHUNG
+		0x0002,
 		1000,
 		0,
 	)

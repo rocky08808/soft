@@ -17,18 +17,72 @@ func serveSOCKS(listen string, mgr *tunnelManager) error {
 func handleSOCKSConn(conn net.Conn, mgr *tunnelManager) {
 	defer conn.Close()
 
+	ver := make([]byte, 1)
+	if _, err := io.ReadFull(conn, ver); err != nil {
+		return
+	}
+
+	switch ver[0] {
+	case 0x04:
+		handleSOCKS4AfterVer(conn, mgr)
+	case 0x05:
+		handleSOCKS5AfterVer(conn, mgr)
+	default:
+		mgr.log(fmt.Sprintf("unsupported SOCKS version %d", ver[0]))
+	}
+}
+
+func handleSOCKS4AfterVer(conn net.Conn, mgr *tunnelManager) {
+	hdr := make([]byte, 7)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		return
+	}
+	if hdr[0] != 0x01 {
+		writeSOCKS4Reply(conn, 0x5b)
+		return
+	}
+
+	port := int(binary.BigEndian.Uint16(hdr[1:3]))
+	ip := net.IP(hdr[3:7])
+	if _, err := readNullTerminated(conn); err != nil {
+		return
+	}
+
+	host := ip.String()
+	if ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] != 0 {
+		domain, err := readNullTerminated(conn)
+		if err != nil {
+			return
+		}
+		host = domain
+	}
+
+	_ = conn.SetDeadline(time.Time{})
+
+	id, stream, err := mgr.openTunnel(host, port)
+	if err != nil {
+		mgr.log(fmt.Sprintf("proxy open %s:%d failed: %v", host, port, err))
+		writeSOCKS4Reply(conn, 0x5b)
+		return
+	}
+
+	if err := writeSOCKS4Reply(conn, 0x5a); err != nil {
+		mgr.closeTunnel(id)
+		return
+	}
+	relayTunnel(conn, mgr, id, stream)
+}
+
+func handleSOCKS5AfterVer(conn net.Conn, mgr *tunnelManager) {
 	if err := conn.SetDeadline(timeNow().Add(60 * time.Second)); err != nil {
 		return
 	}
 
 	buf := make([]byte, 258)
-	if _, err := io.ReadFull(conn, buf[:2]); err != nil {
+	if _, err := io.ReadFull(conn, buf[:1]); err != nil {
 		return
 	}
-	if buf[0] != 0x05 {
-		return
-	}
-	nMethods := int(buf[1])
+	nMethods := int(buf[0])
 	if _, err := io.ReadFull(conn, buf[:nMethods]); err != nil {
 		return
 	}
@@ -62,11 +116,16 @@ func handleSOCKSConn(conn net.Conn, mgr *tunnelManager) {
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
-	defer mgr.closeTunnel(id)
 
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
+		mgr.closeTunnel(id)
 		return
 	}
+	relayTunnel(conn, mgr, id, stream)
+}
+
+func relayTunnel(conn net.Conn, mgr *tunnelManager, id string, stream <-chan []byte) {
+	defer mgr.closeTunnel(id)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -100,6 +159,28 @@ func handleSOCKSConn(conn net.Conn, mgr *tunnelManager) {
 	}()
 
 	wg.Wait()
+}
+
+func writeSOCKS4Reply(conn net.Conn, code byte) error {
+	_, err := conn.Write([]byte{0x00, code, 0, 0, 0, 0, 0, 0})
+	return err
+}
+
+func readNullTerminated(conn net.Conn) (string, error) {
+	var b []byte
+	buf := make([]byte, 1)
+	for {
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			return "", err
+		}
+		if buf[0] == 0 {
+			return string(b), nil
+		}
+		b = append(b, buf[0])
+		if len(b) > 255 {
+			return "", fmt.Errorf("string too long")
+		}
+	}
 }
 
 func readSOCKSAddr(conn net.Conn, atyp byte, buf []byte) (string, error) {
