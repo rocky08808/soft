@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"time"
 )
 
 //go:embed ui/*
@@ -255,47 +256,75 @@ func runWebUI() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		app.mu.Lock()
-		running := app.running
-		listen := "127.0.0.1:1080"
-		proxyOnline := false
-		if app.mgr != nil {
-			proxyOnline = app.mgr.isProxyOnline()
-		}
-		if app.srv != nil {
-			listen = app.srv.listen
-		}
-		app.mu.Unlock()
 
-		directIP, directErr := fetchDirectIP()
-		out := map[string]any{
-			"running":     running,
-			"proxyOnline": proxyOnline,
-			"directIp":    directIP,
+		type testResult struct {
+			out map[string]any
 		}
-		if directErr != nil {
-			out["directError"] = directErr.Error()
+		done := make(chan testResult, 1)
+		go func() {
+			app.mu.Lock()
+			running := app.running
+			listen := "127.0.0.1:1080"
+			proxyOnline := false
+			if app.mgr != nil {
+				proxyOnline = app.mgr.isProxyOnline()
+			}
+			if app.srv != nil {
+				listen = app.srv.listen
+			}
+			app.mu.Unlock()
+
+			out := map[string]any{
+				"running":     running,
+				"proxyOnline": proxyOnline,
+			}
+			if !running {
+				out["error"] = "请先点击「启动代理」"
+				done <- testResult{out: out}
+				return
+			}
+			if !proxyOnline {
+				out["error"] = "被控机 Proxy 离线，请检查 device.id 与被控机 ReProxy 是否运行"
+				directIP, directErr := fetchDirectIP()
+				if directIP != "" {
+					out["directIp"] = directIP
+				}
+				if directErr != nil {
+					out["directError"] = directErr.Error()
+				}
+				done <- testResult{out: out}
+				return
+			}
+
+			directIP, directErr := fetchDirectIP()
+			if directIP != "" {
+				out["directIp"] = directIP
+			}
+			if directErr != nil {
+				out["directError"] = directErr.Error()
+			}
+
+			proxyIP, err := fetchIPViaSOCKS(listen)
+			if err != nil {
+				out["error"] = err.Error()
+				done <- testResult{out: out}
+				return
+			}
+			out["proxyIp"] = proxyIP
+			out["changed"] = directIP != "" && proxyIP != "" && directIP != proxyIP
+			out["message"] = fmt.Sprintf("本机 %s → 代理 %s", directIP, proxyIP)
+			app.appendLog("检测出口 IP: " + fmt.Sprint(out["message"]))
+			done <- testResult{out: out}
+		}()
+
+		select {
+		case res := <-done:
+			_ = json.NewEncoder(w).Encode(res.out)
+		case <-time.After(35 * time.Second):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": "检测超时（35秒），请查看下方日志",
+			})
 		}
-		if !running {
-			out["error"] = "proxy not running"
-			_ = json.NewEncoder(w).Encode(out)
-			return
-		}
-		if !proxyOnline {
-			out["error"] = "remote proxy offline (check device.id on controlled machine)"
-			_ = json.NewEncoder(w).Encode(out)
-			return
-		}
-		proxyIP, err := fetchIPViaSOCKS(listen)
-		if err != nil {
-			out["error"] = err.Error()
-			_ = json.NewEncoder(w).Encode(out)
-			return
-		}
-		out["proxyIp"] = proxyIP
-		out["changed"] = directIP != "" && proxyIP != "" && directIP != proxyIP
-		app.appendLog(fmt.Sprintf("检测出口 IP: 本机 %s → 代理 %s", directIP, proxyIP))
-		_ = json.NewEncoder(w).Encode(out)
 	})
 
 	mux.HandleFunc("/api/stop", func(w http.ResponseWriter, r *http.Request) {

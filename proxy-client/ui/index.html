@@ -174,10 +174,14 @@
       };
     }
 
+    let testingIp = false;
+
     function setRunning(running) {
       els.startBtn.disabled = running;
       els.stopBtn.disabled = !running;
-      els.testIpBtn.disabled = !running;
+      if (!testingIp) {
+        els.testIpBtn.disabled = !running;
+      }
       els.badge.textContent = running ? "运行中" : "未运行";
       els.badge.className = "badge " + (running ? "badge-on" : "badge-off");
     }
@@ -253,7 +257,10 @@
     });
 
     els.testIpBtn.addEventListener("click", async () => {
+      testingIp = true;
       els.testIpBtn.disabled = true;
+      els.testIpBtn.textContent = "检测中…";
+      els.log.textContent = (els.log.textContent || "") + "\n正在检测出口 IP…";
       try {
         const res = await fetch("/api/test-ip", { method: "POST" });
         const data = await res.json();
@@ -262,18 +269,31 @@
           els.testProxyIp.textContent = data.proxyIp;
           els.proxyIp.textContent = data.proxyIp;
         }
+        let msg = data.message || data.error || data.directError || "";
         if (data.error) {
           alert(data.error);
         } else if (data.changed) {
-          alert(`代理生效！\n本机: ${data.directIp}\n出口: ${data.proxyIp}`);
+          msg = `代理生效！本机: ${data.directIp} → 出口: ${data.proxyIp}`;
+          alert(msg);
         } else if (data.proxyIp) {
-          alert(`代理 IP 与本机相同 (${data.proxyIp})，可能未走被控机出口`);
+          msg = `代理 IP 与本机相同 (${data.proxyIp})，可能未走被控机出口`;
+          alert(msg);
+        } else if (data.directError) {
+          msg = "本机 IP 获取失败: " + data.directError;
+          alert(msg);
+        }
+        if (msg) {
+          els.log.textContent = (els.log.textContent || "") + "\n" + msg;
         }
         await refreshStatus();
       } catch (e) {
-        alert(String(e));
+        const err = "检测失败: " + String(e);
+        alert(err);
+        els.log.textContent = (els.log.textContent || "") + "\n" + err;
       } finally {
-        els.testIpBtn.disabled = false;
+        testingIp = false;
+        els.testIpBtn.textContent = "检测出口 IP";
+        await refreshStatus();
       }
     });
 

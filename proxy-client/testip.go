@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+type ipTarget struct {
+	addr string
+	host string
+	path string
+}
+
+var ipTargets = []ipTarget{
+	{addr: "ifconfig.me:80", host: "ifconfig.me", path: "/ip"},
+	{addr: "icanhazip.com:80", host: "icanhazip.com", path: "/"},
+	{addr: "ip.sb:80", host: "ip.sb", path: "/"},
+}
+
 func socks5Connect(conn net.Conn, host string, port int) error {
 	if _, err := conn.Write([]byte{0x05, 0x01, 0x00}); err != nil {
 		return err
@@ -59,18 +71,10 @@ func socks5Connect(conn net.Conn, host string, port int) error {
 	}
 }
 
-func fetchIPViaSOCKS(listen string) (string, error) {
-	conn, err := net.DialTimeout("tcp", listen, 8*time.Second)
-	if err != nil {
-		return "", fmt.Errorf("connect local socks: %w", err)
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
-
-	if err := socks5Connect(conn, "ifconfig.me", 80); err != nil {
-		return "", fmt.Errorf("socks tunnel: %w", err)
-	}
-	if _, err := io.WriteString(conn, "GET /ip HTTP/1.1\r\nHost: ifconfig.me\r\nConnection: close\r\n\r\n"); err != nil {
+func readIPFromHTTP(conn net.Conn, host, path string, timeout time.Duration) (string, error) {
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: ReProxyClient/1.0\r\nConnection: close\r\n\r\n", path, host)
+	if _, err := io.WriteString(conn, req); err != nil {
 		return "", err
 	}
 
@@ -94,32 +98,54 @@ func fetchIPViaSOCKS(listen string) (string, error) {
 	}
 }
 
-func fetchDirectIP() (string, error) {
-	conn, err := net.DialTimeout("tcp", "ifconfig.me:80", 8*time.Second)
+func fetchIPOverTCP(addr, host, path string, timeout time.Duration) (string, error) {
+	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return "", err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
-	if _, err := io.WriteString(conn, "GET /ip HTTP/1.1\r\nHost: ifconfig.me\r\nConnection: close\r\n\r\n"); err != nil {
-		return "", err
-	}
-	reader := bufio.NewReader(conn)
-	inBody := false
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return "", err
-		}
-		if !inBody {
-			if line == "\r\n" {
-				inBody = true
-			}
-			continue
-		}
-		ip := stringsTrim(line)
-		if ip != "" {
+	return readIPFromHTTP(conn, host, path, timeout)
+}
+
+func fetchDirectIP() (string, error) {
+	var lastErr error
+	for _, target := range ipTargets {
+		ip, err := fetchIPOverTCP(target.addr, target.host, target.path, 5*time.Second)
+		if err == nil && ip != "" {
 			return ip, nil
 		}
+		lastErr = err
 	}
+	if lastErr != nil {
+		return "", fmt.Errorf("无法获取本机 IP: %v", lastErr)
+	}
+	return "", fmt.Errorf("无法获取本机 IP（请检查网络）")
+}
+
+func fetchIPViaSOCKS(listen string) (string, error) {
+	var lastErr error
+	for _, target := range ipTargets {
+		ip, err := fetchIPViaSOCKSOnce(listen, target.host, target.path, 5*time.Second)
+		if err == nil && ip != "" {
+			return ip, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return "", fmt.Errorf("代理出口检测失败: %v", lastErr)
+	}
+	return "", fmt.Errorf("代理出口检测失败")
+}
+
+func fetchIPViaSOCKSOnce(listen, host, path string, timeout time.Duration) (string, error) {
+	conn, err := net.DialTimeout("tcp", listen, timeout)
+	if err != nil {
+		return "", fmt.Errorf("连接本地 SOCKS 失败: %w", err)
+	}
+	defer conn.Close()
+
+	if err := socks5Connect(conn, host, 80); err != nil {
+		return "", fmt.Errorf("SOCKS 隧道失败: %w", err)
+	}
+	return readIPFromHTTP(conn, host, path, timeout+10*time.Second)
 }
