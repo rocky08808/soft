@@ -128,6 +128,7 @@ _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
 _runtime_monitor = 1
 _runtime_stream_width = 1280
+_last_mapping_key: Optional[tuple[int, ...]] = None
 
 
 def compute_stream_size(width: int, height: int, stream_width: int) -> tuple[int, int, bool]:
@@ -147,18 +148,30 @@ def update_control_mapping(
     grab_w: Optional[int] = None,
     grab_h: Optional[int] = None,
 ) -> None:
+    global _last_mapping_key
     cap_w = max(1, int(grab_w if grab_w else region["width"]))
     cap_h = max(1, int(grab_h if grab_h else region["height"]))
+    key = (
+        int(region["left"]),
+        int(region["top"]),
+        cap_w,
+        cap_h,
+        max(1, int(stream_w)),
+        max(1, int(stream_h)),
+    )
+    if key == _last_mapping_key:
+        return
+    _last_mapping_key = key
     mapping = {
         "capture": {
-            "left": int(region["left"]),
-            "top": int(region["top"]),
+            "left": key[0],
+            "top": key[1],
             "width": cap_w,
             "height": cap_h,
         },
         "stream": {
-            "width": max(1, int(stream_w)),
-            "height": max(1, int(stream_h)),
+            "width": key[4],
+            "height": key[5],
         },
     }
     with _control_lock:
@@ -182,6 +195,8 @@ def ensure_control_mapping() -> None:
 
 
 def init_control_mapping(monitor_index: int, stream_width: int) -> None:
+    global _last_mapping_key
+    _last_mapping_key = None
     with mss.mss() as sct:
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
@@ -1843,27 +1858,22 @@ async def auto_screenshot_loop(
             pass
 
 
-def build_frame_payload(image: Image.Image, encode_q: int) -> Optional[str]:
+def build_frame_binary(image: Image.Image, encode_q: int) -> Optional[bytes]:
     try:
         jpeg_bytes = encode_jpeg(image, encode_q, optimize=False)
     except Exception:
         return None
     out_w, out_h = image.size
-    return json.dumps(
-        {
-            "type": "frame",
-            "data": base64.b64encode(jpeg_bytes).decode("ascii"),
-            "width": out_w,
-            "height": out_h,
-        }
-    )
+    if out_w <= 0 or out_h <= 0 or out_w > 65535 or out_h > 65535:
+        return None
+    return bytes([0x01]) + out_w.to_bytes(2, "big") + out_h.to_bytes(2, "big") + jpeg_bytes
 
 
 def process_stream_frame(
     image: Image.Image, stream_width: int, encode_q: int
-) -> tuple[Optional[str], tuple[int, int]]:
+) -> tuple[Optional[bytes], tuple[int, int]]:
     image = prepare_stream_image(image, stream_width)
-    payload = build_frame_payload(image, encode_q)
+    payload = build_frame_binary(image, encode_q)
     return payload, image.size
 
 
@@ -1878,7 +1888,6 @@ async def capture_loop(
     interval = 1.0 / max(fps, 1)
     encode_q = max(20, min(quality, 95))
     frames_sent = 0
-    loop = asyncio.get_event_loop()
 
     with mss.mss() as sct:
         monitors = sct.monitors
@@ -1898,8 +1907,8 @@ async def capture_loop(
             try:
                 image = grab_monitor_image(sct, region)
                 grab_w, grab_h = image.size
-                payload, (out_w, out_h) = await loop.run_in_executor(
-                    None, process_stream_frame, image, stream_width, encode_q
+                payload, (out_w, out_h) = process_stream_frame(
+                    image, stream_width, encode_q
                 )
                 update_control_mapping(region, out_w, out_h, grab_w, grab_h)
                 if not payload:
@@ -1908,10 +1917,7 @@ async def capture_loop(
                 await ws.send(payload)
                 frames_sent += 1
                 if frames_sent == 1:
-                    first = json.loads(payload)
-                    agent_log(
-                        f"first frame sent: {first['width']}x{first['height']}"
-                    )
+                    agent_log(f"first frame sent: {out_w}x{out_h}")
             except Exception as exc:
                 agent_log(f"capture error: {exc}")
                 await asyncio.sleep(1)
