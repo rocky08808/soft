@@ -62,7 +62,7 @@ function Write-DefaultSettings {
     param([string]$SettingsPath)
     $json = @'
 {
-  "streamWidth": 1080,
+  "streamWidth": 1024,
   "fps": 10,
   "quality": 50
 }
