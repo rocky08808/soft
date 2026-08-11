@@ -1083,7 +1083,7 @@ function setClipboardHint(text) {
 function renderClipboard() {
   clipboardListEl.innerHTML = "";
   if (!clipboardEntries.length) {
-    clipboardListEl.innerHTML = '<li class="empty">暂无复制记录（在被控端 Ctrl+C 复制文字）</li>';
+    clipboardListEl.innerHTML = '<li class="empty">暂无复制记录（在被控端按 Ctrl+C 复制文字后显示）</li>';
     return;
   }
 

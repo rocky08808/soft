@@ -838,14 +838,131 @@ def resolve_key(value: str | int):
     return None
 
 
-def _read_clipboard_ctypes() -> Optional[str]:
+WM_CLIPBOARDUPDATE = 0x031D
+_CLIPBOARD_CLASS_NAME = "ReSAClipboardListener"
+
+
+class _ClipboardMonitor:
+    """Message-only window that receives WM_CLIPBOARDUPDATE."""
+
+    def __init__(self) -> None:
+        self._changed = threading.Event()
+        self._ready = threading.Event()
+        self._hwnd: Optional[int] = None
+        self._thread: Optional[threading.Thread] = None
+        self._proc_ref = None
+
+    @property
+    def hwnd(self) -> Optional[int]:
+        return self._hwnd
+
+    def start(self) -> bool:
+        if sys.platform != "win32":
+            return False
+        if self._thread and self._thread.is_alive():
+            return self._ready.wait(timeout=5.0)
+        self._thread = threading.Thread(
+            target=self._run, name="clipboard-monitor", daemon=True
+        )
+        self._thread.start()
+        return self._ready.wait(timeout=5.0)
+
+    def wait_changed(self, timeout: float) -> bool:
+        return self._changed.wait(timeout)
+
+    def clear_changed(self) -> None:
+        self._changed.clear()
+
+    def _run(self) -> None:
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        LRESULT = ctypes.c_longlong if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_long
+        WNDPROC = ctypes.WINFUNCTYPE(
+            LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM
+        )
+
+        @WNDPROC
+        def wnd_proc(hwnd, msg, wparam, lparam):
+            if msg == WM_CLIPBOARDUPDATE:
+                self._changed.set()
+                return 0
+            return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
+
+        self._proc_ref = wnd_proc
+
+        class WNDCLASSW(ctypes.Structure):
+            _fields_ = [
+                ("style", wintypes.UINT),
+                ("lpfnWndProc", WNDPROC),
+                ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int),
+                ("hInstance", wintypes.HINSTANCE),
+                ("hIcon", wintypes.HICON),
+                ("hCursor", wintypes.HCURSOR),
+                ("hbrBackground", wintypes.HBRUSH),
+                ("lpszMenuName", wintypes.LPCWSTR),
+                ("lpszClassName", wintypes.LPCWSTR),
+            ]
+
+        hinstance = kernel32.GetModuleHandleW(None)
+        wc = WNDCLASSW()
+        wc.lpfnWndProc = wnd_proc
+        wc.hInstance = hinstance
+        wc.lpszClassName = _CLIPBOARD_CLASS_NAME
+        if not user32.RegisterClassW(ctypes.byref(wc)):
+            err = kernel32.GetLastError()
+            if err != 1410:
+                agent_log(f"clipboard RegisterClass failed: {err}")
+                return
+
+        hwnd = user32.CreateWindowExW(
+            0,
+            _CLIPBOARD_CLASS_NAME,
+            "",
+            0,
+            0,
+            0,
+            0,
+            0,
+            wintypes.HWND(-3),
+            None,
+            hinstance,
+            None,
+        )
+        if not hwnd:
+            agent_log(f"clipboard CreateWindowEx failed: {kernel32.GetLastError()}")
+            return
+
+        self._hwnd = int(hwnd)
+        if not user32.AddClipboardFormatListener(hwnd):
+            agent_log(
+                f"clipboard AddClipboardFormatListener failed: {kernel32.GetLastError()}"
+            )
+            user32.DestroyWindow(hwnd)
+            self._hwnd = None
+            return
+
+        self._ready.set()
+        agent_log("clipboard listener ready")
+
+        msg = wintypes.MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(msg))
+            user32.DispatchMessageW(ctypes.byref(msg))
+
+
+def _read_clipboard_ctypes(owner_hwnd: Optional[int] = None) -> Optional[str]:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     CF_UNICODETEXT = 13
     CF_TEXT = 1
+    owner = owner_hwnd or 0
 
-    for _ in range(8):
-        if user32.OpenClipboard(0):
+    for _ in range(20):
+        if user32.OpenClipboard(owner):
             break
         time.sleep(0.05)
     else:
@@ -883,12 +1000,12 @@ def _read_clipboard_ctypes() -> Optional[str]:
     return None
 
 
-def get_clipboard_text() -> Optional[str]:
+def get_clipboard_text(owner_hwnd: Optional[int] = None) -> Optional[str]:
     if sys.platform != "win32":
         return None
 
     try:
-        text = _read_clipboard_ctypes()
+        text = _read_clipboard_ctypes(owner_hwnd)
         if text and text.strip():
             return text
     except Exception:
@@ -899,19 +1016,24 @@ def get_clipboard_text() -> Optional[str]:
 async def clipboard_loop(ws) -> None:
     last_sent = ""
     max_len = 4000
+    send_lock = asyncio.Lock()
+    read_failures = 0
     agent_log("clipboard monitor started")
 
-    while True:
-        await asyncio.sleep(0.5)
-        try:
-            text = get_clipboard_text()
-        except Exception as exc:
-            agent_log(f"clipboard read error: {exc}")
-            continue
+    monitor: Optional[_ClipboardMonitor] = None
+    if sys.platform == "win32":
+        monitor = _ClipboardMonitor()
+        if not monitor.start():
+            agent_log("clipboard listener unavailable, using poll fallback")
+            monitor = None
 
+    owner_hwnd = monitor.hwnd if monitor else None
+    loop = asyncio.get_running_loop()
+
+    async def emit_clipboard(text: str) -> None:
+        nonlocal last_sent
         if not text or text == last_sent:
-            continue
-
+            return
         last_sent = text
         truncated = len(text) > max_len
         payload = {
@@ -921,12 +1043,35 @@ async def clipboard_loop(ws) -> None:
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         try:
-            await ws.send(json.dumps(payload))
+            async with send_lock:
+                await ws.send(json.dumps(payload))
             preview = text[:40].replace("\n", " ")
             agent_log(f"clipboard sent: {preview}")
         except Exception as exc:
             agent_log(f"clipboard send error: {exc}")
-            return
+
+    while True:
+        if monitor:
+            changed = await loop.run_in_executor(
+                None, lambda: monitor.wait_changed(3.0)
+            )
+            if changed:
+                monitor.clear_changed()
+                await asyncio.sleep(0.15)
+        else:
+            await asyncio.sleep(0.5)
+
+        try:
+            text = get_clipboard_text(owner_hwnd)
+        except Exception as exc:
+            read_failures += 1
+            if read_failures <= 3 or read_failures % 60 == 0:
+                agent_log(f"clipboard read error: {exc}")
+            continue
+
+        if text:
+            read_failures = 0
+            await emit_clipboard(text)
 
 
 async def send_keyboard_input(ws, content: str) -> None:
