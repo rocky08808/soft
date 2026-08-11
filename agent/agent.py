@@ -35,6 +35,11 @@ def ensure_stdio() -> None:
 import mss
 import websockets
 from PIL import Image
+
+# Bilinear matches old OpenCV INTER_LINEAR; much faster than LANCZOS for live stream.
+_RESAMPLE = getattr(Image, "Resampling", Image).BILINEAR
+_JPEG_ENCODER_OPTS = {"format": "JPEG", "subsampling": 2}
+_stream_jpeg_buf = threading.local()
 from pynput._util.win32 import KeyTranslator
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
@@ -1336,22 +1341,31 @@ def handle_control(msg: dict) -> None:
 
 def grab_monitor_image(sct: mss.mss, region: dict[str, int]) -> Image.Image:
     shot = sct.grab(region)
-    return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    return Image.frombytes("RGB", shot.size, shot.rgb)
 
 
 def prepare_stream_image(image: Image.Image, stream_width: int) -> Image.Image:
     width, height = image.size
     sw, sh, scaled = compute_stream_size(width, height, stream_width)
     if scaled:
-        resample = getattr(Image, "Resampling", Image).LANCZOS
-        return image.resize((sw, sh), resample)
+        return image.resize((sw, sh), _RESAMPLE)
     return image
 
 
-def encode_jpeg(image: Image.Image, quality: int) -> bytes:
-    buf = io.BytesIO()
+def _stream_jpeg_buffer() -> io.BytesIO:
+    buf = getattr(_stream_jpeg_buf, "buf", None)
+    if buf is None:
+        buf = io.BytesIO()
+        _stream_jpeg_buf.buf = buf
+    buf.seek(0)
+    buf.truncate(0)
+    return buf
+
+
+def encode_jpeg(image: Image.Image, quality: int, *, optimize: bool = False) -> bytes:
+    buf = _stream_jpeg_buffer() if not optimize else io.BytesIO()
     q = max(1, min(int(quality), 95))
-    image.save(buf, format="JPEG", quality=q, optimize=True)
+    image.save(buf, quality=q, optimize=optimize, **_JPEG_ENCODER_OPTS)
     return buf.getvalue()
 
 
@@ -1361,7 +1375,7 @@ def encode_jpeg_limited(
     encoded: Optional[bytes] = None
     used_q = quality
     for try_q in range(min(quality, 85), 39, -10):
-        candidate = encode_jpeg(image, try_q)
+        candidate = encode_jpeg(image, try_q, optimize=True)
         used_q = try_q
         encoded = candidate
         if len(candidate) <= max_bytes:
@@ -1712,7 +1726,7 @@ async def auto_screenshot_loop(
 
 def build_frame_payload(image: Image.Image, encode_q: int) -> Optional[str]:
     try:
-        jpeg_bytes = encode_jpeg(image, encode_q)
+        jpeg_bytes = encode_jpeg(image, encode_q, optimize=False)
     except Exception:
         return None
     out_w, out_h = image.size
@@ -1724,6 +1738,14 @@ def build_frame_payload(image: Image.Image, encode_q: int) -> Optional[str]:
             "height": out_h,
         }
     )
+
+
+def process_stream_frame(
+    image: Image.Image, stream_width: int, encode_q: int
+) -> tuple[Optional[str], tuple[int, int]]:
+    image = prepare_stream_image(image, stream_width)
+    payload = build_frame_payload(image, encode_q)
+    return payload, image.size
 
 
 async def capture_loop(
@@ -1756,12 +1778,10 @@ async def capture_loop(
             loop_start = time.perf_counter()
             try:
                 image = grab_monitor_image(sct, region)
-                image = prepare_stream_image(image, stream_width)
-                out_w, out_h = image.size
-                update_control_mapping(region, out_w, out_h)
-                payload = await loop.run_in_executor(
-                    None, build_frame_payload, image, encode_q
+                payload, (out_w, out_h) = await loop.run_in_executor(
+                    None, process_stream_frame, image, stream_width, encode_q
                 )
+                update_control_mapping(region, out_w, out_h)
                 if not payload:
                     await asyncio.sleep(interval)
                     continue
