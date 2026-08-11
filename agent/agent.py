@@ -593,7 +593,7 @@ def ensure_device_id(explicit: Optional[str] = None) -> str:
 def read_json_file(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
-    with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8-sig") as f:
         return json.load(f)
 
 
