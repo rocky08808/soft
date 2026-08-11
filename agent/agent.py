@@ -538,9 +538,25 @@ def run_watchdog() -> None:
     exe = work_dir / "ReSA.exe"
     if (work_dir / "ReSA.new.exe").is_file():
         return
-    if resa_instance_running():
+    running = resa_instance_running()
+    if running and sys.platform == "win32":
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq ReSA.exe", "/NH"],
+                capture_output=True,
+                text=True,
+                creationflags=CREATE_NO_WINDOW,
+                check=False,
+            )
+            if "ReSA.exe" not in (out.stdout or ""):
+                running = False
+                agent_log("watchdog: mutex set but ReSA.exe not in tasklist")
+        except Exception:
+            pass
+    if running:
         return
     if not exe.is_file():
+        agent_log("watchdog: ReSA.exe missing")
         return
     try:
         subprocess.Popen(
@@ -2000,8 +2016,8 @@ async def run_agent(
                     agent_log("exiting for update")
                     sys.exit(0)
         except Exception as exc:
-            agent_log(f"Disconnected: {exc}. Retry in 10s...")
-            await asyncio.sleep(10)
+            agent_log(f"Disconnected: {exc}. Retry in 3s...")
+            await asyncio.sleep(3)
 
 
 def main() -> None:
