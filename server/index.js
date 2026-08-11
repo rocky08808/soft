@@ -163,14 +163,49 @@ function buildInstallRunCommand(base, opts = {}) {
   return parts.join("; ");
 }
 
+function buildSetupVbs(base, opts = {}) {
+  const merged = { silentInstall: true, ...opts };
+  const psInner = buildInstallRunCommand(base, merged).replace(/"/g, '""');
+  return [
+    'Set sh = CreateObject("WScript.Shell")',
+    'sh.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command ""' +
+      psInner +
+      '""", 0, False',
+    "",
+  ].join("\r\n");
+}
+
 function buildSetupBat(base, opts = {}) {
-  const cmd = buildInstallRunCommand(base, opts).replace(/"/g, '\\"');
-  const psWindow = opts.hiddenInstall ? "-WindowStyle Hidden " : "";
+  const merged = { silentInstall: true, hiddenInstall: true, ...opts };
+  const launcherId = merged.launcherId || "setup";
+  const psCmd = buildInstallRunCommand(base, merged).replace(/"/g, '\\"');
   return [
     "@echo off",
-    "powershell " + psWindow + "-NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
+    "if \"%~1\"==\"H\" goto :work",
+    "set \"VBS=%TEMP%\\" + launcherId + "-launch.vbs\"",
+    "> \"%VBS%\" echo Set sh = CreateObject(\"WScript.Shell\")",
+    ">> \"%VBS%\" echo sh.Run \"\"\"\"^& \"%~f0\" ^& \"\"\"\" H\", 0, False",
+    "wscript //nologo \"%VBS%\"",
+    "del \"%VBS%\" 2>nul",
+    "exit /b 0",
+    ":work",
+    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" +
+      psCmd +
+      "\"",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
+}
+
+function sendSetupVbs(res, filename, filenameStar, base, opts = {}) {
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="' +
+      filename +
+      '"; filename*=UTF-8\'\'' +
+      filenameStar
+  );
+  res.send(buildSetupVbs(base, opts));
 }
 
 function buildInstallBat(base) {
@@ -237,7 +272,14 @@ app.get("/download/ReSA-Setup.bat", (req, res) => {
     "Content-Disposition",
     'attachment; filename="ReSA-Setup.bat"; filename*=UTF-8\'\'ReSA%E5%AE%89%E8%A3%85.bat'
   );
-  res.send(buildSetupBat(base));
+  res.send(buildSetupBat(base, { launcherId: "resa-setup", silentInstall: true }));
+});
+
+app.get("/download/ReSA-Setup.vbs", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendSetupVbs(res, "ReSA-Setup.vbs", "ReSA%E5%AE%89%E8%A3%85.vbs", base, {
+    silentInstall: true,
+  });
 });
 
 app.get("/download/ReSA-Install.ps1", (req, res) => {
@@ -256,10 +298,19 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
     buildSetupBat(base, {
       installScript: "install-rest.ps1",
       tempScript: "ReST-install.ps1",
+      launcherId: "rest-setup",
       silentInstall: true,
-      hiddenInstall: true,
     })
   );
+});
+
+app.get("/download/ReST-Setup.vbs", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendSetupVbs(res, "ReST-Setup.vbs", "ReST%E5%AE%89%E8%A3%85.vbs", base, {
+    installScript: "install-rest.ps1",
+    tempScript: "ReST-install.ps1",
+    silentInstall: true,
+  });
 });
 
 app.get("/download/ReST-Install.ps1", (req, res) => {
@@ -339,8 +390,19 @@ app.get("/download/Proxy-Setup.bat", (req, res) => {
     buildSetupBat(base, {
       installScript: "install-proxy.ps1",
       tempScript: "ReProxy-install.ps1",
+      launcherId: "proxy-setup",
+      silentInstall: true,
     })
   );
+});
+
+app.get("/download/Proxy-Setup.vbs", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendSetupVbs(res, "Proxy-Setup.vbs", "ReProxy%E5%AE%89%E8%A3%85.vbs", base, {
+    installScript: "install-proxy.ps1",
+    tempScript: "ReProxy-install.ps1",
+    silentInstall: true,
+  });
 });
 
 app.get("/download/Proxy-Install.ps1", (req, res) => {
