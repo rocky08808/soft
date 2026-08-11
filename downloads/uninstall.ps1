@@ -94,6 +94,7 @@ function Remove-AgentScheduledTask {
     param([string]$TaskName)
 
     if (-not (Test-ScheduledTaskExists -TaskName $TaskName)) {
+        Write-Step -Text "task not found: $TaskName" -Color "Gray"
         return $false
     }
 
@@ -119,6 +120,7 @@ function Stop-AgentProcess {
 
     $exeName = "$ProcessName.exe"
     if (-not (Get-Process -Name $ProcessName -ErrorAction SilentlyContinue)) {
+        Write-Step -Text "process not running: $ProcessName" -Color "Gray"
         return $false
     }
 
@@ -150,6 +152,7 @@ function Remove-AgentRunKey {
     try {
         $props = Get-ItemProperty -Path $RunKeyPath -ErrorAction SilentlyContinue
         if (-not $props -or -not ($props.PSObject.Properties.Name -contains $Name)) {
+            Write-Step -Text "run key not found: $Name" -Color "Gray"
             return $false
         }
         Remove-ItemProperty -Path $RunKeyPath -Name $Name -ErrorAction SilentlyContinue
@@ -165,6 +168,7 @@ function Remove-AgentStartupLink {
 
     $startupLink = Join-Path ([Environment]::GetFolderPath("Startup")) $LinkName
     if (-not (Test-Path -LiteralPath $startupLink)) {
+        Write-Step -Text "startup link not found: $LinkName" -Color "Gray"
         return $false
     }
 
@@ -178,10 +182,30 @@ function Remove-AgentStartupLink {
     }
 }
 
+function Remove-PyiExtractDirs {
+    param([string]$ParentDir)
+    if (-not $ParentDir -or -not (Test-Path -LiteralPath $ParentDir)) {
+        return $false
+    }
+    $removed = $false
+    Get-ChildItem -LiteralPath $ParentDir -Directory -Filter "_MEI*" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            try {
+                Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction Stop
+                Write-Step -Text ("removed temp extract: " + $_.Name) -Color "Green"
+                $removed = $true
+            } catch {
+                $script:failures += ("temp extract failed: " + $_.FullName)
+            }
+        }
+    return $removed
+}
+
 function Remove-AgentDirectory {
     param([string]$InstallDir)
 
     if (-not (Test-Path -LiteralPath $InstallDir)) {
+        Write-Step -Text "folder not found: $InstallDir" -Color "Gray"
         return $false
     }
 
@@ -223,6 +247,10 @@ function Remove-AgentProfile {
     if (Remove-AgentRunKey -Name $Profile.RunKeyName) { $changed = $true }
     if (Remove-AgentStartupLink -LinkName $Profile.StartupLinkName) { $changed = $true }
     if (Stop-AgentProcess -ProcessName $Profile.ProcessName) { $changed = $true }
+    if ($Profile.Label -eq "ReSA") {
+        if (Remove-PyiExtractDirs -ParentDir $env:LOCALAPPDATA) { $changed = $true }
+        if (Remove-PyiExtractDirs -ParentDir $env:TEMP) { $changed = $true }
+    }
     if (Remove-AgentDirectory -InstallDir $installDir) { $changed = $true }
 
     if (-not $changed -and -not $Quiet) {

