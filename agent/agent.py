@@ -10,7 +10,6 @@ import ctypes
 import json
 import os
 import platform
-import io
 import re
 import socket
 import subprocess
@@ -51,14 +50,10 @@ def ensure_stdio() -> None:
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
+import cv2
 import mss
+import numpy as np
 import websockets
-from PIL import Image
-
-# Bilinear matches old OpenCV INTER_LINEAR; much faster than LANCZOS for live stream.
-_RESAMPLE = getattr(Image, "Resampling", Image).BILINEAR
-_JPEG_ENCODER_OPTS = {"format": "JPEG", "subsampling": 2}
-_stream_jpeg_buf = threading.local()
 from pynput._util.win32 import KeyTranslator
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
@@ -1503,45 +1498,37 @@ def handle_control(msg: dict) -> Optional[str]:
     return None
 
 
-def grab_monitor_image(sct: mss.mss, region: dict[str, int]) -> Image.Image:
+def grab_monitor_frame(sct: mss.mss, region: dict[str, int]) -> np.ndarray:
     shot = sct.grab(region)
-    return Image.frombytes("RGB", shot.size, shot.rgb)
+    height, width = shot.height, shot.width
+    bgra = np.frombuffer(shot.bgra, dtype=np.uint8).reshape(height, width, 4)
+    return cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
 
 
-def prepare_stream_image(image: Image.Image, stream_width: int) -> Image.Image:
-    width, height = image.size
+def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
+    height, width = frame.shape[:2]
     sw, sh, scaled = compute_stream_size(width, height, stream_width)
     if scaled:
-        return image.resize((sw, sh), _RESAMPLE)
-    return image
+        return cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_LINEAR)
+    return frame
 
 
-def _stream_jpeg_buffer() -> io.BytesIO:
-    buf = getattr(_stream_jpeg_buf, "buf", None)
-    if buf is None:
-        buf = io.BytesIO()
-        _stream_jpeg_buf.buf = buf
-    buf.seek(0)
-    buf.truncate(0)
-    return buf
-
-
-def encode_jpeg(image: Image.Image, quality: int, *, optimize: bool = False) -> bytes:
-    buf = _stream_jpeg_buffer() if not optimize else io.BytesIO()
+def encode_jpeg(frame: np.ndarray, quality: int, *, optimize: bool = False) -> bytes:
+    del optimize  # OpenCV JPEG encoder has no Pillow-style optimize flag.
     q = max(1, min(int(quality), 95))
-    # 4:2:2 subsampling keeps text sharper than default 4:2:0 at moderate bitrates.
-    subsampling = 1 if q >= 55 else 2
-    image.save(buf, quality=q, optimize=optimize, format="JPEG", subsampling=subsampling)
-    return buf.getvalue()
+    ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), q])
+    if not ok:
+        raise RuntimeError("jpeg encode failed")
+    return buf.tobytes()
 
 
 def encode_jpeg_limited(
-    image: Image.Image, quality: int, max_bytes: int
+    frame: np.ndarray, quality: int, max_bytes: int
 ) -> tuple[Optional[bytes], int]:
     encoded: Optional[bytes] = None
     used_q = quality
     for try_q in range(min(quality, 85), 39, -10):
-        candidate = encode_jpeg(image, try_q, optimize=True)
+        candidate = encode_jpeg(frame, try_q)
         used_q = try_q
         encoded = candidate
         if len(candidate) <= max_bytes:
@@ -1827,8 +1814,8 @@ async def capture_and_send_screenshot(
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
         region = monitors[idx]
-        img = grab_monitor_image(sct, region)
-        frame = prepare_stream_image(img, SCREENSHOT_MAX_WIDTH)
+        frame = grab_monitor_frame(sct, region)
+        frame = prepare_stream_frame(frame, SCREENSHOT_MAX_WIDTH)
 
         encoded, used_q = encode_jpeg_limited(
             frame, quality, SCREENSHOT_MAX_JPEG_BYTES
@@ -1837,7 +1824,7 @@ async def capture_and_send_screenshot(
             agent_log("screenshot encode failed")
             return
 
-        out_w, out_h = frame.size
+        out_h, out_w = frame.shape[:2]
         jpeg_bytes = encoded
         payload = {
             "type": "screenshot",
@@ -1890,23 +1877,24 @@ async def auto_screenshot_loop(
             pass
 
 
-def build_frame_binary(image: Image.Image, encode_q: int) -> Optional[bytes]:
+def build_frame_binary(frame: np.ndarray, encode_q: int) -> Optional[bytes]:
     try:
-        jpeg_bytes = encode_jpeg(image, encode_q, optimize=False)
+        jpeg_bytes = encode_jpeg(frame, encode_q)
     except Exception:
         return None
-    out_w, out_h = image.size
+    out_h, out_w = frame.shape[:2]
     if out_w <= 0 or out_h <= 0 or out_w > 65535 or out_h > 65535:
         return None
     return bytes([0x01]) + out_w.to_bytes(2, "big") + out_h.to_bytes(2, "big") + jpeg_bytes
 
 
 def process_stream_frame(
-    image: Image.Image, stream_width: int, encode_q: int
+    frame: np.ndarray, stream_width: int, encode_q: int
 ) -> tuple[Optional[bytes], tuple[int, int]]:
-    image = prepare_stream_image(image, stream_width)
-    payload = build_frame_binary(image, encode_q)
-    return payload, image.size
+    frame = prepare_stream_frame(frame, stream_width)
+    payload = build_frame_binary(frame, encode_q)
+    out_h, out_w = frame.shape[:2]
+    return payload, (out_w, out_h)
 
 
 async def capture_loop(
@@ -1937,10 +1925,10 @@ async def capture_loop(
 
             loop_start = time.perf_counter()
             try:
-                image = grab_monitor_image(sct, region)
-                grab_w, grab_h = image.size
+                frame = grab_monitor_frame(sct, region)
+                grab_h, grab_w = frame.shape[:2]
                 payload, (out_w, out_h) = process_stream_frame(
-                    image, stream_width, encode_q
+                    frame, stream_width, encode_q
                 )
                 update_control_mapping(region, out_w, out_h, grab_w, grab_h)
                 if not payload:
