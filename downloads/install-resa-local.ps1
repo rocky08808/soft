@@ -42,9 +42,9 @@ Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
 $json = @'
 {
-  "streamWidth": 1024,
+  "streamWidth": 1280,
   "fps": 10,
-  "quality": 50
+  "quality": 60
 }
 '@.Trim()
 [IO.File]::WriteAllText((Join-Path $Dir "settings.json"), $json, (New-Object System.Text.UTF8Encoding $false))

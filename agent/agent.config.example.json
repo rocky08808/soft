@@ -3,6 +3,6 @@
   "token": "your-access-token",
   "monitor": 1,
   "fps": 10,
-  "quality": 50,
-  "streamWidth": 1024
+  "quality": 60,
+  "streamWidth": 1280
 }
