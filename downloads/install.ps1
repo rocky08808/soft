@@ -149,6 +149,61 @@ function Download-File {
     Invoke-WebRequest @iwrArgs
 }
 
+function Get-RemoteContentLength {
+    param([string]$Url)
+    $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+    if (-not (Test-Path -LiteralPath $curl)) {
+        return 0
+    }
+    $out = & $curl -fsSI $Url 2>$null | Select-String -Pattern "^Content-Length:\s*(\d+)" -AllMatches
+    if ($out -and $out.Matches.Count -gt 0) {
+        return [int64]$out.Matches[0].Groups[1].Value
+    }
+    return 0
+}
+
+function Get-ExpectedReSASize {
+    param([string]$Base)
+    try {
+        $curl = Join-Path $env:SystemRoot "System32\curl.exe"
+        $manifestUrl = $Base.TrimEnd("/") + "/versions.json"
+        $tmp = Join-Path $env:TEMP "ReSA-versions.json"
+        if (Test-Path -LiteralPath $curl) {
+            & $curl -fsSL -o $tmp $manifestUrl
+        } else {
+            Invoke-WebRequest -Uri $manifestUrl -OutFile $tmp -UseBasicParsing
+        }
+        if (Test-Path -LiteralPath $tmp) {
+            $data = Get-Content -LiteralPath $tmp -Raw | ConvertFrom-Json
+            if ($data.resa.size) {
+                return [int64]$data.resa.size
+            }
+            if ($data.resa.minSize) {
+                return [int64]$data.resa.minSize
+            }
+        }
+    } catch {
+        $null = $_
+    }
+    return 0
+}
+
+function Test-ValidWindowsExe {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $false
+    }
+    try {
+        $bytes = [IO.File]::ReadAllBytes($Path)
+        if ($bytes.Length -lt 2) {
+            return $false
+        }
+        return ($bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A)
+    } catch {
+        return $false
+    }
+}
+
 function Add-DefenderExclusion {
     param(
         [string]$Path,
@@ -251,9 +306,21 @@ Remove-PyiExtractDirs -ParentDir $Dir
 Remove-PyiExtractDirs -ParentDir $env:TEMP
 
 $Url = $BaseUrl + "/ReSA.exe"
+$expectedSize = Get-ExpectedReSASize -Base $BaseUrl
+if ($expectedSize -le 0) {
+    $expectedSize = Get-RemoteContentLength -Url $Url
+}
 Write-InstallLog ("download: " + $Url)
+if ($expectedSize -gt 0) {
+    Write-InstallLog ("expected size: " + $expectedSize)
+}
 if (-not $Silent) {
-    Write-Host "Downloading ReSA.exe (~55MB). Slow network may take 10-20 min..."
+    if ($expectedSize -gt 0) {
+        $mb = [math]::Round($expectedSize / 1MB, 1)
+        Write-Host ("Downloading ReSA.exe (~" + $mb + " MB)...")
+    } else {
+        Write-Host "Downloading ReSA.exe (~10MB)..."
+    }
 }
 
 if (Test-Path -LiteralPath $Temp) {
@@ -273,11 +340,32 @@ if (-not (Test-Path -LiteralPath $Temp)) {
 }
 
 $length = (Get-Item -LiteralPath $Temp).Length
-if ($length -lt 1048576) {
+$minSize = 5000000
+if ($expectedSize -gt 0) {
+    $minSize = [int64][math]::Floor($expectedSize * 0.95)
+}
+if ($length -lt $minSize) {
     Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
-    Fail-Install ("file too small: " + $length + " bytes")
+    Fail-Install ("file too small: " + $length + " bytes (need >= " + $minSize + ")")
+    if ($Silent) {
+        Show-InstallPopup ("ReSA download incomplete.`nSee log:`n" + $LogFile)
+    }
     exit 1
 }
+if ($expectedSize -gt 0 -and $length -ne $expectedSize) {
+    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+    Fail-Install ("download size mismatch: got " + $length + " expected " + $expectedSize)
+    if ($Silent) {
+        Show-InstallPopup ("ReSA download corrupted.`nRetry install.`nLog:`n" + $LogFile)
+    }
+    exit 1
+}
+if (-not (Test-ValidWindowsExe -Path $Temp)) {
+    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
+    Fail-Install "downloaded file is not a valid exe"
+    exit 1
+}
+Write-InstallLog ("download ok: " + $length + " bytes")
 
 if (Test-Path -LiteralPath $Exe) {
     Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue

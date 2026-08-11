@@ -49,11 +49,18 @@ def main() -> None:
         manifest = json.loads(VERSIONS_PATH.read_text(encoding="utf-8"))
 
     meta = PRODUCTS[product]
-    manifest[product] = {
+    entry = {
         "version": version,
         "url": meta["url"],
         "minSize": meta["minSize"],
     }
+    if product == "resa":
+        exe = ROOT / "downloads" / "ReSA.exe"
+        if exe.is_file():
+            size = exe.stat().st_size
+            entry["size"] = size
+            entry["minSize"] = max(int(size * 0.9), 5_000_000)
+    manifest[product] = entry
 
     VERSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
     VERSIONS_PATH.write_text(
