@@ -122,7 +122,7 @@ KEY_MAP = {
 
 mouse = MouseController()
 keyboard = KeyboardController()
-_control_lock = threading.Lock()
+_control_lock = threading.RLock()
 
 _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
@@ -324,6 +324,9 @@ if sys.platform == "win32":
 def set_mouse_position(x: int, y: int) -> None:
     abs_x, abs_y = map_control_coords(x, y)
     if sys.platform == "win32":
+        user32 = ctypes.windll.user32
+        if user32.SetCursorPos(abs_x, abs_y):
+            return
         win32_move_cursor(abs_x, abs_y)
         return
     mouse.position = (abs_x, abs_y)
@@ -1425,50 +1428,49 @@ def handle_control(msg: dict) -> None:
     action = msg.get("action")
     if action in ("mouse_move", "mouse_click", "scroll"):
         ensure_control_mapping()
-    with _control_lock:
-        try:
-            if action == "mouse_move":
+    try:
+        if action == "mouse_move":
+            set_mouse_position(
+                control_coord(msg.get("x")),
+                control_coord(msg.get("y")),
+            )
+            return
+
+        if action == "mouse_click":
+            if "x" in msg and "y" in msg:
                 set_mouse_position(
                     control_coord(msg.get("x")),
                     control_coord(msg.get("y")),
                 )
-                return
+                if sys.platform == "win32":
+                    time.sleep(0.008)
+            button_name = msg.get("button", "left")
+            down = bool(msg.get("down", True))
+            win32_mouse_button(button_name, down)
+            return
 
-            if action == "mouse_click":
-                if "x" in msg and "y" in msg:
-                    set_mouse_position(
-                        control_coord(msg.get("x")),
-                        control_coord(msg.get("y")),
-                    )
-                    if sys.platform == "win32":
-                        time.sleep(0.008)
-                button_name = msg.get("button", "left")
-                down = bool(msg.get("down", True))
-                win32_mouse_button(button_name, down)
-                return
+        if action == "scroll":
+            if "x" in msg and "y" in msg:
+                set_mouse_position(
+                    control_coord(msg.get("x")),
+                    control_coord(msg.get("y")),
+                )
+                if sys.platform == "win32":
+                    time.sleep(0.008)
+            win32_mouse_scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+            return
 
-            if action == "scroll":
-                if "x" in msg and "y" in msg:
-                    set_mouse_position(
-                        control_coord(msg.get("x")),
-                        control_coord(msg.get("y")),
-                    )
-                    if sys.platform == "win32":
-                        time.sleep(0.008)
-                win32_mouse_scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
+        if action == "key":
+            key = resolve_key(msg.get("key", ""))
+            if key is None:
                 return
-
-            if action == "key":
-                key = resolve_key(msg.get("key", ""))
-                if key is None:
-                    return
-                down = bool(msg.get("down", True))
-                if down:
-                    keyboard.press(key)
-                else:
-                    keyboard.release(key)
-        except Exception as exc:
-            agent_log(f"control error ({action}): {exc}")
+            down = bool(msg.get("down", True))
+            if down:
+                keyboard.press(key)
+            else:
+                keyboard.release(key)
+    except Exception as exc:
+        agent_log(f"control error ({action}): {exc}")
 
 
 def grab_monitor_image(sct: mss.mss, region: dict[str, int]) -> Image.Image:

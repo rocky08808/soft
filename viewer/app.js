@@ -158,13 +158,14 @@ function setStatus(text, online) {
 
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  if (
-    (payload.action === "mouse_move" ||
-      payload.action === "mouse_click" ||
-      payload.action === "scroll") &&
-    (!remoteWidth || !remoteHeight)
-  ) {
-    return;
+  const isMouse =
+    payload.action === "mouse_move" ||
+    payload.action === "mouse_click" ||
+    payload.action === "scroll";
+  if (isMouse) {
+    const frameW = remoteWidth || canvas.width;
+    const frameH = remoteHeight || canvas.height;
+    if (!frameW || !frameH) return;
   }
   ws.send(JSON.stringify({ type: "control", ...payload }));
 }
