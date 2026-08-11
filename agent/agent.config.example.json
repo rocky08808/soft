@@ -2,7 +2,7 @@
   "server": "wss://your-domain.com",
   "token": "your-access-token",
   "monitor": 1,
-  "fps": 8,
+  "fps": 10,
   "quality": 50,
-  "streamWidth": 960
+  "streamWidth": 1080
 }
