@@ -25,6 +25,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+def ensure_dpi_aware() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+if sys.platform == "win32":
+    ensure_dpi_aware()
+
+
 def ensure_stdio() -> None:
     """PyInstaller console=False leaves stdout/stderr as None."""
     if sys.stdout is None:
@@ -110,20 +128,6 @@ _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
 
 
-def ensure_dpi_aware() -> None:
-    if sys.platform != "win32":
-        return
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        return
-    except Exception:
-        pass
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
-
-
 def compute_stream_size(width: int, height: int, stream_width: int) -> tuple[int, int, bool]:
     width = max(1, width)
     height = max(1, height)
@@ -134,13 +138,21 @@ def compute_stream_size(width: int, height: int, stream_width: int) -> tuple[int
     return width, height, False
 
 
-def update_control_mapping(region: dict[str, int], stream_w: int, stream_h: int) -> None:
+def update_control_mapping(
+    region: dict[str, int],
+    stream_w: int,
+    stream_h: int,
+    grab_w: Optional[int] = None,
+    grab_h: Optional[int] = None,
+) -> None:
     global _capture_region, _stream_size
+    cap_w = max(1, int(grab_w if grab_w else region["width"]))
+    cap_h = max(1, int(grab_h if grab_h else region["height"]))
     _capture_region = {
         "left": int(region["left"]),
         "top": int(region["top"]),
-        "width": max(1, int(region["width"])),
-        "height": max(1, int(region["height"])),
+        "width": cap_w,
+        "height": cap_h,
     }
     _stream_size = {
         "width": max(1, int(stream_w)),
@@ -153,10 +165,10 @@ def init_control_mapping(monitor_index: int, stream_width: int) -> None:
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
         region = monitors[idx]
-    native_w = max(1, int(region["width"]))
-    native_h = max(1, int(region["height"]))
-    stream_w, stream_h, _ = compute_stream_size(native_w, native_h, stream_width)
-    update_control_mapping(region, stream_w, stream_h)
+        shot = sct.grab(region)
+        grab_w, grab_h = shot.size
+    stream_w, stream_h, _ = compute_stream_size(grab_w, grab_h, stream_width)
+    update_control_mapping(region, stream_w, stream_h, grab_w, grab_h)
 
 
 def control_coord(value: Any) -> int:
@@ -1778,10 +1790,11 @@ async def capture_loop(
             loop_start = time.perf_counter()
             try:
                 image = grab_monitor_image(sct, region)
+                grab_w, grab_h = image.size
                 payload, (out_w, out_h) = await loop.run_in_executor(
                     None, process_stream_frame, image, stream_width, encode_q
                 )
-                update_control_mapping(region, out_w, out_h)
+                update_control_mapping(region, out_w, out_h, grab_w, grab_h)
                 if not payload:
                     await asyncio.sleep(interval)
                     continue

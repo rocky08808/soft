@@ -156,7 +156,6 @@ function setStatus(text, online) {
 
 function sendControl(payload) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  if (!agentOnline && !(remoteWidth > 0 && remoteHeight > 0)) return;
   ws.send(JSON.stringify({ type: "control", ...payload }));
 }
 
