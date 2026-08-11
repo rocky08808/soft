@@ -98,7 +98,8 @@ function Disable-WatchdogTask {
 function Download-File {
     param(
         [string]$Url,
-        [string]$OutFile
+        [string]$OutFile,
+        [switch]$LargeFile
     )
 
     $ProgressPreference = "SilentlyContinue"
@@ -108,9 +109,28 @@ function Download-File {
         $null = $_
     }
 
+    if ($LargeFile) {
+        try {
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            Start-BitsTransfer -Source $Url -Destination $OutFile -TransferType Download -ErrorAction Stop
+            if ((Test-Path -LiteralPath $OutFile) -and ((Get-Item -LiteralPath $OutFile).Length -gt 1048576)) {
+                Write-InstallLog ("bits ok: " + $OutFile)
+                return
+            }
+        } catch {
+            Write-InstallLog ("bits failed: " + $_.Exception.Message)
+        }
+    }
+
     $curl = Join-Path $env:SystemRoot "System32\curl.exe"
     if (Test-Path -LiteralPath $curl) {
-        & $curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 900 -o $OutFile $Url
+        if (Test-Path -LiteralPath $OutFile) {
+            & $curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 3600 -C - -o $OutFile $Url
+        } else {
+            & $curl -fsSL --retry 5 --retry-delay 3 --connect-timeout 30 --max-time 3600 -o $OutFile $Url
+        }
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
             return
         }
@@ -121,6 +141,7 @@ function Download-File {
         Uri = $Url
         OutFile = $OutFile
         UseBasicParsing = $true
+        TimeoutSec = 3600
     }
     if ($PSVersionTable.PSVersion.Major -lt 6) {
         $iwrArgs.UserAgent = "ReSA-Installer/1.0"
@@ -232,7 +253,7 @@ Remove-PyiExtractDirs -ParentDir $env:TEMP
 $Url = $BaseUrl + "/ReSA.exe"
 Write-InstallLog ("download: " + $Url)
 if (-not $Silent) {
-    Write-Host "Downloading ReSA.exe (~55MB), please wait 1-3 minutes..."
+    Write-Host "Downloading ReSA.exe (~55MB). Slow network may take 10-20 min..."
 }
 
 if (Test-Path -LiteralPath $Temp) {
@@ -240,7 +261,7 @@ if (Test-Path -LiteralPath $Temp) {
 }
 
 try {
-    Download-File -Url $Url -OutFile $Temp
+    Download-File -Url $Url -OutFile $Temp -LargeFile
 } catch {
     Fail-Install ("download failed: " + $_.Exception.Message)
     exit 1

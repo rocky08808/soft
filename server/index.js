@@ -306,6 +306,10 @@ app.get("/download/fix-resa-watchdog.ps1", (req, res) => {
   sendDownloadAsset(res, "fix-resa-watchdog.ps1", "text/plain; charset=utf-8");
 });
 
+app.get("/download/install-resa-local.ps1", (req, res) => {
+  sendDownloadAsset(res, "install-resa-local.ps1", "text/plain; charset=utf-8");
+});
+
 app.get("/download/install-rest.ps1", (req, res) => {
   sendDownloadAsset(res, "install-rest.ps1", "text/plain; charset=utf-8");
 });
