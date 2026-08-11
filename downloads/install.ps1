@@ -354,8 +354,14 @@ Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 $Url = $BaseUrl + "/ReSA.exe"
 $script:ExpectedInstallSize = Get-ExpectedReSASize -Base $BaseUrl
-if ($script:ExpectedInstallSize -le 0) {
-    $script:ExpectedInstallSize = Get-RemoteContentLength -Url $Url
+$remoteSize = Get-RemoteContentLength -Url $Url
+if ($remoteSize -gt 0) {
+    if ($script:ExpectedInstallSize -gt 0 -and $script:ExpectedInstallSize -ne $remoteSize) {
+        Write-InstallLog ("size manifest " + $script:ExpectedInstallSize + " server " + $remoteSize + ", using server")
+    }
+    $script:ExpectedInstallSize = $remoteSize
+} elseif ($script:ExpectedInstallSize -le 0) {
+    $script:ExpectedInstallSize = 0
 }
 Clear-ReSAInstallArtifacts
 
