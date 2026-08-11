@@ -164,6 +164,61 @@ main {
   padding: 0;
 }
 
+.device-group {
+  list-style: none;
+  margin-bottom: 10px;
+}
+
+.device-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #171b24;
+  color: #e2e8f0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.device-group-head:hover {
+  border-color: #475569;
+  background: #1a2030;
+}
+
+.device-group-chevron {
+  flex: 0 0 12px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.device-group-title {
+  flex: 1;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-group-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.device-group-items {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0 0 0 8px;
+}
+
+.device-group-items[hidden] {
+  display: none;
+}
+
 .device-item {
   padding: 10px;
   border: 1px solid #2a2f3a;

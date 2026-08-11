@@ -1,6 +1,7 @@
 const TOKEN_KEY = "remoteScreenToken";
 const MOUSE_TRACK_KEY = "remoteScreenMouseTrack";
 const AUTO_SCREENSHOT_KEY_PREFIX = "autoScreenshot:";
+const DEVICE_GROUP_COLLAPSE_PREFIX = "deviceGroupCollapse:";
 const DEFAULT_AUTO_SCREENSHOT_INTERVAL = 60;
 
 const tokenInput = document.getElementById("accessToken");
@@ -787,6 +788,92 @@ function maybeAutoSelectDevice(devices) {
   }
 }
 
+function getDeviceGroupKey(device) {
+  const host = String(device.hostname || "").trim();
+  if (host) return host;
+  const id = String(device.deviceId || "");
+  const dash = id.indexOf("-");
+  if (dash > 0) return id.slice(0, dash);
+  return id || "未知设备";
+}
+
+function isDeviceGroupCollapsed(groupKey) {
+  try {
+    return localStorage.getItem(DEVICE_GROUP_COLLAPSE_PREFIX + groupKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function setDeviceGroupCollapsed(groupKey, collapsed) {
+  try {
+    localStorage.setItem(DEVICE_GROUP_COLLAPSE_PREFIX + groupKey, collapsed ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+function groupDevices(devices) {
+  const map = new Map();
+  for (const device of devices) {
+    const key = getDeviceGroupKey(device);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(device);
+  }
+
+  return [...map.entries()]
+    .map(([key, items]) => ({
+      key,
+      items: items.sort((a, b) => {
+        const aOnline = isDeviceOnline(a) ? 0 : 1;
+        const bOnline = isDeviceOnline(b) ? 0 : 1;
+        if (aOnline !== bOnline) return aOnline - bOnline;
+        return a.deviceId.localeCompare(b.deviceId);
+      }),
+    }))
+    .sort((a, b) => {
+      const aOnline = a.items.some(isDeviceOnline) ? 0 : 1;
+      const bOnline = b.items.some(isDeviceOnline) ? 0 : 1;
+      if (aOnline !== bOnline) return aOnline - bOnline;
+      return a.key.localeCompare(b.key, "zh-CN");
+    });
+}
+
+function connectToDevice(deviceId) {
+  deviceInput.value = deviceId;
+  setClipboardHint(`设备: ${deviceId}`);
+  loadClipboardHistory(deviceId);
+  loadKeyboardHistory(deviceId);
+  loadScreenshotHistory(deviceId);
+  connect();
+}
+
+function createDeviceItem(device) {
+  const li = document.createElement("li");
+  const screenOn = !!device.online;
+  const termOn = !!device.termOnline;
+  const proxyOn = !!device.proxyOnline;
+  const anyOn = isDeviceOnline(device);
+  li.className = `device-item ${anyOn ? "online" : "offline"}`;
+  const badges = [];
+  if (screenOn) badges.push("屏幕");
+  if (termOn) badges.push("终端");
+  if (proxyOn) badges.push("代理");
+  const badgeText = badges.length ? badges.join("+") : "离线";
+  const ipPart = proxyOn && device.proxyIp ? ` · 出口 ${escapeHtml(device.proxyIp)}` : "";
+  li.innerHTML = `
+    <div class="device-row">
+      <strong>${escapeHtml(device.deviceId)}</strong>
+      <span class="badge">${badgeText}</span>
+    </div>
+    <div class="device-sub">${escapeHtml(device.hostname || "—")}${ipPart} · 观看 ${device.viewerCount || 0}</div>
+  `;
+  if (anyOn) {
+    li.addEventListener("click", () => connectToDevice(device.deviceId));
+  }
+  return li;
+}
+
 function renderDevices(devices) {
   deviceListEl.innerHTML = "";
   maybeAutoSelectDevice(devices);
@@ -804,37 +891,41 @@ function renderDevices(devices) {
     deviceListEl.appendChild(tip);
   }
 
-  for (const d of devices) {
-    const li = document.createElement("li");
-    const screenOn = !!d.online;
-    const termOn = !!d.termOnline;
-    const proxyOn = !!d.proxyOnline;
-    const anyOn = isDeviceOnline(d);
-    li.className = `device-item ${anyOn ? "online" : "offline"}`;
-    const badges = [];
-    if (screenOn) badges.push("屏幕");
-    if (termOn) badges.push("终端");
-    if (proxyOn) badges.push("代理");
-    const badgeText = badges.length ? badges.join("+") : "离线";
-    const ipPart = proxyOn && d.proxyIp ? ` · 出口 ${escapeHtml(d.proxyIp)}` : "";
-    li.innerHTML = `
-      <div class="device-row">
-        <strong>${d.deviceId}</strong>
-        <span class="badge">${badgeText}</span>
-      </div>
-      <div class="device-sub">${escapeHtml(d.hostname || "—")}${ipPart} · 观看 ${d.viewerCount || 0}</div>
+  for (const group of groupDevices(devices)) {
+    const groupLi = document.createElement("li");
+    groupLi.className = "device-group";
+
+    const collapsed = isDeviceGroupCollapsed(group.key);
+    const onlineCount = group.items.filter(isDeviceOnline).length;
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "device-group-head";
+    head.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    head.innerHTML = `
+      <span class="device-group-chevron">${collapsed ? "▸" : "▾"}</span>
+      <span class="device-group-title">${escapeHtml(group.key)}</span>
+      <span class="device-group-meta">${group.items.length} 项 · ${onlineCount > 0 ? onlineCount + " 在线" : "离线"}</span>
     `;
-    if (anyOn) {
-      li.addEventListener("click", () => {
-        deviceInput.value = d.deviceId;
-        setClipboardHint(`设备: ${d.deviceId}`);
-        loadClipboardHistory(d.deviceId);
-        loadKeyboardHistory(d.deviceId);
-        loadScreenshotHistory(d.deviceId);
-        connect();
-      });
+
+    const body = document.createElement("ul");
+    body.className = "device-group-items";
+    body.hidden = collapsed;
+
+    for (const device of group.items) {
+      body.appendChild(createDeviceItem(device));
     }
-    deviceListEl.appendChild(li);
+
+    head.addEventListener("click", () => {
+      const nextCollapsed = !body.hidden;
+      body.hidden = nextCollapsed;
+      head.querySelector(".device-group-chevron").textContent = nextCollapsed ? "▸" : "▾";
+      head.setAttribute("aria-expanded", nextCollapsed ? "false" : "true");
+      setDeviceGroupCollapsed(group.key, nextCollapsed);
+    });
+
+    groupLi.appendChild(head);
+    groupLi.appendChild(body);
+    deviceListEl.appendChild(groupLi);
   }
 }
 
