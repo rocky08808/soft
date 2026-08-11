@@ -57,6 +57,10 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
+    # Extract _MEI* next to ReSA.exe (install dir), not %TEMP%. Windows Storage
+    # Sense / Defender often deletes TEMP\_MEI* while the agent is still running,
+    # which causes "base_library.zip: No such file or directory" and offline status.
+    runtime_tmpdir='.',
 )

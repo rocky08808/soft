@@ -163,6 +163,20 @@ Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 Get-Process -Name "ReSA" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 
+function Remove-PyiExtractDirs {
+    param([string]$ParentDir)
+    if (-not $ParentDir -or -not (Test-Path -LiteralPath $ParentDir)) {
+        return
+    }
+    Get-ChildItem -LiteralPath $ParentDir -Directory -Filter "_MEI*" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+}
+
+Remove-PyiExtractDirs -ParentDir $Dir
+Remove-PyiExtractDirs -ParentDir $env:TEMP
+
 $Url = $BaseUrl + "/ReSA.exe"
 Write-InstallLog ("download: " + $Url)
 
