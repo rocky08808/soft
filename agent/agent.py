@@ -1539,6 +1539,13 @@ def encode_jpeg_limited(
 SCREENSHOT_MAX_WIDTH = 1280
 SCREENSHOT_MAX_JPEG_BYTES = 450_000
 
+# Tile-based dirty rect streaming (binary frame type 0x02).
+STREAM_TILE_SIZE = 64
+STREAM_TILE_DIFF_THRESHOLD = 18
+STREAM_FULL_FRAME_TILE_RATIO = 0.45
+STREAM_FORCE_FULL_FRAMES = 120
+STREAM_MAX_PATCH_JPEG_BYTES = 65535
+
 
 def server_http_base(server: str) -> str:
     base = server.rstrip("/")
@@ -1888,13 +1895,89 @@ def build_frame_binary(frame: np.ndarray, encode_q: int) -> Optional[bytes]:
     return bytes([0x01]) + out_w.to_bytes(2, "big") + out_h.to_bytes(2, "big") + jpeg_bytes
 
 
-def process_stream_frame(
-    frame: np.ndarray, stream_width: int, encode_q: int
-) -> tuple[Optional[bytes], tuple[int, int]]:
-    frame = prepare_stream_frame(frame, stream_width)
-    payload = build_frame_binary(frame, encode_q)
+def find_dirty_tiles(
+    prev: np.ndarray, curr: np.ndarray, tile_size: int, threshold: int
+) -> list[tuple[int, int, int, int]]:
+    height, width = curr.shape[:2]
+    dirty: list[tuple[int, int, int, int]] = []
+    for y in range(0, height, tile_size):
+        th = min(tile_size, height - y)
+        for x in range(0, width, tile_size):
+            tw = min(tile_size, width - x)
+            diff = np.mean(
+                np.abs(
+                    curr[y : y + th, x : x + tw].astype(np.int16)
+                    - prev[y : y + th, x : x + tw].astype(np.int16)
+                )
+            )
+            if diff >= threshold:
+                dirty.append((x, y, tw, th))
+    return dirty
+
+
+def count_stream_tiles(width: int, height: int, tile_size: int) -> int:
+    cols = (width + tile_size - 1) // tile_size
+    rows = (height + tile_size - 1) // tile_size
+    return cols * rows
+
+
+def build_delta_binary(
+    frame: np.ndarray, prev: np.ndarray, encode_q: int
+) -> Optional[bytes]:
     out_h, out_w = frame.shape[:2]
-    return payload, (out_w, out_h)
+    if prev.shape[:2] != (out_h, out_w):
+        return build_frame_binary(frame, encode_q)
+
+    tiles = find_dirty_tiles(
+        prev, frame, STREAM_TILE_SIZE, STREAM_TILE_DIFF_THRESHOLD
+    )
+    total_tiles = count_stream_tiles(out_w, out_h, STREAM_TILE_SIZE)
+    if not tiles:
+        return None
+    if len(tiles) > max(1, int(total_tiles * STREAM_FULL_FRAME_TILE_RATIO)):
+        return build_frame_binary(frame, encode_q)
+
+    parts: list[bytes] = [
+        bytes([0x02]),
+        out_w.to_bytes(2, "big"),
+        out_h.to_bytes(2, "big"),
+    ]
+    patch_parts: list[bytes] = []
+    for x, y, tw, th in tiles:
+        try:
+            jpeg_bytes = encode_jpeg(frame[y : y + th, x : x + tw], encode_q)
+        except Exception:
+            return build_frame_binary(frame, encode_q)
+        if len(jpeg_bytes) > STREAM_MAX_PATCH_JPEG_BYTES:
+            return build_frame_binary(frame, encode_q)
+        patch_parts.append(
+            x.to_bytes(2, "big")
+            + y.to_bytes(2, "big")
+            + tw.to_bytes(2, "big")
+            + th.to_bytes(2, "big")
+            + len(jpeg_bytes).to_bytes(2, "big")
+            + jpeg_bytes
+        )
+
+    parts.append(len(patch_parts).to_bytes(2, "big"))
+    parts.extend(patch_parts)
+    return b"".join(parts)
+
+
+def build_stream_payload(
+    frame: np.ndarray,
+    prev: Optional[np.ndarray],
+    encode_q: int,
+    force_full: bool,
+) -> Optional[bytes]:
+    if force_full or prev is None:
+        return build_frame_binary(frame, encode_q)
+    payload = build_delta_binary(frame, prev, encode_q)
+    if payload is None:
+        return None
+    if payload[0] == 0x01:
+        return payload
+    return payload
 
 
 async def capture_loop(
@@ -1908,6 +1991,8 @@ async def capture_loop(
     interval = 1.0 / max(fps, 1)
     encode_q = max(20, min(quality, 95))
     frames_sent = 0
+    prev_stream_frame: Optional[np.ndarray] = None
+    frames_since_full = 0
 
     with mss.mss() as sct:
         monitors = sct.monitors
@@ -1920,6 +2005,8 @@ async def capture_loop(
 
         while True:
             if not viewer_count.is_set():
+                prev_stream_frame = None
+                frames_since_full = 0
                 await asyncio.sleep(0.2)
                 continue
 
@@ -1927,17 +2014,30 @@ async def capture_loop(
             try:
                 frame = grab_monitor_frame(sct, region)
                 grab_h, grab_w = frame.shape[:2]
-                payload, (out_w, out_h) = process_stream_frame(
-                    frame, stream_width, encode_q
+                stream_frame = prepare_stream_frame(frame, stream_width)
+                out_h, out_w = stream_frame.shape[:2]
+                force_full = (
+                    prev_stream_frame is None
+                    or frames_since_full >= STREAM_FORCE_FULL_FRAMES
                 )
+                payload = build_stream_payload(
+                    stream_frame, prev_stream_frame, encode_q, force_full
+                )
+                prev_stream_frame = stream_frame.copy()
                 update_control_mapping(region, out_w, out_h, grab_w, grab_h)
                 if not payload:
-                    await asyncio.sleep(interval)
+                    elapsed = time.perf_counter() - loop_start
+                    await asyncio.sleep(max(0.0, interval - elapsed))
                     continue
+                if payload[0] == 0x01:
+                    frames_since_full = 0
+                else:
+                    frames_since_full += 1
                 await ws.send(payload)
                 frames_sent += 1
                 if frames_sent == 1:
-                    agent_log(f"first frame sent: {out_w}x{out_h}")
+                    kind = "full" if payload[0] == 0x01 else "delta"
+                    agent_log(f"first frame sent ({kind}): {out_w}x{out_h}")
             except Exception as exc:
                 agent_log(f"capture error: {exc}")
                 await asyncio.sleep(1)

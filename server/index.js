@@ -521,6 +521,27 @@ function wsOpen(socket) {
   return socket && socket.readyState === WebSocket.OPEN;
 }
 
+function parseBinaryAgentMessage(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  if (buf.length < 5) return null;
+  const type = buf[0];
+  if (type === 0x01) {
+    if (buf.length < 5) return null;
+    return {
+      kind: "binary",
+      buffer: buf,
+    };
+  }
+  if (type === 0x02) {
+    if (buf.length < 7) return null;
+    return {
+      kind: "binary",
+      buffer: buf,
+    };
+  }
+  return null;
+}
+
 function parseBinaryFrame(raw) {
   const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
   if (buf.length < 5 || buf[0] !== 0x01) return null;
@@ -1134,15 +1155,18 @@ wss.on("connection", (ws, req) => {
 
   ws.on("message", (raw) => {
     if (ws.role === "agent") {
-      const binaryFrame = parseBinaryFrame(raw);
-      if (binaryFrame) {
+      const binaryMsg = parseBinaryAgentMessage(raw);
+      if (binaryMsg) {
         const meta = agentMeta.get(deviceId) || {};
         meta.lastSeen = new Date().toISOString();
         agentMeta.set(deviceId, meta);
         const set = viewers.get(deviceId);
         if (!set || set.size === 0) return;
-        const payload = { type: "frame", ...binaryFrame };
-        for (const viewer of set) send(viewer, payload);
+        for (const viewer of set) {
+          if (viewer.readyState === WebSocket.OPEN) {
+            viewer.send(binaryMsg.buffer);
+          }
+        }
         return;
       }
     }

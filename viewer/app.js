@@ -776,6 +776,97 @@ function mapCoords(clientX, clientY) {
   };
 }
 
+function isAgentBinaryFrame(buf) {
+  if (!buf || buf.byteLength < 5) return false;
+  const type = new DataView(buf).getUint8(0);
+  return type === 0x01 || type === 0x02;
+}
+
+function markFrameRendered(width, height) {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  if (w && h) {
+    remoteWidth = w;
+    remoteHeight = h;
+    metaEl.textContent = `分辨率: ${w} x ${h}`;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+  }
+  placeholder.style.display = "none";
+  frameCount += 1;
+  const now = performance.now();
+  if (now - lastFpsAt >= 1000) {
+    fpsEl.textContent = `帧率: ${frameCount} fps`;
+    frameCount = 0;
+    lastFpsAt = now;
+  }
+}
+
+function blobToImage(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("jpeg decode failed"));
+    };
+    img.src = url;
+  });
+}
+
+async function drawBinaryFullFrame(buf) {
+  const view = new DataView(buf);
+  const width = view.getUint16(1);
+  const height = view.getUint16(3);
+  const jpeg = buf.slice(5);
+  markFrameRendered(width, height);
+  const img = await blobToImage(new Blob([jpeg], { type: "image/jpeg" }));
+  ctx.drawImage(img, 0, 0);
+}
+
+async function drawBinaryDeltaFrame(buf) {
+  const view = new DataView(buf);
+  const width = view.getUint16(1);
+  const height = view.getUint16(3);
+  const patchCount = view.getUint16(5);
+  markFrameRendered(width, height);
+  let offset = 7;
+  for (let i = 0; i < patchCount; i += 1) {
+    const x = view.getUint16(offset);
+    offset += 2;
+    const y = view.getUint16(offset);
+    offset += 2;
+    const pw = view.getUint16(offset);
+    offset += 2;
+    const ph = view.getUint16(offset);
+    offset += 2;
+    const jlen = view.getUint16(offset);
+    offset += 2;
+    const jpeg = buf.slice(offset, offset + jlen);
+    offset += jlen;
+    const img = await blobToImage(new Blob([jpeg], { type: "image/jpeg" }));
+    ctx.drawImage(img, x, y, pw, ph);
+  }
+}
+
+async function handleAgentBinaryFrame(buf) {
+  if (!isAgentBinaryFrame(buf)) return false;
+  const type = new DataView(buf).getUint8(0);
+  try {
+    if (type === 0x01) await drawBinaryFullFrame(buf);
+    else await drawBinaryDeltaFrame(buf);
+    return true;
+  } catch {
+    placeholder.style.display = "block";
+    placeholder.textContent = "画面解码失败，请刷新重连";
+    return true;
+  }
+}
+
 function drawFrame(base64, width, height) {
   if (!base64) return;
   const w = Number(width) || 0;
@@ -788,22 +879,8 @@ function drawFrame(base64, width, height) {
 
   const img = new Image();
   img.onload = () => {
-    if (!remoteWidth) {
-      remoteWidth = img.width;
-      remoteHeight = img.height;
-      metaEl.textContent = `分辨率: ${img.width} x ${img.height}`;
-    }
-    if (canvas.width !== img.width) canvas.width = img.width;
-    if (canvas.height !== img.height) canvas.height = img.height;
+    markFrameRendered(width || img.width, height || img.height);
     ctx.drawImage(img, 0, 0);
-    placeholder.style.display = "none";
-    frameCount += 1;
-    const now = performance.now();
-    if (now - lastFpsAt >= 1000) {
-      fpsEl.textContent = `帧率: ${frameCount} fps`;
-      frameCount = 0;
-      lastFpsAt = now;
-    }
   };
   img.onerror = () => {
     placeholder.style.display = "block";
@@ -1361,10 +1438,25 @@ function connect() {
     }
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
+    const binary =
+      event.data instanceof ArrayBuffer
+        ? event.data
+        : event.data instanceof Blob
+          ? await event.data.arrayBuffer()
+          : null;
+    if (binary && isAgentBinaryFrame(binary)) {
+      agentOnline = true;
+      setStatus(`远程控制中 · ${deviceId}`, true);
+      await handleAgentBinaryFrame(binary);
+      updateFilesUi();
+      updateFilesModalTitle();
+      return;
+    }
+
     let msg;
     try {
-      msg = JSON.parse(event.data);
+      msg = JSON.parse(typeof event.data === "string" ? event.data : "");
     } catch {
       return;
     }
