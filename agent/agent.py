@@ -10,11 +10,11 @@ import ctypes
 import json
 import os
 import platform
+import io
 import re
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -32,10 +32,9 @@ def ensure_stdio() -> None:
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
-import cv2
 import mss
-import numpy as np
 import websockets
+from PIL import Image
 from pynput._util.win32 import KeyTranslator
 from pynput.keyboard import Controller as KeyboardController
 from pynput.keyboard import Key
@@ -1335,44 +1334,43 @@ def handle_control(msg: dict) -> None:
             agent_log(f"control error ({action}): {exc}")
 
 
-def prepare_stream_frame(frame: np.ndarray, stream_width: int) -> np.ndarray:
-    height, width = frame.shape[:2]
+def grab_monitor_image(sct: mss.mss, region: dict[str, int]) -> Image.Image:
+    shot = sct.grab(region)
+    return Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+
+
+def prepare_stream_image(image: Image.Image, stream_width: int) -> Image.Image:
+    width, height = image.size
     sw, sh, scaled = compute_stream_size(width, height, stream_width)
     if scaled:
-        return cv2.resize(
-            frame,
-            (sw, sh),
-            interpolation=cv2.INTER_LINEAR,
-        )
-    return frame
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        return image.resize((sw, sh), resample)
+    return image
+
+
+def encode_jpeg(image: Image.Image, quality: int) -> bytes:
+    buf = io.BytesIO()
+    q = max(1, min(int(quality), 95))
+    image.save(buf, format="JPEG", quality=q, optimize=True)
+    return buf.getvalue()
+
+
+def encode_jpeg_limited(
+    image: Image.Image, quality: int, max_bytes: int
+) -> tuple[Optional[bytes], int]:
+    encoded: Optional[bytes] = None
+    used_q = quality
+    for try_q in range(min(quality, 85), 39, -10):
+        candidate = encode_jpeg(image, try_q)
+        used_q = try_q
+        encoded = candidate
+        if len(candidate) <= max_bytes:
+            break
+    return encoded, used_q
 
 
 SCREENSHOT_MAX_WIDTH = 1280
 SCREENSHOT_MAX_JPEG_BYTES = 450_000
-RECORD_FPS = 5
-RECORD_MAX_WIDTH = 960
-RECORD_SEGMENT_DEFAULT = 30
-
-
-def normalize_record_segment_seconds(value: Any) -> int:
-    try:
-        seconds = int(value)
-    except (TypeError, ValueError):
-        return RECORD_SEGMENT_DEFAULT
-    return max(30, min(seconds, 600))
-
-
-class ScreenRecordingState:
-    def __init__(self) -> None:
-        self.enabled = False
-        self.segment_seconds = RECORD_SEGMENT_DEFAULT
-        self.changed = asyncio.Event()
-
-    def set_recording(self, enabled: bool, segment_seconds: int = RECORD_SEGMENT_DEFAULT) -> tuple[bool, int]:
-        self.enabled = bool(enabled)
-        self.segment_seconds = normalize_record_segment_seconds(segment_seconds)
-        self.changed.set()
-        return self.enabled, self.segment_seconds
 
 
 def server_http_base(server: str) -> str:
@@ -1649,31 +1647,18 @@ async def capture_and_send_screenshot(
         monitors = sct.monitors
         idx = monitor_index if monitor_index < len(monitors) else 1
         region = monitors[idx]
-        img = np.array(sct.grab(region))
-        frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        frame = prepare_stream_frame(frame, SCREENSHOT_MAX_WIDTH)
+        img = grab_monitor_image(sct, region)
+        frame = prepare_stream_image(img, SCREENSHOT_MAX_WIDTH)
 
-        encoded = None
-        used_q = quality
-        for try_q in range(min(quality, 85), 39, -10):
-            ok, candidate = cv2.imencode(
-                ".jpg",
-                frame,
-                [int(cv2.IMWRITE_JPEG_QUALITY), try_q],
-            )
-            if not ok:
-                continue
-            used_q = try_q
-            encoded = candidate
-            if len(encoded.tobytes()) <= SCREENSHOT_MAX_JPEG_BYTES:
-                break
-
+        encoded, used_q = encode_jpeg_limited(
+            frame, quality, SCREENSHOT_MAX_JPEG_BYTES
+        )
         if encoded is None:
             agent_log("screenshot encode failed")
             return
 
-        out_h, out_w = frame.shape[:2]
-        jpeg_bytes = encoded.tobytes()
+        out_w, out_h = frame.size
+        jpeg_bytes = encoded
         payload = {
             "type": "screenshot",
             "data": base64.b64encode(jpeg_bytes).decode("ascii"),
@@ -1725,197 +1710,16 @@ async def auto_screenshot_loop(
             pass
 
 
-async def upload_recording_http(
-    server: str,
-    device_id: str,
-    token: str,
-    file_path: Path,
-    duration: float,
-    width: int,
-    height: int,
-) -> bool:
-    url = f"{server_http_base(server)}/api/recordings/upload"
-
-    def read_file() -> bytes:
-        return file_path.read_bytes()
-
-    loop = asyncio.get_event_loop()
+def build_frame_payload(image: Image.Image, encode_q: int) -> Optional[str]:
     try:
-        raw = await loop.run_in_executor(None, read_file)
-    except OSError as exc:
-        agent_log(f"recording read error: {exc}")
-        return False
-
-    body = json.dumps(
-        {
-            "deviceId": device_id,
-            "data": base64.b64encode(raw).decode("ascii"),
-            "duration": round(duration, 1),
-            "width": width,
-            "height": height,
-            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-    )
-
-    def do_upload() -> None:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            response.read()
-
-    try:
-        await loop.run_in_executor(None, do_upload)
-        return True
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        agent_log(f"recording http upload error: {exc}")
-        return False
-
-
-async def finalize_recording_segment(
-    writer: Optional[cv2.VideoWriter],
-    path: Optional[Path],
-    duration: float,
-    width: int,
-    height: int,
-    server: str,
-    device_id: str,
-    token: str,
-) -> None:
-    if writer is not None:
-        writer.release()
-    if path is None or not path.is_file():
-        return
-    try:
-        size = path.stat().st_size
-        if size < 128:
-            return
-        if await upload_recording_http(
-            server, device_id, token, path, duration, width, height
-        ):
-            agent_log(
-                f"recording uploaded: {width}x{height} {duration:.0f}s size={size}"
-            )
-    finally:
-        try:
-            path.unlink()
-        except OSError:
-            pass
-
-
-async def screen_record_loop(
-    server: str,
-    device_id: str,
-    token: str,
-    monitor_index: int,
-    state: ScreenRecordingState,
-) -> None:
-    interval = 1.0 / RECORD_FPS
-    writer: Optional[cv2.VideoWriter] = None
-    segment_path: Optional[Path] = None
-    segment_start = 0.0
-    frame_w = 0
-    frame_h = 0
-    loop = asyncio.get_event_loop()
-
-    async def close_segment(duration: float) -> None:
-        nonlocal writer, segment_path, frame_w, frame_h
-        current_writer = writer
-        current_path = segment_path
-        current_w = frame_w
-        current_h = frame_h
-        writer = None
-        segment_path = None
-        frame_w = 0
-        frame_h = 0
-        await finalize_recording_segment(
-            current_writer,
-            current_path,
-            duration,
-            current_w,
-            current_h,
-            server,
-            device_id,
-            token,
-        )
-
-    with mss.mss() as sct:
-        monitors = sct.monitors
-        idx = monitor_index if monitor_index < len(monitors) else 1
-        region = monitors[idx]
-
-        while True:
-            if not state.enabled:
-                if writer is not None:
-                    duration = max(0.1, time.monotonic() - segment_start)
-                    await close_segment(duration)
-                state.changed.clear()
-                await state.changed.wait()
-                continue
-
-            loop_start = time.monotonic()
-            try:
-                img = await loop.run_in_executor(None, lambda: np.array(sct.grab(region)))
-                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                frame = prepare_stream_frame(frame, RECORD_MAX_WIDTH)
-                h, w = frame.shape[:2]
-
-                if writer is None:
-                    segment_path = Path(tempfile.gettempdir()) / (
-                        f"ReSA-rec-{int(time.time())}.mp4"
-                    )
-                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                    new_writer = cv2.VideoWriter(
-                        str(segment_path), fourcc, RECORD_FPS, (w, h)
-                    )
-                    if not new_writer.isOpened():
-                        agent_log("recording writer open failed")
-                        segment_path.unlink(missing_ok=True)
-                        segment_path = None
-                        await asyncio.sleep(1)
-                        continue
-                    writer = new_writer
-                    segment_start = time.monotonic()
-                    frame_w = w
-                    frame_h = h
-                    agent_log(f"recording segment started: {w}x{h}")
-
-                await loop.run_in_executor(None, writer.write, frame)
-
-                elapsed_segment = time.monotonic() - segment_start
-                if elapsed_segment >= state.segment_seconds:
-                    await close_segment(elapsed_segment)
-            except Exception as exc:
-                agent_log(f"recording capture error: {exc}")
-                if writer is not None:
-                    duration = max(0.1, time.monotonic() - segment_start)
-                    await close_segment(duration)
-                await asyncio.sleep(1)
-                continue
-
-            spent = time.monotonic() - loop_start
-            await asyncio.sleep(max(0.0, interval - spent))
-
-
-def build_frame_payload(frame: np.ndarray, encode_q: int) -> Optional[str]:
-    ok, encoded = cv2.imencode(
-        ".jpg",
-        frame,
-        [int(cv2.IMWRITE_JPEG_QUALITY), encode_q],
-    )
-    if not ok:
+        jpeg_bytes = encode_jpeg(image, encode_q)
+    except Exception:
         return None
-    out_h, out_w = frame.shape[:2]
+    out_w, out_h = image.size
     return json.dumps(
         {
             "type": "frame",
-            "data": base64.b64encode(encoded.tobytes()).decode("ascii"),
+            "data": base64.b64encode(jpeg_bytes).decode("ascii"),
             "width": out_w,
             "height": out_h,
         }
@@ -1951,13 +1755,12 @@ async def capture_loop(
 
             loop_start = time.perf_counter()
             try:
-                img = np.array(sct.grab(region))
-                frame = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-                frame = prepare_stream_frame(frame, stream_width)
-                out_h, out_w = frame.shape[:2]
+                image = grab_monitor_image(sct, region)
+                image = prepare_stream_image(image, stream_width)
+                out_w, out_h = image.size
                 update_control_mapping(region, out_w, out_h)
                 payload = await loop.run_in_executor(
-                    None, build_frame_payload, frame, encode_q
+                    None, build_frame_payload, image, encode_q
                 )
                 if not payload:
                     await asyncio.sleep(interval)
@@ -1987,7 +1790,6 @@ async def receive_loop(
     monitor: int,
     quality: int,
     auto_screenshot_state: AutoScreenshotState,
-    screen_recording_state: ScreenRecordingState,
 ) -> None:
     async for raw in ws:
         try:
@@ -2045,16 +1847,6 @@ async def receive_loop(
                 else:
                     agent_log("auto screenshot disabled")
                 continue
-            if msg.get("action") == "set_screen_recording":
-                enabled, segment = screen_recording_state.set_recording(
-                    msg.get("enabled", False),
-                    msg.get("segmentSeconds", RECORD_SEGMENT_DEFAULT),
-                )
-                if enabled:
-                    agent_log(f"screen recording enabled: segment {segment}s")
-                else:
-                    agent_log("screen recording disabled")
-                continue
             loop = asyncio.get_running_loop()
             try:
                 await loop.run_in_executor(None, handle_control, msg)
@@ -2101,7 +1893,6 @@ async def run_agent(
     url = build_ws_url(server, device_id, token)
     viewer_count = asyncio.Event()
     auto_screenshot_state = AutoScreenshotState(0)
-    screen_recording_state = ScreenRecordingState()
     hostname = socket.gethostname()
     platform_name = platform.platform()
     init_control_mapping(monitor, stream_width)
@@ -2142,16 +1933,6 @@ async def run_agent(
                         monitor,
                         quality,
                         auto_screenshot_state,
-                        screen_recording_state,
-                    )
-                )
-                screen_record_task = asyncio.create_task(
-                    screen_record_loop(
-                        server,
-                        device_id,
-                        token,
-                        monitor,
-                        screen_recording_state,
                     )
                 )
                 auto_screenshot_task = asyncio.create_task(
@@ -2170,7 +1951,6 @@ async def run_agent(
                 tasks = {
                     capture_task,
                     receive_task,
-                    screen_record_task,
                     auto_screenshot_task,
                     clipboard_task,
                     keyboard_task,
