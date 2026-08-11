@@ -1332,7 +1332,23 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "viewer" && msg.type === "control") {
       const agent = agents.get(deviceId);
-      if (agent) send(agent, msg);
+      if (!agent) {
+        send(ws, {
+          type: "control_result",
+          action: msg.action,
+          ok: false,
+          error: "agent offline",
+        });
+        return;
+      }
+      send(agent, msg);
+      return;
+    }
+
+    if (ws.role === "agent" && msg.type === "control_result") {
+      const set = viewers.get(deviceId);
+      if (!set) return;
+      for (const viewer of set) send(viewer, msg);
       return;
     }
 

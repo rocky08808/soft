@@ -20,6 +20,7 @@ import time
 import uuid
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -123,6 +124,8 @@ KEY_MAP = {
 mouse = MouseController()
 keyboard = KeyboardController()
 _control_lock = threading.RLock()
+_control_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="resa-control")
+_control_debug_left = 12
 
 _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
@@ -321,15 +324,25 @@ if sys.platform == "win32":
         )
 
 
-def set_mouse_position(x: int, y: int) -> None:
+def log_control_debug(action: str, detail: str) -> None:
+    global _control_debug_left
+    if action == "mouse_move":
+        return
+    if _control_debug_left <= 0:
+        return
+    _control_debug_left -= 1
+    agent_log(f"control {action}: {detail}")
+
+
+def set_mouse_position(x: int, y: int) -> tuple[int, int]:
     abs_x, abs_y = map_control_coords(x, y)
     if sys.platform == "win32":
         user32 = ctypes.windll.user32
-        if user32.SetCursorPos(abs_x, abs_y):
-            return
-        win32_move_cursor(abs_x, abs_y)
-        return
+        if not user32.SetCursorPos(abs_x, abs_y):
+            win32_move_cursor(abs_x, abs_y)
+        return abs_x, abs_y
     mouse.position = (abs_x, abs_y)
+    return abs_x, abs_y
 
 
 def win32_mouse_button(button: str, down: bool) -> None:
@@ -347,17 +360,30 @@ def win32_mouse_button(button: str, down: bool) -> None:
     flag = _MOUSE_BUTTON_FLAGS.get((button, down))
     if flag is None:
         raise ValueError(f"unknown mouse button: {button}")
-    _send_mouse_input(flag)
+    ctypes.windll.user32.mouse_event(flag, 0, 0, 0, 0)
+
+
+def win32_mouse_click_at(abs_x: int, abs_y: int, button: str, down: bool) -> None:
+    if sys.platform != "win32":
+        mouse.position = (abs_x, abs_y)
+        win32_mouse_button(button, down)
+        return
+    user32 = ctypes.windll.user32
+    if not user32.SetCursorPos(abs_x, abs_y):
+        raise OSError(f"SetCursorPos failed at {abs_x},{abs_y}")
+    time.sleep(0.012)
+    win32_mouse_button(button, down)
 
 
 def win32_mouse_scroll(dx: int, dy: int) -> None:
     if sys.platform != "win32":
         mouse.scroll(dx, dy)
         return
+    user32 = ctypes.windll.user32
     if dy:
-        _send_mouse_input(_MOUSEEVENTF_WHEEL, mouse_data=dy * _WHEEL_DELTA)
+        user32.mouse_event(_MOUSEEVENTF_WHEEL, 0, 0, dy * _WHEEL_DELTA, 0)
     if dx:
-        _send_mouse_input(_MOUSEEVENTF_HWHEEL, mouse_data=dx * _WHEEL_DELTA)
+        user32.mouse_event(_MOUSEEVENTF_HWHEEL, 0, 0, dx * _WHEEL_DELTA, 0)
 
 REMOTE_INPUT_IGNORE_SEC = 0.35
 remote_input_ignore_until = 0.0
@@ -1423,54 +1449,58 @@ async def handle_terminal_message(ws, msg: dict[str, Any]) -> None:
         )
 
 
-def handle_control(msg: dict) -> None:
+def handle_control(msg: dict) -> Optional[str]:
     mark_remote_input()
     action = msg.get("action")
     if action in ("mouse_move", "mouse_click", "scroll"):
         ensure_control_mapping()
     try:
         if action == "mouse_move":
-            set_mouse_position(
+            abs_x, abs_y = set_mouse_position(
                 control_coord(msg.get("x")),
                 control_coord(msg.get("y")),
             )
-            return
+            log_control_debug(action, f"abs={abs_x},{abs_y}")
+            return None
 
         if action == "mouse_click":
-            if "x" in msg and "y" in msg:
-                set_mouse_position(
-                    control_coord(msg.get("x")),
-                    control_coord(msg.get("y")),
-                )
-                if sys.platform == "win32":
-                    time.sleep(0.008)
+            x = control_coord(msg.get("x"))
+            y = control_coord(msg.get("y"))
             button_name = msg.get("button", "left")
             down = bool(msg.get("down", True))
-            win32_mouse_button(button_name, down)
-            return
+            abs_x, abs_y = map_control_coords(x, y)
+            win32_mouse_click_at(abs_x, abs_y, button_name, down)
+            log_control_debug(
+                action,
+                f"stream={x},{y} abs={abs_x},{abs_y} button={button_name} down={down}",
+            )
+            return None
 
         if action == "scroll":
-            if "x" in msg and "y" in msg:
-                set_mouse_position(
-                    control_coord(msg.get("x")),
-                    control_coord(msg.get("y")),
-                )
-                if sys.platform == "win32":
-                    time.sleep(0.008)
+            abs_x, abs_y = set_mouse_position(
+                control_coord(msg.get("x")),
+                control_coord(msg.get("y")),
+            )
+            if sys.platform == "win32":
+                time.sleep(0.008)
             win32_mouse_scroll(int(msg.get("dx", 0)), int(msg.get("dy", 0)))
-            return
+            log_control_debug(action, f"abs={abs_x},{abs_y}")
+            return None
 
         if action == "key":
             key = resolve_key(msg.get("key", ""))
             if key is None:
-                return
+                return None
             down = bool(msg.get("down", True))
             if down:
                 keyboard.press(key)
             else:
                 keyboard.release(key)
+            return None
     except Exception as exc:
         agent_log(f"control error ({action}): {exc}")
+        return str(exc)
+    return None
 
 
 def grab_monitor_image(sct: mss.mss, region: dict[str, int]) -> Image.Image:
@@ -1997,9 +2027,23 @@ async def receive_loop(
                 continue
             loop = asyncio.get_running_loop()
             try:
-                await loop.run_in_executor(None, handle_control, msg)
+                err = await loop.run_in_executor(_control_executor, handle_control, msg)
             except Exception as exc:
                 agent_log(f"control failed: {exc}")
+                err = str(exc)
+            action = str(msg.get("action", ""))
+            if action.startswith("mouse") or action == "scroll":
+                ack = {
+                    "type": "control_result",
+                    "action": action,
+                    "ok": err is None,
+                }
+                if err:
+                    ack["error"] = err
+                try:
+                    await ws.send(json.dumps(ack))
+                except Exception as exc:
+                    agent_log(f"control_result send error: {exc}")
         elif msg_type == "file":
             req_id = msg.get("id")
             action = str(msg.get("action", ""))

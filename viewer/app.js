@@ -1447,6 +1447,13 @@ function connect() {
       return;
     }
 
+    if (msg.type === "control_result") {
+      if (!msg.ok && metaEl) {
+        metaEl.textContent = `鼠标控制失败: ${msg.error || "unknown"}`;
+      }
+      return;
+    }
+
     if (msg.type === "file_result") {
       handleFileResult(msg);
       return;
