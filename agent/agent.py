@@ -1980,6 +1980,11 @@ def build_stream_payload(
     return payload
 
 
+class ViewerStreamState:
+    def __init__(self) -> None:
+        self.force_keyframe = False
+
+
 async def capture_loop(
     ws,
     monitor_index: int,
@@ -1987,6 +1992,7 @@ async def capture_loop(
     quality: int,
     stream_width: int,
     viewer_count: asyncio.Event,
+    stream_state: ViewerStreamState,
 ) -> None:
     interval = 1.0 / max(fps, 1)
     encode_q = max(20, min(quality, 95))
@@ -2019,7 +2025,10 @@ async def capture_loop(
                 force_full = (
                     prev_stream_frame is None
                     or frames_since_full >= STREAM_FORCE_FULL_FRAMES
+                    or stream_state.force_keyframe
                 )
+                if stream_state.force_keyframe:
+                    stream_state.force_keyframe = False
                 payload = build_stream_payload(
                     stream_frame, prev_stream_frame, encode_q, force_full
                 )
@@ -2050,6 +2059,7 @@ async def capture_loop(
 async def receive_loop(
     ws,
     viewer_count: asyncio.Event,
+    stream_state: ViewerStreamState,
     server: str,
     device_id: str,
     token: str,
@@ -2084,10 +2094,13 @@ async def receive_loop(
         elif msg_type == "viewer_count":
             count = int(msg.get("count", 0))
             if count > 0:
+                if not viewer_count.is_set():
+                    stream_state.force_keyframe = True
                 viewer_count.set()
                 agent_log(f"viewer connected: {count}")
             else:
                 viewer_count.clear()
+                stream_state.force_keyframe = False
                 agent_log("viewer disconnected")
         elif msg_type == "control":
             if msg.get("action") == "screenshot":
@@ -2172,6 +2185,7 @@ async def run_agent(
 ) -> None:
     url = build_ws_url(server, device_id, token)
     viewer_count = asyncio.Event()
+    stream_state = ViewerStreamState()
     auto_screenshot_state = AutoScreenshotState(0)
     hostname = socket.gethostname()
     platform_name = platform.platform()
@@ -2202,12 +2216,21 @@ async def run_agent(
                     f"Agent online: {device_id} ({hostname}) v{get_local_version()}"
                 )
                 capture_task = asyncio.create_task(
-                    capture_loop(ws, monitor, fps, quality, stream_width, viewer_count)
+                    capture_loop(
+                        ws,
+                        monitor,
+                        fps,
+                        quality,
+                        stream_width,
+                        viewer_count,
+                        stream_state,
+                    )
                 )
                 receive_task = asyncio.create_task(
                     receive_loop(
                         ws,
                         viewer_count,
+                        stream_state,
                         server,
                         device_id,
                         token,

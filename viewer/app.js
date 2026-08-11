@@ -99,6 +99,8 @@ let latestResaVersion = "";
 let latestRestVersion = "";
 let deviceAgentVersion = "";
 let deviceTermVersion = "";
+let lastKnownDevices = [];
+let screenFrameReady = false;
 let terminalSessionCwd = "";
 const MAX_TERMINAL_HISTORY = 100;
 let terminalHistory = [];
@@ -165,9 +167,16 @@ function sendControl(payload) {
   if (isMouse) {
     const frameW = remoteWidth || canvas.width;
     const frameH = remoteHeight || canvas.height;
-    if (!frameW || !frameH) return;
+    if (!frameW || !frameH) {
+      if (metaEl) metaEl.textContent = "等待首帧画面…";
+      return;
+    }
   }
   ws.send(JSON.stringify({ type: "control", ...payload }));
+}
+
+function isScreenAgentReady() {
+  return !!(agentOnline || remoteWidth > 0 || screenFrameReady);
 }
 
 function isTerminalAvailable() {
@@ -303,8 +312,7 @@ function updateTerminalUi() {
 
 function updateFilesUi() {
   const connected = !!(ws && ws.readyState === WebSocket.OPEN);
-  const screenReady = agentOnline || remoteWidth > 0;
-  const enabled = connected && screenReady;
+  const enabled = connected && isScreenAgentReady();
   if (openFilesBtn) openFilesBtn.disabled = !enabled;
 }
 
@@ -360,8 +368,8 @@ function openFilesModal() {
     setFilesHint("请先连接设备");
     return;
   }
-  if (!agentOnline && !remoteWidth) {
-    setFilesHint("屏幕 Agent 离线，无法浏览文件");
+  if (!isScreenAgentReady()) {
+    setFilesHint("屏幕 Agent 未就绪，请从左侧选择带「屏幕」的在线设备");
     return;
   }
   filesModalEl.hidden = false;
@@ -788,10 +796,12 @@ function markFrameRendered(width, height) {
   if (w && h) {
     remoteWidth = w;
     remoteHeight = h;
+    screenFrameReady = true;
     metaEl.textContent = `分辨率: ${w} x ${h}`;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
   }
+  updateFilesUi();
   placeholder.style.display = "none";
   frameCount += 1;
   const now = performance.now();
@@ -894,8 +904,14 @@ function isDeviceOnline(d) {
 }
 
 function maybeAutoSelectDevice(devices) {
+  if (params.get("device")) return;
+  const screenOnline = devices.filter((d) => d.online);
+  if (screenOnline.length === 1) {
+    deviceInput.value = screenOnline[0].deviceId;
+    return;
+  }
   const online = devices.filter(isDeviceOnline);
-  if (online.length === 1 && !params.get("device")) {
+  if (online.length === 1) {
     deviceInput.value = online[0].deviceId;
   }
 }
@@ -987,6 +1003,7 @@ function createDeviceItem(device) {
 }
 
 function renderDevices(devices) {
+  lastKnownDevices = devices || [];
   deviceListEl.innerHTML = "";
   maybeAutoSelectDevice(devices);
   if (!devices.length) {
@@ -1408,6 +1425,14 @@ function connect() {
   saveToken();
 
   const deviceId = currentDeviceId();
+  const known = lastKnownDevices.find((d) => d.deviceId === deviceId);
+  if (known && !known.online && known.termOnline) {
+    setStatus(`设备 ${deviceId} 仅有终端在线，请安装 ReSA 或从左侧选择`, false);
+    setFilesHint("该设备 ID 无屏幕 Agent");
+  } else if (known && !isDeviceOnline(known)) {
+    setStatus(`设备 ${deviceId} 离线`, false);
+  }
+
   const url =
     `${wsBase()}/ws?role=viewer&deviceId=${encodeURIComponent(deviceId)}` +
     `&token=${encodeURIComponent(getToken())}`;
@@ -1418,6 +1443,8 @@ function connect() {
   connectBtn.disabled = true;
   remoteWidth = 0;
   remoteHeight = 0;
+  screenFrameReady = false;
+  agentOnline = false;
   setClipboardHint(`设备: ${deviceId}`);
 
   syncAutoScreenshotUi(deviceId);
@@ -1464,15 +1491,18 @@ function connect() {
     if (msg.type === "registered") {
       termOnline = !!msg.termOnline;
       agentOnline = !!msg.agentOnline;
+      screenFrameReady = false;
       syncDeviceVersions(msg.device);
       loadLatestVersions();
       updateTerminalUi();
+      updateFilesUi();
       if (!msg.agentOnline) {
         setStatus(`设备 ${deviceId} 无屏幕 Agent`, false);
         setClipboardHint(`设备 ${deviceId} 离线，复制记录可能为空`);
-        setFilesHint(`设备: ${deviceId} · Agent 离线，无法浏览文件`);
+        setFilesHint(`请从左侧列表点击带「屏幕」的在线设备`);
       } else {
-        setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
+        setStatus(`Agent 在线 · 等待画面…`, true);
+        setFilesHint(`设备: ${deviceId} · 等待首帧后可操作`);
       }
       if (termOnline) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
@@ -1525,7 +1555,8 @@ function connect() {
       updateTerminalModalTitle();
       updateFilesUi();
       updateFilesModalTitle();
-      setFilesHint(`设备: ${deviceId} · 点击「打开文件管理器」浏览磁盘`);
+      setStatus(`Agent 在线 · 等待画面…`, true);
+      setFilesHint(`设备: ${deviceId} · 等待首帧后可操作`);
       if (termOnline) {
         setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
       }
@@ -1619,6 +1650,7 @@ function connect() {
     screenshotBtn.disabled = true;
     termOnline = false;
     agentOnline = false;
+    screenFrameReady = false;
     clearPendingTerminal();
     for (const timer of pendingFiles.values()) clearTimeout(timer);
     pendingFiles.clear();

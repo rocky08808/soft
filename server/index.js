@@ -1144,6 +1144,12 @@ wss.on("connection", (ws, req) => {
         ({ id, time, width, height }) => ({ id, time, width, height })
       ),
     });
+    if (agents.has(deviceId)) {
+      send(ws, { type: "agent_online", deviceId });
+    }
+    if (termAgents.has(deviceId)) {
+      send(ws, { type: "term_online", deviceId });
+    }
     notifyAgentViewerCount(deviceId);
     addAudit("viewer_connect", { deviceId, ip: clientIp });
     broadcastDashboard("devices_changed", { devices: listDevices() });
