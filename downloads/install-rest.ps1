@@ -341,5 +341,8 @@ try {
 }
 
 Write-InstallLog "install complete"
+if (-not $Silent) {
+    Write-Host "ReST install complete." -ForegroundColor Green
+}
 
 exit 0

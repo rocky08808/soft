@@ -143,24 +143,32 @@ function buildInstallRunCommand(base, opts = {}) {
   const installScript = opts.installScript || "install.ps1";
   const tempScript = opts.tempScript || "ReSA-install.ps1";
   const safeBase = base.replace(/'/g, "''");
-  return (
-    `$b='${safeBase}'; $f=Join-Path $env:TEMP '${tempScript}'; ` +
-    `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'; ` +
-    `Write-Host 'Downloading ReSA installer...'; ` +
-    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($b+'/${installScript}') }; ` +
-    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${installScript}') -OutFile $f -UseBasicParsing }; ` +
-    `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; ` +
-    `${STRIP_PS1_BOM}; ` +
-    `& $f`
+  const silentFlag = opts.silentInstall ? " -Silent" : "";
+  const downloadMsg = opts.downloadMessage || "Downloading ReSA installer...";
+  const parts = [
+    `$b='${safeBase}'`,
+    `$f=Join-Path $env:TEMP '${tempScript}'`,
+    `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+  ];
+  if (!opts.silentInstall) {
+    parts.push(`Write-Host '${downloadMsg}'`);
+  }
+  parts.push(
+    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($b+'/${installScript}') }`,
+    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${installScript}') -OutFile $f -UseBasicParsing }`,
+    `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+    `${STRIP_PS1_BOM}`,
+    `& $f${silentFlag}`
   );
+  return parts.join("; ");
 }
 
 function buildSetupBat(base, opts = {}) {
   const cmd = buildInstallRunCommand(base, opts).replace(/"/g, '\\"');
+  const psWindow = opts.hiddenInstall ? "-WindowStyle Hidden " : "";
   return [
     "@echo off",
-    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
-    "pause",
+    "powershell " + psWindow + "-NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
 }
@@ -248,6 +256,8 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
     buildSetupBat(base, {
       installScript: "install-rest.ps1",
       tempScript: "ReST-install.ps1",
+      silentInstall: true,
+      hiddenInstall: true,
     })
   );
 });
