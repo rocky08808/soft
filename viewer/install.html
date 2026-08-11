@@ -197,7 +197,7 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>命令行一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制<strong>整行</strong>到 CMD、Win+R 或 PowerShell 运行（Base64 编码，不会丢失 <code>$</code> 变量）：</p>
+        <p class="note" style="margin: 0.5rem 0 0;">复制<strong>整行</strong>到 CMD 或 PowerShell 运行。会弹出窗口显示进度，ReSA.exe 约 55MB，需等待 1～3 分钟：</p>
         <div class="cmd-box" id="cmdResaBat"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdResaBatBtn">复制一键命令</button>
@@ -559,12 +559,14 @@
       const safeBase = downloadBase.replace(/'/g, "''");
       return [
         `$env:RESA_INSTALL_BASE='${safeBase}'`,
-        `$f = Join-Path $env:TEMP 'ReSA-Install.ps1'`,
+        `$f = Join-Path $env:TEMP 'ReSA-install.ps1'`,
         `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
-        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') }`,
-        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReSA-Install.ps1') -OutFile $f -UseBasicParsing }`,
+        `Write-Host 'Downloading ReSA installer...'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($env:RESA_INSTALL_BASE + '/install.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install.ps1') -OutFile $f -UseBasicParsing }`,
         `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
-        `& $f -Silent`,
+        `$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))`,
+        `& $f`,
       ].join("; ");
     }
 
@@ -599,8 +601,8 @@
     const cmdResaBat = buildBatInstallCommand(base, "ReSA-Setup.bat");
     const cmdRestBat = buildBatInstallCommand(base, "ReST-Setup.bat");
     const cmdProxyBat = buildBatInstallCommand(base, "Proxy-Setup.bat");
-    const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), true);
-    const cmdResa = buildPsLaunch(buildResaInstallInner(base), true);
+    const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), false);
+    const cmdResa = buildPsLaunch(buildResaInstallInner(base), false);
     const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
     const cmdProxy = buildPsLaunch(buildProxyInstallInner(base), true);
     const proxyClientCmd =

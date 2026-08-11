@@ -140,16 +140,18 @@ function buildInstallWrapperPs1(base, opts = {}) {
 }
 
 function buildInstallRunCommand(base, opts = {}) {
-  const wrapperName = opts.wrapperName || "ReSA-Install.ps1";
+  const installScript = opts.installScript || "install.ps1";
+  const tempScript = opts.tempScript || "ReSA-install.ps1";
   const safeBase = base.replace(/'/g, "''");
   return (
-    `$b='${safeBase}'; $f=Join-Path $env:TEMP '${wrapperName}'; ` +
+    `$b='${safeBase}'; $f=Join-Path $env:TEMP '${tempScript}'; ` +
     `$curl=Join-Path $env:SystemRoot 'System32\\curl.exe'; ` +
-    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($b+'/${wrapperName}') }; ` +
-    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${wrapperName}') -OutFile $f -UseBasicParsing }; ` +
+    `Write-Host 'Downloading ReSA installer...'; ` +
+    `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($b+'/${installScript}') }; ` +
+    `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($b+'/${installScript}') -OutFile $f -UseBasicParsing }; ` +
     `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue; ` +
     `${STRIP_PS1_BOM}; ` +
-    `& $f -Silent`
+    `& $f`
   );
 }
 
@@ -157,7 +159,8 @@ function buildSetupBat(base, opts = {}) {
   const cmd = buildInstallRunCommand(base, opts).replace(/"/g, '\\"');
   return [
     "@echo off",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
+    "powershell -NoProfile -ExecutionPolicy Bypass -Command \"" + cmd + "\"",
+    "pause",
     "exit /b %ERRORLEVEL%",
   ].join("\r\n");
 }
@@ -243,7 +246,8 @@ app.get("/download/ReST-Setup.bat", (req, res) => {
   );
   res.send(
     buildSetupBat(base, {
-      wrapperName: "ReST-Install.ps1",
+      installScript: "install-rest.ps1",
+      tempScript: "ReST-install.ps1",
     })
   );
 });
@@ -319,10 +323,8 @@ app.get("/download/Proxy-Setup.bat", (req, res) => {
   );
   res.send(
     buildSetupBat(base, {
-      wrapperName: "ReProxy-Install.ps1",
       installScript: "install-proxy.ps1",
       tempScript: "ReProxy-install.ps1",
-      logFile: "ReProxy-install.log",
     })
   );
 });

