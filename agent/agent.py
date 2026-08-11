@@ -678,7 +678,7 @@ def resolve_settings(args: argparse.Namespace) -> dict[str, Any]:
         "token": args.token or cfg.get("token") or "remote-screen-dev",
         "monitor": args.monitor if args.monitor is not None else int(cfg.get("monitor", 1)),
         "fps": args.fps if args.fps is not None else int(cfg.get("fps", 10)),
-        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 55)),
+        "quality": args.quality if args.quality is not None else int(cfg.get("quality", 60)),
         "stream_width": (
             args.stream_width
             if args.stream_width is not None
@@ -1393,7 +1393,9 @@ def _stream_jpeg_buffer() -> io.BytesIO:
 def encode_jpeg(image: Image.Image, quality: int, *, optimize: bool = False) -> bytes:
     buf = _stream_jpeg_buffer() if not optimize else io.BytesIO()
     q = max(1, min(int(quality), 95))
-    image.save(buf, quality=q, optimize=optimize, **_JPEG_ENCODER_OPTS)
+    # 4:2:2 subsampling keeps text sharper than default 4:2:0 at moderate bitrates.
+    subsampling = 1 if q >= 55 else 2
+    image.save(buf, quality=q, optimize=optimize, format="JPEG", subsampling=subsampling)
     return buf.getvalue()
 
 
