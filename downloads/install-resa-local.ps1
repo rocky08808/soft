@@ -42,7 +42,7 @@ Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
 
 $json = @'
 {
-  "streamWidth": 1280,
+  "streamWidth": 1100,
   "fps": 10,
   "quality": 60
 }
