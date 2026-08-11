@@ -79,6 +79,7 @@
     }
     .badge-off { background: #334155; color: #cbd5e1; }
     .badge-on { background: #065f46; color: #a7f3d0; }
+    .badge-warn { background: #92400e; color: #fde68a; }
     .check-row {
       display: flex;
       align-items: center;
@@ -124,7 +125,7 @@
 
     <div class="hint">
       <strong>启动后本机网络不受影响</strong>（默认不改动系统代理）。<br />
-      1. 被控机 Proxy 显示<strong>在线</strong>后，流量才能走隧道<br />
+      1. 被控机 Proxy 显示<strong>在线</strong>后，流量才能走隧道；离线时会<strong>每 10 秒自动重连</strong><br />
       2. device.id 必须与被控机 <code>ReProxy\device.id</code> 一致<br />
       3. 点 <strong>「检测出口 IP」</strong> 验证 SOCKS 隧道（仅测 HTTP:80）<br />
       4. 勾选「系统代理」后 Chrome 走 <strong>127.0.0.1:8080</strong> HTTP 代理（比 SOCKS 更可靠）<br />
@@ -158,19 +159,22 @@
       proxyIp: document.getElementById("proxyIp"),
     };
 
-    function setProxyOnline(online, running, ip) {
+    function setProxyOnline(online, running, ip, reconnecting, tunnelConnected) {
       if (!running) {
         els.proxyBadge.textContent = "—";
         els.proxyBadge.className = "badge badge-off";
         els.proxyIp.textContent = "—";
         return;
       }
-      if (online) {
+      if (reconnecting || !tunnelConnected) {
+        els.proxyBadge.textContent = "重连中…";
+        els.proxyBadge.className = "badge badge-warn";
+      } else if (online) {
         els.proxyBadge.textContent = "在线";
         els.proxyBadge.className = "badge badge-on";
       } else {
-        els.proxyBadge.textContent = "离线";
-        els.proxyBadge.className = "badge badge-off";
+        els.proxyBadge.textContent = "离线（自动重连）";
+        els.proxyBadge.className = "badge badge-warn";
       }
       els.proxyIp.textContent = ip || "获取中…";
     }
@@ -203,7 +207,7 @@
         const res = await fetch("/api/status");
         const data = await res.json();
         setRunning(!!data.running);
-        setProxyOnline(!!data.proxyOnline, !!data.running, data.proxyIp);
+        setProxyOnline(!!data.proxyOnline, !!data.running, data.proxyIp, !!data.reconnecting, !!data.tunnelConnected);
         if (Array.isArray(data.logs) && data.logs.length) {
           els.log.textContent = data.logs.join("\n");
           els.log.scrollTop = els.log.scrollHeight;

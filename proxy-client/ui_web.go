@@ -57,9 +57,13 @@ func (a *webApp) status() map[string]any {
 	running := a.running
 	var proxyOnline bool
 	var proxyIP string
+	var tunnelConnected bool
+	var reconnecting bool
 	if a.mgr != nil {
 		proxyOnline = a.mgr.isProxyOnline()
 		proxyIP = a.mgr.getProxyIP()
+		tunnelConnected = a.mgr.isConnected()
+		reconnecting = a.mgr.isReconnecting()
 	}
 	a.mu.Unlock()
 	a.logMu.Lock()
@@ -70,6 +74,8 @@ func (a *webApp) status() map[string]any {
 		"running":           running,
 		"proxyOnline":       proxyOnline,
 		"proxyIp":           proxyIP,
+		"tunnelConnected":   tunnelConnected,
+		"reconnecting":      reconnecting,
 		"systemProxyActive": a.winProxy.active,
 		"logs":              logs,
 	}

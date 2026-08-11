@@ -2187,8 +2187,8 @@ async def run_agent(
                     agent_log("exiting for update")
                     sys.exit(0)
         except Exception as exc:
-            agent_log(f"Disconnected: {exc}. Retry in 3s...")
-            await asyncio.sleep(3)
+            agent_log(f"Disconnected: {exc}. Retry in 10s...")
+            await asyncio.sleep(10)
 
 
 def main() -> None:

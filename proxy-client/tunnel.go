@@ -29,6 +29,7 @@ type tunnelManager struct {
 	proxyIP     string
 	proxyIPMu   sync.RWMutex
 	connected   atomic.Uint32
+	reconnecting atomic.Uint32
 	onProxyState func(online bool)
 }
 
@@ -69,6 +70,18 @@ func (m *tunnelManager) isConnected() bool {
 	return m.connected.Load() == 1
 }
 
+func (m *tunnelManager) setReconnecting(v bool) {
+	if v {
+		m.reconnecting.Store(1)
+		return
+	}
+	m.reconnecting.Store(0)
+}
+
+func (m *tunnelManager) isReconnecting() bool {
+	return m.reconnecting.Load() == 1
+}
+
 func (m *tunnelManager) applyProxyIP(msg map[string]any) {
 	if ip := stringsTrim(fmt.Sprint(msg["proxyIp"])); ip != "" && ip != "<nil>" {
 		m.setProxyIP(ip)
@@ -102,6 +115,7 @@ func (m *tunnelManager) stopped() bool {
 
 func (m *tunnelManager) stop() {
 	m.stopOnce.Do(func() {
+		m.setReconnecting(false)
 		close(m.stopCh)
 		m.resetConnection()
 	})
@@ -124,8 +138,10 @@ func (m *tunnelManager) run() {
 			}
 			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 10s)", err))
 			m.resetConnection()
+			m.setReconnecting(true)
 			select {
 			case <-m.stopCh:
+				m.setReconnecting(false)
 				return
 			case <-time.After(10 * time.Second):
 			}
@@ -186,6 +202,7 @@ func (m *tunnelManager) connect(url string) error {
 	m.conn = conn
 	m.writeMu.Unlock()
 	m.setConnected(true)
+	m.setReconnecting(false)
 	close(m.ready)
 
 	logURL := url
@@ -309,7 +326,7 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		m.failPendingOpens(fmt.Errorf("被控机 Proxy 离线"))
 		m.setProxyOnline(false)
 		m.setProxyIP("")
-		m.log("被控机 Proxy 已离线，等待自动重连…")
+		m.log("被控机 Proxy 已离线，10 秒内自动重连…")
 		m.notifyProxyState(false)
 		return
 	}
