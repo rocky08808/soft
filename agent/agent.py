@@ -126,6 +126,8 @@ _control_lock = threading.Lock()
 
 _capture_region = {"left": 0, "top": 0, "width": 1, "height": 1}
 _stream_size = {"width": 1, "height": 1}
+_runtime_monitor = 1
+_runtime_stream_width = 1280
 
 
 def compute_stream_size(width: int, height: int, stream_width: int) -> tuple[int, int, bool]:
@@ -145,19 +147,38 @@ def update_control_mapping(
     grab_w: Optional[int] = None,
     grab_h: Optional[int] = None,
 ) -> None:
-    global _capture_region, _stream_size
     cap_w = max(1, int(grab_w if grab_w else region["width"]))
     cap_h = max(1, int(grab_h if grab_h else region["height"]))
-    _capture_region = {
-        "left": int(region["left"]),
-        "top": int(region["top"]),
-        "width": cap_w,
-        "height": cap_h,
+    mapping = {
+        "capture": {
+            "left": int(region["left"]),
+            "top": int(region["top"]),
+            "width": cap_w,
+            "height": cap_h,
+        },
+        "stream": {
+            "width": max(1, int(stream_w)),
+            "height": max(1, int(stream_h)),
+        },
     }
-    _stream_size = {
-        "width": max(1, int(stream_w)),
-        "height": max(1, int(stream_h)),
-    }
+    with _control_lock:
+        global _capture_region, _stream_size
+        _capture_region = mapping["capture"]
+        _stream_size = mapping["stream"]
+
+
+def configure_control_runtime(monitor_index: int, stream_width: int) -> None:
+    global _runtime_monitor, _runtime_stream_width
+    _runtime_monitor = monitor_index
+    _runtime_stream_width = stream_width
+
+
+def ensure_control_mapping() -> None:
+    with _control_lock:
+        ready = _stream_size["width"] > 1 and _stream_size["height"] > 1
+    if ready:
+        return
+    init_control_mapping(_runtime_monitor, _runtime_stream_width)
 
 
 def init_control_mapping(monitor_index: int, stream_width: int) -> None:
@@ -179,14 +200,15 @@ def control_coord(value: Any) -> int:
 
 
 def map_control_coords(x: int, y: int) -> tuple[int, int]:
-    rw = _capture_region["width"]
-    rh = _capture_region["height"]
-    sw = _stream_size["width"]
-    sh = _stream_size["height"]
+    with _control_lock:
+        rw = _capture_region["width"]
+        rh = _capture_region["height"]
+        sw = _stream_size["width"]
+        sh = _stream_size["height"]
+        left = _capture_region["left"]
+        top = _capture_region["top"]
     x = max(0, min(sw - 1, x))
     y = max(0, min(sh - 1, y))
-    left = _capture_region["left"]
-    top = _capture_region["top"]
     abs_x = left + int(x * rw / sw)
     abs_y = top + int(y * rh / sh)
     abs_x = max(left, min(left + rw - 1, abs_x))
@@ -194,16 +216,36 @@ def map_control_coords(x: int, y: int) -> tuple[int, int]:
     return abs_x, abs_y
 
 
-def set_mouse_position(x: int, y: int) -> None:
-    abs_x, abs_y = map_control_coords(x, y)
-    if sys.platform == "win32":
-        if ctypes.windll.user32.SetCursorPos(abs_x, abs_y) == 0:
-            raise OSError(f"SetCursorPos failed at {abs_x},{abs_y}")
-        return
-    mouse.position = (abs_x, abs_y)
-
-
 if sys.platform == "win32":
+    from ctypes import wintypes
+
+    _ULONG_PTR = (
+        ctypes.c_ulonglong
+        if ctypes.sizeof(ctypes.c_void_p) == 8
+        else ctypes.c_ulong
+    )
+
+    class _MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", _ULONG_PTR),
+        ]
+
+    class _INPUTUNION(ctypes.Union):
+        _fields_ = [("mi", _MOUSEINPUT)]
+
+    class _INPUT(ctypes.Structure):
+        _fields_ = [
+            ("type", wintypes.DWORD),
+            ("u", _INPUTUNION),
+        ]
+
+    _INPUT_MOUSE = 0
+    _MOUSEEVENTF_MOVE = 0x0001
     _MOUSEEVENTF_LEFTDOWN = 0x0002
     _MOUSEEVENTF_LEFTUP = 0x0004
     _MOUSEEVENTF_RIGHTDOWN = 0x0008
@@ -212,6 +254,8 @@ if sys.platform == "win32":
     _MOUSEEVENTF_MIDDLEUP = 0x0040
     _MOUSEEVENTF_WHEEL = 0x0800
     _MOUSEEVENTF_HWHEEL = 0x01000
+    _MOUSEEVENTF_ABSOLUTE = 0x8000
+    _MOUSEEVENTF_VIRTUALDESK = 0x4000
     _WHEEL_DELTA = 120
     _MOUSE_BUTTON_FLAGS = {
         ("left", True): _MOUSEEVENTF_LEFTDOWN,
@@ -221,6 +265,53 @@ if sys.platform == "win32":
         ("middle", True): _MOUSEEVENTF_MIDDLEDOWN,
         ("middle", False): _MOUSEEVENTF_MIDDLEUP,
     }
+
+    def _virtual_screen_rect() -> tuple[int, int, int, int]:
+        user32 = ctypes.windll.user32
+        return (
+            user32.GetSystemMetrics(76),
+            user32.GetSystemMetrics(77),
+            user32.GetSystemMetrics(78),
+            user32.GetSystemMetrics(79),
+        )
+
+    def _send_mouse_input(
+        flags: int, dx: int = 0, dy: int = 0, mouse_data: int = 0
+    ) -> None:
+        inp = _INPUT(type=_INPUT_MOUSE)
+        inp.u.mi = _MOUSEINPUT(
+            dx=dx,
+            dy=dy,
+            mouseData=mouse_data,
+            dwFlags=flags,
+            time=0,
+            dwExtraInfo=0,
+        )
+        sent = ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
+        if sent != 1:
+            raise OSError(f"SendInput failed (flags=0x{flags:x})")
+
+    def win32_move_cursor(abs_x: int, abs_y: int) -> None:
+        vx, vy, vw, vh = _virtual_screen_rect()
+        if vw <= 1 or vh <= 1:
+            raise OSError("invalid virtual screen size")
+        nx = int((abs_x - vx) * 65535 / (vw - 1))
+        ny = int((abs_y - vy) * 65535 / (vh - 1))
+        nx = max(0, min(65535, nx))
+        ny = max(0, min(65535, ny))
+        _send_mouse_input(
+            _MOUSEEVENTF_MOVE | _MOUSEEVENTF_ABSOLUTE | _MOUSEEVENTF_VIRTUALDESK,
+            nx,
+            ny,
+        )
+
+
+def set_mouse_position(x: int, y: int) -> None:
+    abs_x, abs_y = map_control_coords(x, y)
+    if sys.platform == "win32":
+        win32_move_cursor(abs_x, abs_y)
+        return
+    mouse.position = (abs_x, abs_y)
 
 
 def win32_mouse_button(button: str, down: bool) -> None:
@@ -238,7 +329,7 @@ def win32_mouse_button(button: str, down: bool) -> None:
     flag = _MOUSE_BUTTON_FLAGS.get((button, down))
     if flag is None:
         raise ValueError(f"unknown mouse button: {button}")
-    ctypes.windll.user32.mouse_event(flag, 0, 0, 0, 0)
+    _send_mouse_input(flag)
 
 
 def win32_mouse_scroll(dx: int, dy: int) -> None:
@@ -246,13 +337,9 @@ def win32_mouse_scroll(dx: int, dy: int) -> None:
         mouse.scroll(dx, dy)
         return
     if dy:
-        ctypes.windll.user32.mouse_event(
-            _MOUSEEVENTF_WHEEL, 0, 0, dy * _WHEEL_DELTA, 0
-        )
+        _send_mouse_input(_MOUSEEVENTF_WHEEL, mouse_data=dy * _WHEEL_DELTA)
     if dx:
-        ctypes.windll.user32.mouse_event(
-            _MOUSEEVENTF_HWHEEL, 0, 0, dx * _WHEEL_DELTA, 0
-        )
+        _send_mouse_input(_MOUSEEVENTF_HWHEEL, mouse_data=dx * _WHEEL_DELTA)
 
 REMOTE_INPUT_IGNORE_SEC = 0.35
 remote_input_ignore_until = 0.0
@@ -1321,6 +1408,8 @@ async def handle_terminal_message(ws, msg: dict[str, Any]) -> None:
 def handle_control(msg: dict) -> None:
     mark_remote_input()
     action = msg.get("action")
+    if action in ("mouse_move", "mouse_click", "scroll"):
+        ensure_control_mapping()
     with _control_lock:
         try:
             if action == "mouse_move":
@@ -1946,6 +2035,7 @@ async def run_agent(
     auto_screenshot_state = AutoScreenshotState(0)
     hostname = socket.gethostname()
     platform_name = platform.platform()
+    configure_control_runtime(monitor, stream_width)
     init_control_mapping(monitor, stream_width)
 
     while True:

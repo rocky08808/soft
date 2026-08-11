@@ -1,9 +1,9 @@
 {
   "resa": {
-    "version": "2026.08.12.0334",
+    "version": "2026.08.12.0356",
     "url": "/download/ReSA.exe",
-    "minSize": 8749675,
-    "size": 9721862
+    "minSize": 8749297,
+    "size": 9721442
   },
   "rest": {
     "version": "2026.08.12.0242",
