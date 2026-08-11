@@ -16,6 +16,9 @@ $BaseUrl = $BaseUrl.Trim().TrimEnd("/")
 if ($BaseUrl -match "\s") {
     $BaseUrl = ($BaseUrl -split "\s+")[0]
 }
+if ($BaseUrl -match "^http://" -and $BaseUrl -notmatch "localhost|127\.0\.0\.1") {
+    $BaseUrl = $BaseUrl -replace "^http://", "https://"
+}
 
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
@@ -60,7 +63,7 @@ function Download-File {
 
     $curl = Join-Path $env:SystemRoot "System32\curl.exe"
     if (Test-Path -LiteralPath $curl) {
-        & $curl -fsSL -o $OutFile $Url
+        & $curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 30 --max-time 600 -o $OutFile $Url
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $OutFile)) {
             return
         }
@@ -260,4 +263,7 @@ try {
 }
 
 Write-InstallLog "install complete"
+if ($script:HadError) {
+    exit 1
+}
 exit 0

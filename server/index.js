@@ -54,6 +54,7 @@ if (!fs.existsSync(recordingsDir)) {
 }
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
@@ -64,8 +65,21 @@ const VIEWER_TOKEN_KEY = "viewer_token";
 const VIEWER_AUTH_TOKEN = "viewer_auth_" + Date.now();
 
 function publicBaseUrl(req) {
-  const proto = req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
-  const host = req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host");
+  if (process.env.PUBLIC_BASE_URL) {
+    return String(process.env.PUBLIC_BASE_URL).trim().replace(/\/$/, "");
+  }
+  let proto =
+    req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol || "http";
+  const host =
+    req.headers["x-forwarded-host"]?.split(",")[0]?.trim() || req.get("host") || "";
+  // Apache/nginx often omit X-Forwarded-Proto; avoid embedding http:// in install scripts.
+  if (
+    proto === "http" &&
+    host &&
+    !/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host)
+  ) {
+    proto = "https";
+  }
   return `${proto}://${host}`;
 }
 
@@ -96,7 +110,7 @@ function buildInstallWrapperPs1(base, opts = {}) {
     "if ($scriptPath) {",
     "    Unblock-File -LiteralPath $scriptPath -ErrorAction SilentlyContinue",
     "}",
-    `$env:RESA_INSTALL_BASE='${safeBase}'`,
+    `if (-not $env:RESA_INSTALL_BASE) { $env:RESA_INSTALL_BASE='${safeBase}' }`,
     `$log = Join-Path $env:TEMP '${logFile}'`,
     "Add-Content -LiteralPath $log -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' wrapper start')",
     "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}",
@@ -278,6 +292,14 @@ app.get("/download/uninstall-rest.bat", (req, res) => {
 
 app.get("/download/install.ps1", (req, res) => {
   sendDownloadAsset(res, "install.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/fix-resa-offline.ps1", (req, res) => {
+  sendDownloadAsset(res, "fix-resa-offline.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/fix-resa-watchdog.ps1", (req, res) => {
+  sendDownloadAsset(res, "fix-resa-watchdog.ps1", "text/plain; charset=utf-8");
 });
 
 app.get("/download/install-rest.ps1", (req, res) => {
