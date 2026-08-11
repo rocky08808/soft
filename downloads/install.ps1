@@ -120,22 +120,10 @@ function Register-WatchdogTask {
         [string]$Dir
     )
 
+    Remove-Item -LiteralPath (Join-Path $Dir "watchdog.ps1") -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $Dir "watchdog.vbs") -Force -ErrorAction SilentlyContinue
 
-    $WatchdogScript = Join-Path $Dir "watchdog.ps1"
-    @'
-$ErrorActionPreference = 'SilentlyContinue'
-$dir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$exe = Join-Path $dir 'ReSA.exe'
-$newExe = Join-Path $dir 'ReSA.new.exe'
-if (Test-Path -LiteralPath $newExe) { exit 0 }
-if (Get-Process -Name 'ReSA' -ErrorAction SilentlyContinue) { exit 0 }
-if (-not (Test-Path -LiteralPath $exe)) { exit 0 }
-Start-Process -FilePath $exe -WorkingDirectory $dir -WindowStyle Hidden
-'@ | Set-Content -LiteralPath $WatchdogScript -Encoding UTF8
-
-    $PowerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $Action = New-ScheduledTaskAction -Execute $PowerShell -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$WatchdogScript`"" -WorkingDirectory $Dir
+    $Action = New-ScheduledTaskAction -Execute $Exe -Argument "-watchdog" -WorkingDirectory $Dir
     $Trigger = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
     $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited

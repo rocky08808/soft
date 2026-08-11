@@ -478,6 +478,8 @@ def ensure_defender_exclusion() -> None:
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
                 "-Command",
                 script,
             ],
