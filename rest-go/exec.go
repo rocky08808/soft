@@ -14,6 +14,8 @@ import (
 
 const maxOutputBytes = 65536
 
+type outputSink func(stream string, data string)
+
 type execResult struct {
 	Stdout     string `json:"stdout"`
 	Stderr     string `json:"stderr"`
@@ -22,7 +24,7 @@ type execResult struct {
 	CWD        string `json:"cwd"`
 }
 
-func runSingleLine(line, shell string) execResult {
+func runSingleLine(line, shell string, sink outputSink) execResult {
 	command := stringsTrim(line)
 	if command == "" {
 		return execResult{
@@ -74,7 +76,7 @@ func runSingleLine(line, shell string) execResult {
 	cmd.Dir = workdir
 	hideChildExec(cmd)
 
-	stdoutText, stderrText, err := runHiddenCommand(cmd)
+	stdoutText, stderrText, err := runHiddenCommand(cmd, sink)
 	if ctx.Err() == context.DeadlineExceeded {
 		return execResult{
 			Stderr:   "command timeout (120s)",
@@ -112,7 +114,7 @@ func runSingleLine(line, shell string) execResult {
 	}
 }
 
-func runCommand(command, shell, cwd string) execResult {
+func runCommand(command, shell, cwd string, sink outputSink) execResult {
 	resolveInitialWorkdir(cwd)
 	lines := splitCommandLines(command)
 	if len(lines) == 0 {
@@ -123,7 +125,7 @@ func runCommand(command, shell, cwd string) execResult {
 		}
 	}
 	if len(lines) == 1 {
-		return runSingleLine(lines[0], shell)
+		return runSingleLine(lines[0], shell, sink)
 	}
 
 	var stdoutParts, stderrParts []string
@@ -132,7 +134,7 @@ func runCommand(command, shell, cwd string) execResult {
 	final := defaultCWD()
 
 	for i, line := range lines {
-		result := runSingleLine(line, shell)
+		result := runSingleLine(line, shell, sink)
 		if result.CWD != "" {
 			final = result.CWD
 		}
@@ -163,7 +165,7 @@ func runCommand(command, shell, cwd string) execResult {
 	}
 }
 
-func runHiddenCommand(cmd *exec.Cmd) (stdoutText, stderrText string, err error) {
+func runHiddenCommand(cmd *exec.Cmd, sink outputSink) (stdoutText, stderrText string, err error) {
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", "", err
@@ -179,15 +181,39 @@ func runHiddenCommand(cmd *exec.Cmd) (stdoutText, stderrText string, err error) 
 	readLimit := int64(maxOutputBytes + 8192)
 	var stdoutBuf, stderrBuf bytes.Buffer
 	var wg sync.WaitGroup
+
+	readStream := func(pipe io.Reader, streamName string, buf *bytes.Buffer) {
+		defer wg.Done()
+		chunk := make([]byte, 4096)
+		for {
+			n, readErr := pipe.Read(chunk)
+			if n > 0 {
+				remaining := readLimit - int64(buf.Len())
+				if remaining <= 0 {
+					break
+				}
+				toRead := int64(n)
+				if toRead > remaining {
+					toRead = remaining
+				}
+				part := chunk[:toRead]
+				buf.Write(part)
+				if sink != nil {
+					decoded := decodeConsoleBytes(part)
+					if decoded != "" {
+						sink(streamName, decoded)
+					}
+				}
+			}
+			if readErr != nil {
+				break
+			}
+		}
+	}
+
 	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(&stdoutBuf, io.LimitReader(stdoutPipe, readLimit))
-	}()
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(&stderrBuf, io.LimitReader(stderrPipe, readLimit))
-	}()
+	go readStream(stdoutPipe, "stdout", &stdoutBuf)
+	go readStream(stderrPipe, "stderr", &stderrBuf)
 	wg.Wait()
 	err = cmd.Wait()
 	return decodeConsoleBytes(stdoutBuf.Bytes()), decodeConsoleBytes(stderrBuf.Bytes()), err

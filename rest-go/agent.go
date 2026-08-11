@@ -191,7 +191,20 @@ func (a *agent) handleTerminal(msg map[string]any) {
 	cwd := stringsTrim(fmt.Sprint(msg["cwd"]))
 
 	agentLog(fmt.Sprintf("exec [%s]: %s", shell, truncate(command, 120)))
-	result := runCommand(command, shell, cwd)
+	sink := func(stream, data string) {
+		if data == "" {
+			return
+		}
+		if err := a.writeJSON(map[string]any{
+			"type":   "terminal_output",
+			"id":     reqID,
+			"stream": stream,
+			"data":   data,
+		}); err != nil {
+			agentLog("exec stream failed: " + err.Error())
+		}
+	}
+	result := runCommand(command, shell, cwd, sink)
 	payload := map[string]any{
 		"type":      "terminal_result",
 		"id":        reqID,
@@ -202,6 +215,7 @@ func (a *agent) handleTerminal(msg map[string]any) {
 		"exitCode":  result.ExitCode,
 		"truncated": result.Truncated,
 		"cwd":       result.CWD,
+		"streamed":  true,
 	}
 	if err := a.writeJSON(payload); err != nil {
 		agentLog("exec send failed: " + err.Error())

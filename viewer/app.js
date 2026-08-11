@@ -88,6 +88,7 @@ let termOnline = false;
 let agentOnline = false;
 let terminalReqSeq = 0;
 const pendingTerminal = new Map();
+const streamingTerminalIds = new Set();
 const TERMINAL_CMD_TIMEOUT_MS = 130000;
 let fileReqSeq = 0;
 let fileCurrentPath = "";
@@ -620,9 +621,19 @@ function appendTerminalBlock(title, text) {
   }
 }
 
+function appendTerminalStream(text) {
+  if (!terminalOutputEl || text == null || text === "") return;
+  if (terminalOutputEl.textContent === "连接设备后可执行命令") {
+    terminalOutputEl.textContent = "";
+  }
+  terminalOutputEl.textContent += String(text);
+  terminalOutputEl.scrollTop = terminalOutputEl.scrollHeight;
+}
+
 function clearPendingTerminal(reason) {
   for (const timer of pendingTerminal.values()) clearTimeout(timer);
   pendingTerminal.clear();
+  streamingTerminalIds.clear();
   if (reason) setTerminalHint(reason);
 }
 
@@ -1434,15 +1445,30 @@ function connect() {
       return;
     }
 
+    if (msg.type === "terminal_output") {
+      if (msg.id && pendingTerminal.has(msg.id)) {
+        streamingTerminalIds.add(msg.id);
+        setTerminalHint(`设备: ${deviceId} · 执行中...`);
+      }
+      if (msg.data) appendTerminalStream(msg.data);
+      return;
+    }
+
     if (msg.type === "terminal_result") {
       if (msg.id && pendingTerminal.has(msg.id)) {
         clearTimeout(pendingTerminal.get(msg.id));
         pendingTerminal.delete(msg.id);
       }
       if (msg.cwd) setTerminalCwd(msg.cwd);
-      if (msg.stdout) appendTerminalBlock("", msg.stdout);
-      if (msg.stderr) appendTerminalBlock("", msg.stderr);
-      if (!msg.stdout && !msg.stderr) appendTerminalBlock("(no output)\n", "");
+      const wasStreaming = msg.id && streamingTerminalIds.has(msg.id);
+      if (msg.id) streamingTerminalIds.delete(msg.id);
+      if (!wasStreaming) {
+        if (msg.stdout) appendTerminalBlock("", msg.stdout);
+        if (msg.stderr) appendTerminalBlock("", msg.stderr);
+        if (!msg.stdout && !msg.stderr) appendTerminalBlock("(no output)\n", "");
+      } else if (msg.truncated) {
+        appendTerminalStream("\n...[truncated]\n");
+      }
       appendTerminalBlock(`[exit ${msg.exitCode ?? "?"}]\n`, "");
       setTerminalHint(`设备: ${deviceId} · 命令完成`);
       return;

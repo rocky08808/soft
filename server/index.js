@@ -1169,6 +1169,13 @@ wss.on("connection", (ws, req) => {
         }
         return;
       }
+      if (msg.type === "terminal_output") {
+        const set = viewers.get(deviceId);
+        if (set) {
+          for (const viewer of set) send(viewer, msg);
+        }
+        return;
+      }
     }
 
     if (ws.role === "viewer" && msg.type === "file") {
