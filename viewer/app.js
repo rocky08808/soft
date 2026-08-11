@@ -92,6 +92,8 @@ const streamingTerminalIds = new Set();
 const TERMINAL_CMD_TIMEOUT_MS = 130000;
 let fileReqSeq = 0;
 let fileCurrentPath = "";
+const pendingFiles = new Map();
+const FILE_REQUEST_TIMEOUT_MS = 30000;
 let updateReqSeq = 0;
 let latestResaVersion = "";
 let latestRestVersion = "";
@@ -300,7 +302,8 @@ function updateTerminalUi() {
 
 function updateFilesUi() {
   const connected = !!(ws && ws.readyState === WebSocket.OPEN);
-  const enabled = connected && agentOnline;
+  const screenReady = agentOnline || remoteWidth > 0;
+  const enabled = connected && screenReady;
   if (openFilesBtn) openFilesBtn.disabled = !enabled;
 }
 
@@ -356,7 +359,7 @@ function openFilesModal() {
     setFilesHint("请先连接设备");
     return;
   }
-  if (!agentOnline) {
+  if (!agentOnline && !remoteWidth) {
     setFilesHint("屏幕 Agent 离线，无法浏览文件");
     return;
   }
@@ -392,6 +395,15 @@ function joinFilePath(base, name) {
 function sendFileRequest(action, path = "") {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const id = `f${++fileReqSeq}`;
+  const timer = setTimeout(() => {
+    if (!pendingFiles.has(id)) return;
+    pendingFiles.delete(id);
+    if (filesStatusEl) {
+      filesStatusEl.textContent =
+        "请求超时：请更新被控端 ReSA 到最新版后重试";
+    }
+  }, FILE_REQUEST_TIMEOUT_MS);
+  pendingFiles.set(id, timer);
   ws.send(JSON.stringify({ type: "file", id, action, path }));
   if (filesStatusEl) filesStatusEl.textContent = "加载中...";
 }
@@ -473,7 +485,11 @@ function downloadFileBlob(name, base64Data) {
 }
 
 function handleFileResult(msg) {
-  if (!msg.ok) {
+  if (msg.id && pendingFiles.has(msg.id)) {
+    clearTimeout(pendingFiles.get(msg.id));
+    pendingFiles.delete(msg.id);
+  }
+  if (msg.ok === false || (!msg.ok && msg.error)) {
     if (filesStatusEl) filesStatusEl.textContent = msg.error || "操作失败";
     return;
   }
@@ -1490,6 +1506,8 @@ function connect() {
       agentOnline = true;
       setStatus(`远程控制中 · ${deviceId}`, true);
       drawFrame(msg.data, msg.width, msg.height);
+      updateFilesUi();
+      updateFilesModalTitle();
     }
   };
 
@@ -1502,6 +1520,8 @@ function connect() {
     termOnline = false;
     agentOnline = false;
     clearPendingTerminal();
+    for (const timer of pendingFiles.values()) clearTimeout(timer);
+    pendingFiles.clear();
     fileCurrentPath = "";
     deviceAgentVersion = "";
     deviceTermVersion = "";
