@@ -168,7 +168,7 @@ function buildSetupVbs(base, opts = {}) {
   const psInner = buildInstallRunCommand(base, merged).replace(/"/g, '""');
   return [
     'Set sh = CreateObject("WScript.Shell")',
-    'sh.Run "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command ""' +
+    'sh.Run "powershell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ""' +
       psInner +
       '""", 0, False',
     "",
@@ -189,7 +189,7 @@ function buildSetupBat(base, opts = {}) {
     "del \"%VBS%\" 2>nul",
     "exit /b 0",
     ":work",
-    "powershell -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -Command \"" +
+    "powershell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
       psCmd +
       "\"",
     "exit /b %ERRORLEVEL%",
