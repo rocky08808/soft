@@ -1101,6 +1101,24 @@ function currentDeviceId() {
   return deviceInput.value.trim() || "PC-001";
 }
 
+let clipboardRefreshTimer = null;
+
+function startClipboardRefresh(deviceId) {
+  stopClipboardRefresh();
+  clipboardRefreshTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      loadClipboardHistory(deviceId);
+    }
+  }, 15000);
+}
+
+function stopClipboardRefresh() {
+  if (clipboardRefreshTimer) {
+    clearInterval(clipboardRefreshTimer);
+    clipboardRefreshTimer = null;
+  }
+}
+
 function setClipboardHint(text) {
   if (clipboardHintEl) clipboardHintEl.textContent = text;
 }
@@ -1480,6 +1498,7 @@ function connect() {
     loadClipboardHistory(deviceId);
     loadKeyboardHistory(deviceId);
     loadScreenshotHistory(deviceId);
+    startClipboardRefresh(deviceId);
     screenshotBtn.disabled = false;
     pushAutoScreenshotToAgent(deviceId);
     const prefs = loadAutoScreenshotPrefs(deviceId);
@@ -1702,6 +1721,7 @@ function connect() {
 }
 
 function disconnect() {
+  stopClipboardRefresh();
   if (ws) ws.close();
   ws = null;
 }

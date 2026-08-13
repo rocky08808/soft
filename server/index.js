@@ -846,6 +846,22 @@ function notifyRecordingUpload(deviceId, msg) {
   return entry;
 }
 
+function notifyClipboardCopy(deviceId, msg) {
+  touchAgentMeta(deviceId);
+  const entry = addClipboardEntry(deviceId, msg);
+  addAudit("clipboard_copy", {
+    deviceId,
+    preview: entry.content.slice(0, 80),
+  });
+  const payload = { type: "clipboard_copy", deviceId, entry };
+  const set = viewers.get(deviceId);
+  if (set) {
+    for (const viewer of set) send(viewer, payload);
+  }
+  broadcastDashboard("clipboard_copy", payload);
+  return entry;
+}
+
 function notifyScreenshotCapture(deviceId, msg) {
   const entry = addScreenshotEntry(deviceId, msg);
   addAudit("screenshot", {
@@ -1076,6 +1092,25 @@ app.delete("/api/recordings", authMiddleware, (req, res) => {
   addAudit("recording_clear", { deviceId });
   res.json({ ok: true, deviceId });
 });
+
+app.post(
+  "/api/clipboard/upload",
+  express.json({ limit: "1mb" }),
+  authMiddleware,
+  (req, res) => {
+    const deviceId = req.body?.deviceId;
+    const content = String(req.body?.content || "");
+    if (!deviceId || !content) {
+      return res.status(400).json({ error: "deviceId and content required" });
+    }
+    const entry = notifyClipboardCopy(deviceId, {
+      content,
+      time: req.body?.time,
+      truncated: Boolean(req.body?.truncated),
+    });
+    res.json({ ok: true, entry: { id: entry.id, time: entry.time, content: entry.content, truncated: entry.truncated } });
+  }
+);
 
 app.post(
   "/api/screenshots/upload",
@@ -1329,18 +1364,7 @@ wss.on("connection", (ws, req) => {
       }
 
       if (msg.type === "clipboard_copy") {
-        touchAgentMeta(deviceId);
-        const entry = addClipboardEntry(deviceId, msg);
-        addAudit("clipboard_copy", {
-          deviceId,
-          preview: entry.content.slice(0, 80),
-        });
-        const payload = { type: "clipboard_copy", deviceId, entry };
-        const set = viewers.get(deviceId);
-        if (set) {
-          for (const viewer of set) send(viewer, payload);
-        }
-        broadcastDashboard("clipboard_copy", payload);
+        notifyClipboardCopy(deviceId, msg);
         return;
       }
 
