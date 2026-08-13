@@ -903,6 +903,27 @@ function isDeviceOnline(d) {
   return !!(d.online || d.termOnline || d.proxyOnline);
 }
 
+function patchDeviceStatus(deviceId, patch) {
+  if (!deviceId) return;
+  const idx = lastKnownDevices.findIndex((d) => d.deviceId === deviceId);
+  if (idx >= 0) {
+    lastKnownDevices[idx] = { ...lastKnownDevices[idx], ...patch };
+  } else if (isDeviceOnline({ ...patch })) {
+    lastKnownDevices.push({
+      deviceId,
+      hostname: "",
+      viewerCount: 0,
+      online: false,
+      termOnline: false,
+      proxyOnline: false,
+      ...patch,
+    });
+  } else {
+    return;
+  }
+  renderDevices(lastKnownDevices);
+}
+
 function maybeAutoSelectDevice(devices) {
   if (params.get("device")) return;
   const screenOnline = devices.filter((d) => d.online);
@@ -989,12 +1010,16 @@ function createDeviceItem(device) {
   if (proxyOn) badges.push("代理");
   const badgeText = badges.length ? badges.join("+") : "离线";
   const ipPart = proxyOn && device.proxyIp ? ` · 出口 ${escapeHtml(device.proxyIp)}` : "";
+  const lastSeenPart =
+    !anyOn && device.lastSeen
+      ? ` · 最后在线 ${new Date(device.lastSeen).toLocaleString()}`
+      : "";
   li.innerHTML = `
     <div class="device-row">
       <strong>${escapeHtml(device.deviceId)}</strong>
       <span class="badge">${badgeText}</span>
     </div>
-    <div class="device-sub">${escapeHtml(device.hostname || "—")}${ipPart} · 观看 ${device.viewerCount || 0}</div>
+    <div class="device-sub">${escapeHtml(device.hostname || "—")}${ipPart} · 观看 ${device.viewerCount || 0}${lastSeenPart}</div>
   `;
   if (anyOn) {
     li.addEventListener("click", () => connectToDevice(device.deviceId));
@@ -1538,6 +1563,7 @@ function connect() {
 
     if (msg.type === "agent_offline") {
       agentOnline = false;
+      patchDeviceStatus(deviceId, { online: false });
       updateTerminalUi();
       updateTerminalModalTitle();
       updateFilesUi();
@@ -1551,6 +1577,7 @@ function connect() {
 
     if (msg.type === "agent_online" && msg.deviceId === deviceId) {
       agentOnline = true;
+      patchDeviceStatus(deviceId, { online: true });
       updateTerminalUi();
       updateTerminalModalTitle();
       updateFilesUi();
@@ -1584,6 +1611,7 @@ function connect() {
 
     if (msg.type === "term_online" && msg.deviceId === deviceId) {
       termOnline = true;
+      patchDeviceStatus(deviceId, { termOnline: true });
       updateTerminalUi();
       updateTerminalModalTitle();
       setTerminalHint(`设备: ${deviceId} · 终端已连接，点击「打开终端」`);
@@ -1593,6 +1621,7 @@ function connect() {
 
     if (msg.type === "term_offline" && msg.deviceId === deviceId) {
       termOnline = false;
+      patchDeviceStatus(deviceId, { termOnline: false });
       clearPendingTerminal(`设备: ${deviceId} · 终端已离线`);
       updateTerminalUi();
       updateTerminalModalTitle();
@@ -1899,3 +1928,4 @@ renderScreenshots();
 loadLatestVersions();
 refreshDashboard();
 connectDashboard();
+setInterval(refreshDashboard, 25000);

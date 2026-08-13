@@ -1,17 +1,17 @@
 {
   "resa": {
-    "version": "2026.08.12.0554",
+    "version": "2026.08.13.2033",
     "url": "/download/ReSA.exe",
-    "minSize": 52187106,
-    "size": 57985674
+    "minSize": 52186963,
+    "size": 57985515
   },
   "rest": {
-    "version": "2026.08.12.0242",
+    "version": "2026.08.13.2037",
     "url": "/download/ReST.zip",
     "minSize": 524288
   },
   "proxy": {
-    "version": "2026.08.11.0505",
+    "version": "2026.08.13.2039",
     "url": "/download/Proxy.exe",
     "minSize": 262144
   }

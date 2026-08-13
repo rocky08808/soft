@@ -136,14 +136,14 @@ func (m *tunnelManager) run() {
 				m.log("连接被另一个 ProxyClient 顶替。请结束多余的 ProxyClient.exe，只保留一个后再点「启动代理」。")
 				return
 			}
-			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 10s)", err))
+			m.log(fmt.Sprintf("proxy tunnel disconnected: %v (retry in 1s)", err))
 			m.resetConnection()
 			m.setReconnecting(true)
 			select {
 			case <-m.stopCh:
 				m.setReconnecting(false)
 				return
-			case <-time.After(10 * time.Second):
+			case <-time.After(1 * time.Second):
 			}
 			m.log("正在重连服务器…")
 			continue

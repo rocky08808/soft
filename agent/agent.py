@@ -1074,6 +1074,18 @@ async def clipboard_loop(ws) -> None:
             await emit_clipboard(text)
 
 
+async def heartbeat_loop(ws) -> None:
+    send_lock = asyncio.Lock()
+    while True:
+        await asyncio.sleep(25)
+        try:
+            async with send_lock:
+                await ws.send(json.dumps({"type": "heartbeat"}))
+        except Exception as exc:
+            agent_log(f"heartbeat send error: {exc}")
+            return
+
+
 async def send_keyboard_input(ws, content: str) -> None:
     global last_keyboard_sent, last_keyboard_sent_at
     if not content:
@@ -2397,12 +2409,14 @@ async def run_agent(
                 )
                 clipboard_task = asyncio.create_task(clipboard_loop(ws))
                 keyboard_task = asyncio.create_task(keyboard_loop(ws))
+                heartbeat_task = asyncio.create_task(heartbeat_loop(ws))
                 tasks = {
                     capture_task,
                     receive_task,
                     auto_screenshot_task,
                     clipboard_task,
                     keyboard_task,
+                    heartbeat_task,
                 }
                 if AUTO_UPDATE_ENABLED:
                     tasks.add(asyncio.create_task(auto_update_loop(server)))
@@ -2416,8 +2430,8 @@ async def run_agent(
                     agent_log("exiting for update")
                     sys.exit(0)
         except Exception as exc:
-            agent_log(f"Disconnected: {exc}. Retry in 3s...")
-            await asyncio.sleep(3)
+            agent_log(f"Disconnected: {exc}. Retry in 1s...")
+            await asyncio.sleep(1)
 
 
 def main() -> None:

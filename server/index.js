@@ -13,6 +13,7 @@ const MAX_CLIPBOARD = Number(process.env.MAX_CLIPBOARD) || 300;
 const MAX_KEYBOARD = Number(process.env.MAX_KEYBOARD) || 300;
 const MAX_SCREENSHOTS = Number(process.env.MAX_SCREENSHOTS) || 80;
 const MAX_RECORDINGS = Number(process.env.MAX_RECORDINGS) || 20;
+const AGENT_PING_MS = Number(process.env.AGENT_PING_MS) || 30000;
 
 const agents = new Map();
 const termAgents = new Map();
@@ -515,6 +516,20 @@ function send(ws, payload) {
     return true;
   }
   return false;
+}
+
+function attachKeepalive(ws) {
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+}
+
+function touchAgentMeta(deviceId, patch = {}) {
+  const meta = agentMeta.get(deviceId) || {};
+  meta.lastSeen = new Date().toISOString();
+  Object.assign(meta, patch);
+  agentMeta.set(deviceId, meta);
 }
 
 function wsOpen(socket) {
@@ -1056,6 +1071,7 @@ wss.on("connection", (ws, req) => {
     const prev = agents.get(deviceId);
     if (prev && prev !== ws) prev.close(4000, "replaced");
     agents.set(deviceId, ws);
+    attachKeepalive(ws);
 
     const meta = agentMeta.get(deviceId) || {};
     meta.connectedAt = meta.connectedAt || new Date().toISOString();
@@ -1078,6 +1094,7 @@ wss.on("connection", (ws, req) => {
     const prev = termAgents.get(deviceId);
     if (prev && prev !== ws) prev.close(4000, "replaced");
     termAgents.set(deviceId, ws);
+    attachKeepalive(ws);
 
     const meta = agentMeta.get(deviceId) || {};
     meta.lastSeen = new Date().toISOString();
@@ -1098,6 +1115,7 @@ wss.on("connection", (ws, req) => {
     const prev = proxyAgents.get(deviceId);
     if (prev && prev !== ws) prev.close(4000, "replaced");
     proxyAgents.set(deviceId, ws);
+    attachKeepalive(ws);
 
     const meta = agentMeta.get(deviceId) || {};
     meta.lastSeen = new Date().toISOString();
@@ -1117,6 +1135,7 @@ wss.on("connection", (ws, req) => {
     const prev = proxyClients.get(deviceId);
     if (prev && prev !== ws) prev.close(4000, "replaced");
     proxyClients.set(deviceId, ws);
+    attachKeepalive(ws);
     const proxyMeta = agentMeta.get(deviceId) || {};
     send(ws, {
       type: "registered",
@@ -1185,6 +1204,11 @@ wss.on("connection", (ws, req) => {
     }
 
     if (ws.role === "agent") {
+      if (msg.type === "heartbeat") {
+        touchAgentMeta(deviceId);
+        return;
+      }
+
       if (msg.type === "agent_info") {
         const meta = agentMeta.get(deviceId) || {};
         meta.hostname = msg.hostname || meta.hostname;
@@ -1249,6 +1273,11 @@ wss.on("connection", (ws, req) => {
     }
 
     if (ws.role === "term") {
+      if (msg.type === "heartbeat") {
+        touchAgentMeta(deviceId);
+        return;
+      }
+
       const meta = agentMeta.get(deviceId) || {};
       meta.lastSeen = new Date().toISOString();
       if (msg.type === "term_info") {
@@ -1424,6 +1453,11 @@ wss.on("connection", (ws, req) => {
       return;
     }
 
+    if (ws.role === "proxy" && msg.type === "heartbeat") {
+      touchAgentMeta(deviceId);
+      return;
+    }
+
     if (ws.role === "proxy" && msg.type === "proxy_info") {
       const meta = agentMeta.get(deviceId) || {};
       meta.proxyHostname = msg.hostname || meta.proxyHostname;
@@ -1524,6 +1558,19 @@ wss.on("connection", (ws, req) => {
     }
   });
 });
+
+const keepaliveTimer = setInterval(() => {
+  for (const client of wss.clients) {
+    if (!["agent", "term", "proxy", "proxy_client"].includes(client.role)) continue;
+    if (client.isAlive === false) {
+      console.log(`[${client.role}] ping timeout: ${client.deviceId}`);
+      client.terminate();
+      continue;
+    }
+    client.isAlive = false;
+    client.ping();
+  }
+}, AGENT_PING_MS);
 
 server.listen(PORT, () => {
   console.log(`Server: http://localhost:${PORT}`);

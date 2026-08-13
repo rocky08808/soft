@@ -28,11 +28,11 @@ func (w *wsAgent) run() {
 	for {
 		if err := w.connectOnce(url); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "replaced") {
-				agentLog("Connection replaced, reconnecting in 10s...")
+				agentLog("Connection replaced, reconnecting in 1s...")
 			} else {
-				agentLog(fmt.Sprintf("Disconnected: %v. Retry in 10s...", err))
+				agentLog(fmt.Sprintf("Disconnected: %v. Retry in 1s...", err))
 			}
-			time.Sleep(10 * time.Second)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 	}
@@ -79,6 +79,10 @@ func (w *wsAgent) connectOnce(url string) error {
 	go w.pingLoop(conn, stopPing)
 	defer close(stopPing)
 
+	stopHeartbeat := make(chan struct{})
+	go w.heartbeatLoop(stopHeartbeat)
+	defer close(stopHeartbeat)
+
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
@@ -117,9 +121,25 @@ func (w *wsAgent) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
 			return
 		case <-ticker.C:
 			w.writeMu.Lock()
-			err := conn.WriteMessage(websocket.PingMessage, nil)
+			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
 			w.writeMu.Unlock()
 			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (w *wsAgent) heartbeatLoop(stop <-chan struct{}) {
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			if err := w.sendJSON(map[string]any{"type": "heartbeat"}); err != nil {
+				agentLog("heartbeat send error: " + err.Error())
 				return
 			}
 		}
