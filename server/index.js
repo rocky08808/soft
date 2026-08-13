@@ -178,16 +178,11 @@ function buildSetupVbs(base, opts = {}) {
 
 function buildSetupBat(base, opts = {}) {
   const merged = { silentInstall: true, hiddenInstall: true, ...opts };
-  const launcherId = merged.launcherId || "setup";
   const psCmd = buildInstallRunCommand(base, merged).replace(/"/g, '\\"');
   return [
     "@echo off",
     "if \"%~1\"==\"H\" goto :work",
-    "set \"VBS=%TEMP%\\" + launcherId + "-launch.vbs\"",
-    "> \"%VBS%\" echo Set sh = CreateObject(\"WScript.Shell\")",
-    ">> \"%VBS%\" echo sh.Run \"\"\"\"^& \"%~f0\" ^& \"\"\"\" H\", 0, False",
-    "wscript //nologo \"%VBS%\"",
-    "del \"%VBS%\" 2>nul",
+    "powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -FilePath '%~f0' -ArgumentList 'H' -WindowStyle Hidden\"",
     "exit /b 0",
     ":work",
     "powershell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
