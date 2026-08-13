@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 )
 
@@ -59,7 +58,7 @@ func handleSOCKS4AfterVer(conn net.Conn, mgr *tunnelManager) {
 
 	_ = conn.SetDeadline(time.Time{})
 
-	id, stream, err := mgr.openTunnel(host, port)
+	id, err := mgr.openTunnel(host, port)
 	if err != nil {
 		mgr.log(fmt.Sprintf("proxy open %s:%d failed: %v", host, port, err))
 		writeSOCKS4Reply(conn, 0x5b)
@@ -70,7 +69,7 @@ func handleSOCKS4AfterVer(conn net.Conn, mgr *tunnelManager) {
 		mgr.closeTunnel(id)
 		return
 	}
-	relayTunnel(conn, mgr, id, stream)
+	relayTunnel(conn, mgr, id)
 }
 
 func handleSOCKS5AfterVer(conn net.Conn, mgr *tunnelManager) {
@@ -110,7 +109,7 @@ func handleSOCKS5AfterVer(conn net.Conn, mgr *tunnelManager) {
 
 	_ = conn.SetDeadline(time.Time{})
 
-	id, stream, err := mgr.openTunnel(host, port)
+	id, err := mgr.openTunnel(host, port)
 	if err != nil {
 		mgr.log(fmt.Sprintf("proxy open %s:%d failed: %v", host, port, err))
 		_, _ = conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
@@ -121,44 +120,25 @@ func handleSOCKS5AfterVer(conn net.Conn, mgr *tunnelManager) {
 		mgr.closeTunnel(id)
 		return
 	}
-	relayTunnel(conn, mgr, id, stream)
+	relayTunnel(conn, mgr, id)
 }
 
-func relayTunnel(conn net.Conn, mgr *tunnelManager, id string, stream <-chan []byte) {
+func relayTunnel(conn net.Conn, mgr *tunnelManager, id string) {
 	defer mgr.closeTunnel(id)
+	mgr.bindStream(id, conn)
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		buf := make([]byte, 128*1024)
-		for {
-			n, readErr := conn.Read(buf)
-			if n > 0 {
-				if err := mgr.sendData(id, buf[:n]); err != nil {
-					return
-				}
-			}
-			if readErr != nil {
+	buf := make([]byte, 256*1024)
+	for {
+		n, readErr := conn.Read(buf)
+		if n > 0 {
+			if err := mgr.sendData(id, buf[:n]); err != nil {
 				return
 			}
 		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		for chunk := range stream {
-			if len(chunk) == 0 {
-				continue
-			}
-			if _, err := conn.Write(chunk); err != nil {
-				return
-			}
+		if readErr != nil {
+			return
 		}
-	}()
-
-	wg.Wait()
+	}
 }
 
 func writeSOCKS4Reply(conn net.Conn, code byte) error {

@@ -10,15 +10,26 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type wsOutbound struct {
+	msgType int
+	data    []byte
+	release func()
+}
+
 type wsAgent struct {
 	*agent
-	conn *websocket.Conn
-	done chan struct{}
+	conn     *websocket.Conn
+	done     chan struct{}
+	outbound chan wsOutbound
 }
 
 func newWSAgent(s settings) *wsAgent {
 	core := newAgent(s)
-	w := &wsAgent{agent: core, done: make(chan struct{})}
+	w := &wsAgent{
+		agent:    core,
+		done:     make(chan struct{}),
+		outbound: make(chan wsOutbound, 512),
+	}
 	core.setSender(w.sendJSON, w.sendBinary)
 	return w
 }
@@ -75,6 +86,11 @@ func (w *wsAgent) connectOnce(url string) error {
 	agentLog(fmt.Sprintf("Proxy agent online: %s (%s) v%s", w.settings.DeviceID, hostname, localVersion()))
 	go w.reportPublicIP()
 
+	stopWriter := make(chan struct{})
+	go w.writeLoop(stopWriter)
+	defer close(stopWriter)
+	drainOutbound(w.outbound)
+
 	stopPing := make(chan struct{})
 	go w.pingLoop(conn, stopPing)
 	defer close(stopPing)
@@ -95,7 +111,7 @@ func (w *wsAgent) connectOnce(url string) error {
 		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
 
 		if mt == websocket.BinaryMessage {
-			if id, data, ok := decodeProxyData(raw); ok {
+			if id, data, ok := decodeProxyFrame(raw); ok {
 				w.handleProxyBinary(id, data)
 				continue
 			}
@@ -110,20 +126,69 @@ func (w *wsAgent) connectOnce(url string) error {
 	}
 }
 
+func drainOutbound(ch chan wsOutbound) {
+	for {
+		select {
+		case item := <-ch:
+			if item.release != nil {
+				item.release()
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (w *wsAgent) writeLoop(stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case item := <-w.outbound:
+			if w.conn == nil {
+				if item.release != nil {
+					item.release()
+				}
+				continue
+			}
+			err := w.conn.WriteMessage(item.msgType, item.data)
+			if item.release != nil {
+				item.release()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (w *wsAgent) queueOutbound(item wsOutbound) error {
+	select {
+	case w.outbound <- item:
+		return nil
+	case <-time.After(30 * time.Second):
+		if item.release != nil {
+			item.release()
+		}
+		return fmt.Errorf("write queue full")
+	}
+}
+
 func (w *wsAgent) sendJSON(msg map[string]any) error {
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	w.writeMu.Lock()
-	defer w.writeMu.Unlock()
-	return w.conn.WriteMessage(websocket.TextMessage, raw)
+	return w.queueOutbound(wsOutbound{msgType: websocket.TextMessage, data: raw})
 }
 
 func (w *wsAgent) sendBinary(frame []byte) error {
-	w.writeMu.Lock()
-	defer w.writeMu.Unlock()
-	return w.conn.WriteMessage(websocket.BinaryMessage, frame)
+	release := func() { releaseProxyFrame(frame) }
+	return w.queueOutbound(wsOutbound{
+		msgType: websocket.BinaryMessage,
+		data:    frame,
+		release: release,
+	})
 }
 
 func (w *wsAgent) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
@@ -134,10 +199,8 @@ func (w *wsAgent) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			w.writeMu.Lock()
-			err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second))
-			w.writeMu.Unlock()
-			if err != nil {
+			deadline := time.Now().Add(10 * time.Second)
+			if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
 				return
 			}
 		}

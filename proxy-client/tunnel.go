@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,10 +17,11 @@ import (
 type tunnelManager struct {
 	settings settings
 	conn     *websocket.Conn
-	writeMu  sync.Mutex
+	outbound chan wsOutbound
 	ready    chan struct{}
 	opens    sync.Map
 	streams  sync.Map
+	idBytes  sync.Map
 	logf     func(string)
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -30,6 +32,12 @@ type tunnelManager struct {
 	connected   atomic.Uint32
 	reconnecting atomic.Uint32
 	onProxyState func(online bool)
+}
+
+type wsOutbound struct {
+	msgType int
+	data    []byte
+	release func()
 }
 
 func (m *tunnelManager) setProxyOnline(online bool) {
@@ -100,6 +108,7 @@ func newTunnelManager(s settings) *tunnelManager {
 		settings: s,
 		ready:    make(chan struct{}),
 		stopCh:   make(chan struct{}),
+		outbound: make(chan wsOutbound, 512),
 	}
 }
 
@@ -166,10 +175,14 @@ func (m *tunnelManager) failPendingOpens(err error) {
 		return true
 	})
 	m.streams.Range(func(key, value any) bool {
-		if ch, ok := value.(chan []byte); ok {
-			close(ch)
+		if conn, ok := value.(net.Conn); ok {
+			_ = conn.Close()
 		}
 		m.streams.Delete(key)
+		return true
+	})
+	m.idBytes.Range(func(key, value any) bool {
+		m.idBytes.Delete(key)
 		return true
 	})
 }
@@ -178,12 +191,11 @@ func (m *tunnelManager) resetConnection() {
 	m.setConnected(false)
 	m.setProxyOnline(false)
 	m.setProxyIP("")
-	m.writeMu.Lock()
 	if m.conn != nil {
 		_ = m.conn.Close()
 		m.conn = nil
 	}
-	m.writeMu.Unlock()
+	drainOutbound(m.outbound)
 	m.ready = make(chan struct{})
 	m.failPendingOpens(fmt.Errorf("connection lost"))
 }
@@ -197,12 +209,15 @@ func (m *tunnelManager) connect(url string) error {
 		return err
 	}
 
-	m.writeMu.Lock()
 	m.conn = conn
-	m.writeMu.Unlock()
 	m.setConnected(true)
 	m.setReconnecting(false)
 	close(m.ready)
+
+	stopWriter := make(chan struct{})
+	go m.writeLoop(conn, stopWriter)
+	defer close(stopWriter)
+	defer drainOutbound(m.outbound)
 
 	logURL := url
 	if i := strings.Index(logURL, "token="); i >= 0 {
@@ -230,7 +245,7 @@ func (m *tunnelManager) connect(url string) error {
 		_ = conn.SetReadDeadline(time.Now().Add(180 * time.Second))
 
 		if mt == websocket.BinaryMessage {
-			if id, data, ok := decodeProxyData(raw); ok {
+			if id, data, ok := decodeProxyFrame(raw); ok {
 				m.deliverStreamData(id, data)
 				continue
 			}
@@ -245,6 +260,54 @@ func (m *tunnelManager) connect(url string) error {
 	}
 }
 
+func drainOutbound(ch chan wsOutbound) {
+	for {
+		select {
+		case item := <-ch:
+			if item.release != nil {
+				item.release()
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (m *tunnelManager) writeLoop(conn *websocket.Conn, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		case item := <-m.outbound:
+			if conn == nil {
+				if item.release != nil {
+					item.release()
+				}
+				continue
+			}
+			err := conn.WriteMessage(item.msgType, item.data)
+			if item.release != nil {
+				item.release()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (m *tunnelManager) queueOutbound(item wsOutbound) error {
+	select {
+	case m.outbound <- item:
+		return nil
+	case <-time.After(30 * time.Second):
+		if item.release != nil {
+			item.release()
+		}
+		return fmt.Errorf("write queue full")
+	}
+}
+
 func (m *tunnelManager) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
 	ticker := time.NewTicker(20 * time.Second)
 	defer ticker.Stop()
@@ -253,10 +316,8 @@ func (m *tunnelManager) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			m.writeMu.Lock()
-			err := conn.WriteMessage(websocket.PingMessage, nil)
-			m.writeMu.Unlock()
-			if err != nil {
+			deadline := time.Now().Add(10 * time.Second)
+			if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
 				return
 			}
 		}
@@ -274,21 +335,21 @@ func (m *tunnelManager) notifyProxyState(online bool) {
 	}
 }
 
-func (m *tunnelManager) deliverStreamData(id string, data []byte) {
-	value, ok := m.streams.Load(id)
+func (m *tunnelManager) deliverStreamData(id [16]byte, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	idStr := tunnelIDToString(id)
+	value, ok := m.streams.Load(idStr)
 	if !ok {
 		return
 	}
-	ch, ok := value.(chan []byte)
+	conn, ok := value.(net.Conn)
 	if !ok {
 		return
 	}
-	payload := append([]byte(nil), data...)
-	select {
-	case ch <- payload:
-	case <-time.After(45 * time.Second):
-		m.log(fmt.Sprintf("代理数据阻塞，关闭连接 %s", id))
-		m.closeTunnel(id)
+	if _, err := conn.Write(data); err != nil {
+		m.closeTunnel(idStr)
 	}
 }
 
@@ -361,10 +422,11 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 		}
 	case "proxy_close":
 		if value, ok := m.streams.LoadAndDelete(id); ok {
-			if ch, ok := value.(chan []byte); ok {
-				close(ch)
+			if conn, ok := value.(net.Conn); ok {
+				_ = conn.Close()
 			}
 		}
+		m.idBytes.Delete(id)
 	}
 }
 
@@ -390,29 +452,30 @@ func (m *tunnelManager) writeJSON(msg map[string]any) error {
 	if err != nil {
 		return err
 	}
-	m.writeMu.Lock()
-	defer m.writeMu.Unlock()
 	if m.conn == nil {
 		return fmt.Errorf("not connected")
 	}
-	return m.conn.WriteMessage(websocket.TextMessage, raw)
+	return m.queueOutbound(wsOutbound{msgType: websocket.TextMessage, data: raw})
 }
 
-func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, error) {
+func (m *tunnelManager) bindStream(id string, conn net.Conn) {
+	m.streams.Store(id, conn)
+}
+
+func (m *tunnelManager) openTunnel(host string, port int) (string, error) {
 	if err := m.waitReady(); err != nil {
-		return "", nil, err
+		return "", err
 	}
 	if !m.isProxyOnline() {
-		return "", nil, fmt.Errorf("被控机 Proxy 离线，等待自动重连")
+		return "", fmt.Errorf("被控机 Proxy 离线，等待自动重连")
 	}
-	id, err := newTunnelID()
+	id, idRaw, err := newTunnelID()
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 	resultCh := make(chan openResult, 1)
-	streamCh := make(chan []byte, 256)
 	m.opens.Store(id, resultCh)
-	m.streams.Store(id, streamCh)
+	m.idBytes.Store(id, idRaw)
 
 	if err := m.writeJSON(map[string]any{
 		"type": "proxy_open",
@@ -421,31 +484,26 @@ func (m *tunnelManager) openTunnel(host string, port int) (string, chan []byte, 
 		"port": port,
 	}); err != nil {
 		m.opens.Delete(id)
-		m.streams.Delete(id)
-		close(streamCh)
-		return "", nil, err
+		m.idBytes.Delete(id)
+		return "", err
 	}
-	m.log(fmt.Sprintf("proxy_open sent %s -> %s:%d", id, host, port))
 
 	select {
 	case res := <-resultCh:
 		if res.err != nil {
-			m.streams.Delete(id)
-			close(streamCh)
-			return "", nil, res.err
+			m.idBytes.Delete(id)
+			return "", res.err
 		}
 		if !res.ok {
-			m.streams.Delete(id)
-			close(streamCh)
-			return "", nil, fmt.Errorf("proxy open failed")
+			m.idBytes.Delete(id)
+			return "", fmt.Errorf("proxy open failed")
 		}
-		return id, streamCh, nil
+		return id, nil
 	case <-time.After(15 * time.Second):
 		m.opens.Delete(id)
-		m.streams.Delete(id)
-		close(streamCh)
+		m.idBytes.Delete(id)
 		_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
-		return "", nil, fmt.Errorf("被控机无响应（请更新被控机 Proxy.exe 并确认服务器已部署最新 index.js）")
+		return "", fmt.Errorf("被控机无响应（请更新被控机 Proxy.exe 并确认服务器已部署最新 index.js）")
 	}
 }
 
@@ -453,31 +511,38 @@ func (m *tunnelManager) sendData(id string, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	frame, err := encodeProxyData(id, data)
-	if err != nil {
-		return err
+	value, ok := m.idBytes.Load(id)
+	if !ok {
+		return fmt.Errorf("unknown tunnel")
 	}
-	m.writeMu.Lock()
-	defer m.writeMu.Unlock()
+	idRaw := value.([16]byte)
+	frame := encodeProxyFrame(idRaw, data)
+	release := func() { releaseProxyFrame(frame) }
 	if m.conn == nil {
+		release()
 		return fmt.Errorf("not connected")
 	}
-	return m.conn.WriteMessage(websocket.BinaryMessage, frame)
+	return m.queueOutbound(wsOutbound{
+		msgType: websocket.BinaryMessage,
+		data:    frame,
+		release: release,
+	})
 }
 
 func (m *tunnelManager) closeTunnel(id string) {
 	_ = m.writeJSON(map[string]any{"type": "proxy_close", "id": id})
 	if value, ok := m.streams.LoadAndDelete(id); ok {
-		if ch, ok := value.(chan []byte); ok {
-			close(ch)
+		if conn, ok := value.(net.Conn); ok {
+			_ = conn.Close()
 		}
 	}
+	m.idBytes.Delete(id)
 }
 
-func newTunnelID() (string, error) {
+func newTunnelID() (string, [16]byte, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
+		return "", b, err
 	}
-	return hex.EncodeToString(b[:]), nil
+	return hex.EncodeToString(b[:]), b, nil
 }

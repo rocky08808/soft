@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const proxyReadBuffer = 128 * 1024
+const proxyReadBuffer = 256 * 1024
 
 type tunnel struct {
 	conn net.Conn
@@ -16,7 +16,6 @@ type tunnel struct {
 
 type agent struct {
 	settings   settings
-	writeMu    sync.Mutex
 	sendJSON   func(map[string]any) error
 	sendBinary func([]byte) error
 	tunnels    sync.Map
@@ -40,6 +39,7 @@ func (a *agent) writeJSON(msg map[string]any) error {
 
 func (a *agent) writeBinary(frame []byte) error {
 	if a.sendBinary == nil {
+		releaseProxyFrame(frame)
 		return fmt.Errorf("binary sender not ready")
 	}
 	return a.sendBinary(frame)
@@ -59,8 +59,8 @@ func (a *agent) handleMessage(msg map[string]any) {
 	}
 }
 
-func (a *agent) handleProxyBinary(id string, data []byte) {
-	if id == "" || len(data) == 0 {
+func (a *agent) handleProxyBinary(id [16]byte, data []byte) {
+	if len(data) == 0 {
 		return
 	}
 	value, ok := a.tunnels.Load(id)
@@ -90,28 +90,35 @@ func tunnelPort(msg map[string]any) int {
 }
 
 func (a *agent) handleProxyOpen(msg map[string]any) {
-	id := tunnelID(msg)
+	idStr := tunnelID(msg)
 	host := stringsTrim(fmt.Sprint(msg["host"]))
 	port := tunnelPort(msg)
-	if id == "" || host == "" || port <= 0 {
+	if idStr == "" || host == "" || port <= 0 {
 		_ = a.writeJSON(map[string]any{
 			"type":  "proxy_open_err",
-			"id":    id,
+			"id":    idStr,
 			"error": "invalid proxy_open",
 		})
 		return
 	}
-
-	agentLog(fmt.Sprintf("proxy_open request %s -> %s:%d", id, host, port))
+	id, err := tunnelIDFromString(idStr)
+	if err != nil {
+		_ = a.writeJSON(map[string]any{
+			"type":  "proxy_open_err",
+			"id":    idStr,
+			"error": "invalid tunnel id",
+		})
+		return
+	}
 
 	go func() {
 		addr := net.JoinHostPort(host, strconv.Itoa(port))
 		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
 		if err != nil {
-			agentLog(fmt.Sprintf("proxy_open %s %s failed: %v", id, addr, err))
+			agentLog(fmt.Sprintf("proxy_open %s %s failed: %v", idStr, addr, err))
 			_ = a.writeJSON(map[string]any{
 				"type":  "proxy_open_err",
-				"id":    id,
+				"id":    idStr,
 				"error": err.Error(),
 			})
 			return
@@ -122,17 +129,16 @@ func (a *agent) handleProxyOpen(msg map[string]any) {
 			_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 		}
 		a.tunnels.Store(id, &tunnel{conn: conn})
-		if err := a.writeJSON(map[string]any{"type": "proxy_open_ok", "id": id}); err != nil {
+		if err := a.writeJSON(map[string]any{"type": "proxy_open_ok", "id": idStr}); err != nil {
 			_ = conn.Close()
 			a.tunnels.Delete(id)
 			return
 		}
-		agentLog(fmt.Sprintf("proxy_open ok %s -> %s", id, addr))
 		a.pumpTunnel(id, conn)
 	}()
 }
 
-func (a *agent) pumpTunnel(id string, conn net.Conn) {
+func (a *agent) pumpTunnel(id [16]byte, conn net.Conn) {
 	defer func() {
 		_ = conn.Close()
 		a.tunnels.Delete(id)
@@ -141,24 +147,26 @@ func (a *agent) pumpTunnel(id string, conn net.Conn) {
 	for {
 		n, err := conn.Read(buf)
 		if n > 0 {
-			frame, ferr := encodeProxyData(id, buf[:n])
-			if ferr != nil {
-				return
-			}
+			frame := encodeProxyFrame(id, buf[:n])
 			if werr := a.writeBinary(frame); werr != nil {
+				releaseProxyFrame(frame)
 				return
 			}
 		}
 		if err != nil {
-			_ = a.writeJSON(map[string]any{"type": "proxy_close", "id": id})
+			_ = a.writeJSON(map[string]any{"type": "proxy_close", "id": tunnelIDToString(id)})
 			return
 		}
 	}
 }
 
 func (a *agent) handleProxyClose(msg map[string]any) {
-	id := tunnelID(msg)
-	if id == "" {
+	idStr := tunnelID(msg)
+	if idStr == "" {
+		return
+	}
+	id, err := tunnelIDFromString(idStr)
+	if err != nil {
 		return
 	}
 	if value, ok := a.tunnels.LoadAndDelete(id); ok {

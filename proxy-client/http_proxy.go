@@ -95,7 +95,7 @@ func handleHTTPConnectRequest(conn net.Conn, req *http.Request, mgr *tunnelManag
 		return
 	}
 
-	id, stream, err := mgr.openTunnel(host, port)
+	id, err := mgr.openTunnel(host, port)
 	if err != nil {
 		mgr.log(fmt.Sprintf("http proxy CONNECT %s:%d failed: %v", host, port, err))
 		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
@@ -105,7 +105,7 @@ func handleHTTPConnectRequest(conn net.Conn, req *http.Request, mgr *tunnelManag
 		mgr.closeTunnel(id)
 		return
 	}
-	relayTunnel(conn, mgr, id, stream)
+	relayTunnel(conn, mgr, id)
 }
 
 func handleHTTPForwardRequest(conn net.Conn, req *http.Request, mgr *tunnelManager) {
@@ -131,7 +131,7 @@ func handleHTTPForwardRequest(conn net.Conn, req *http.Request, mgr *tunnelManag
 		return
 	}
 
-	id, stream, err := mgr.openTunnel(host, port)
+	id, err := mgr.openTunnel(host, port)
 	if err != nil {
 		_, _ = conn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
@@ -166,5 +166,5 @@ func handleHTTPForwardRequest(conn net.Conn, req *http.Request, mgr *tunnelManag
 			}
 		}
 	}
-	relayTunnel(conn, mgr, id, stream)
+	relayTunnel(conn, mgr, id)
 }

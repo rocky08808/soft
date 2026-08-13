@@ -11,7 +11,7 @@
     "minSize": 524288
   },
   "proxy": {
-    "version": "2026.08.13.2229",
+    "version": "2026.08.14.0140",
     "url": "/download/Proxy.exe",
     "minSize": 262144
   }
