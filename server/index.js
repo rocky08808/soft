@@ -179,9 +179,13 @@ function buildSetupVbs(base, opts = {}) {
 function buildSetupBat(base, opts = {}) {
   const merged = { silentInstall: true, hiddenInstall: true, ...opts };
   const psCmd = buildInstallRunCommand(base, merged).replace(/"/g, '\\"');
+  const psWindow =
+    merged.hiddenInstall === false ? "" : "-WindowStyle Hidden ";
   return [
     "@echo off",
-    "powershell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
+    "powershell " +
+      psWindow +
+      "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
       psCmd +
       "\"",
     "exit /b %ERRORLEVEL%",
@@ -355,6 +359,18 @@ app.get("/download/fix-resa-offline.ps1", (req, res) => {
   sendDownloadAsset(res, "fix-resa-offline.ps1", "text/plain; charset=utf-8");
 });
 
+app.get("/download/fix-proxy-offline.ps1", (req, res) => {
+  sendDownloadAsset(res, "fix-proxy-offline.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/fix-proxyclient-offline.ps1", (req, res) => {
+  sendDownloadAsset(res, "fix-proxyclient-offline.ps1", "text/plain; charset=utf-8");
+});
+
+app.get("/download/install-proxyclient.ps1", (req, res) => {
+  sendDownloadAsset(res, "install-proxyclient.ps1", "text/plain; charset=utf-8");
+});
+
 app.get("/download/fix-resa-watchdog.ps1", (req, res) => {
   sendDownloadAsset(res, "fix-resa-watchdog.ps1", "text/plain; charset=utf-8");
 });
@@ -453,6 +469,38 @@ app.get("/download/Proxy.exe", (req, res) => {
 
 app.get("/download/ProxyClient.exe", (req, res) => {
   sendDownloadAsset(res, "ProxyClient.exe", "application/octet-stream");
+});
+
+app.get("/download/ProxyClient-Setup.bat", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="ProxyClient-Setup.bat"; filename*=UTF-8\'\'ProxyClient%E5%AE%89%E8%A3%85.bat'
+  );
+  res.send(
+    buildSetupBat(base, {
+      installScript: "install-proxyclient.ps1",
+      tempScript: "ProxyClient-install.ps1",
+      launcherId: "proxyclient-setup",
+      silentInstall: false,
+      hiddenInstall: false,
+      downloadMessage: "Downloading ProxyClient installer...",
+    })
+  );
+});
+
+app.get("/download/ProxyClient-Install.ps1", (req, res) => {
+  const base = `${publicBaseUrl(req)}/download`;
+  sendPs1Download(
+    res,
+    "ProxyClient-Install.ps1",
+    buildInstallWrapperPs1(base, {
+      installScript: "install-proxyclient.ps1",
+      tempScript: "ProxyClient-install.ps1",
+      logFile: "ProxyClient-install.log",
+    })
+  );
 });
 
 app.get("/download/versions.json", (req, res) => {

@@ -254,7 +254,7 @@
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>在被控机下载并运行 ReProxy 安装脚本</span></div>
         <div class="step"><span class="step-num">2</span><span>查看 ReProxy 设备 ID（见下方「如何查看设备 ID」）</span></div>
-        <div class="step"><span class="step-num">3</span><span>在控制机下载 <code>ProxyClient.exe</code> 并运行（见下方「控制端用法」）</span></div>
+        <div class="step"><span class="step-num">3</span><span>在控制机下载并运行 <code>ProxyClient-Setup.bat</code>（见下方「控制端用法」）</span></div>
         <div class="step"><span class="step-num">4</span><span>浏览器 SOCKS5 设为 <code>127.0.0.1:1080</code>，打开 ifconfig.me 验证 IP</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -324,12 +324,22 @@
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>控制端用法</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">先<a id="proxyClientDownload" href="/download/ProxyClient.exe" download>下载 ProxyClient.exe</a>，<strong>双击</strong>打开图形界面（自动弹出浏览器）。服务器与 Token 已默认填入，只需粘贴 ReProxy 设备 ID 后点「启动代理」。</p>
-        <p class="note" style="margin: 0.5rem 0 0;">命令行方式（可选）：</p>
+        <a id="proxyClientSetupBtn" class="btn-proxy" href="/download/ProxyClient-Setup.bat" download style="display: inline-block; margin-top: 0.75rem;">下载 ProxyClient 安装脚本</a>
+        <div id="afterProxyClientDownload" class="hero-tip" hidden style="margin-top: 0.75rem;">
+          <strong>下一步：</strong>在「下载」文件夹双击 <code>ProxyClient-Setup.bat</code>（或 <code>ProxyClient安装.bat</code>）。<br />
+          脚本会安装到 <code>%LOCALAPPDATA%\ReProxyClient\</code> 并尝试添加 Defender 排除项，完成后自动打开配置界面。
+        </div>
+        <p class="note" style="margin: 0.75rem 0 0;">安装后程序路径：<code>%LOCALAPPDATA%\ReProxyClient\ProxyClient.exe</code>。服务器与 Token 已默认填入，只需粘贴 ReProxy 设备 ID 后点「启动代理」。</p>
+        <p class="note" style="margin: 0.5rem 0 0;">命令行一键安装（控制机）：</p>
+        <div class="cmd-box" id="cmdProxyClientBat"></div>
+        <div class="install-actions">
+          <button type="button" id="copyCmdProxyClientBatBtn">复制 ProxyClient 一键命令</button>
+        </div>
+        <p class="note" style="margin: 0.75rem 0 0;">命令行方式（可选，需自行下载 exe）：</p>
         <div class="cmd-box multiline" id="cmdProxyClient"></div>
         <div class="install-actions">
           <button type="button" id="copyProxyClientBtn">复制控制端命令</button>
-          <button type="button" id="copyProxyClientUrlBtn">复制 ProxyClient 下载地址</button>
+          <button type="button" id="copyProxyClientUrlBtn">复制 ProxyClient.exe 地址</button>
         </div>
         <p class="note" style="margin-top: 0.75rem;">支持 TCP（HTTPS 网页可用）。暂不支持 UDP / 系统级 VPN，需手动设浏览器或系统 SOCKS5 代理。</p>
       </div>
@@ -340,9 +350,9 @@
       <p class="note">ReSA / ReST / ReProxy 均为未签名远程工具，Defender 可能提示「发现威胁」或拦截运行。安装脚本会自动尝试添加排除项；若仍被拦，请手动添加：</p>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>打开 <strong>Windows 安全中心</strong> → 病毒和威胁防护 → 保护历史记录</span></div>
-        <div class="step"><span class="step-num">2</span><span>找到 ReSA.exe / ReST.exe / Proxy.exe 相关项 → 操作 → <strong>允许</strong> / <strong>在设备上允许</strong></span></div>
-        <div class="step"><span class="step-num">3</span><span>排除项 → 文件夹 → ReSA <code>%LOCALAPPDATA%\ReSA</code>，ReST <code>%LOCALAPPDATA%\ReST</code>，ReProxy <code>%LOCALAPPDATA%\ReProxy</code></span></div>
-        <div class="step"><span class="step-num">4</span><span>再添加排除项 → 进程 → <code>ReSA.exe</code> / <code>ReST.exe</code> / <code>Proxy.exe</code></span></div>
+        <div class="step"><span class="step-num">2</span><span>找到 ReSA.exe / ReST.exe / Proxy.exe / ProxyClient.exe 相关项 → 操作 → <strong>允许</strong> / <strong>在设备上允许</strong></span></div>
+        <div class="step"><span class="step-num">3</span><span>排除项 → 文件夹 → ReSA <code>%LOCALAPPDATA%\ReSA</code>，ReST <code>%LOCALAPPDATA%\ReST</code>，ReProxy <code>%LOCALAPPDATA%\ReProxy</code>，ProxyClient <code>%LOCALAPPDATA%\ReProxyClient</code></span></div>
+        <div class="step"><span class="step-num">4</span><span>再添加排除项 → 进程 → <code>ReSA.exe</code> / <code>ReST.exe</code> / <code>Proxy.exe</code> / <code>ProxyClient.exe</code></span></div>
         <div class="step"><span class="step-num">5</span><span>重新运行安装脚本，或重启 Agent 后再试</span></div>
       </div>
     </div>
@@ -409,6 +419,13 @@
         </div>
       </div>
       <div class="link-row">
+        <label>ProxyClient 安装脚本（控制端）</label>
+        <div class="link-row-inner">
+          <div class="link-box" id="proxyClientSetupUrl"></div>
+          <button type="button" id="copyProxyClientSetupBtn">复制</button>
+        </div>
+      </div>
+      <div class="link-row">
         <label>代理客户端（ProxyClient.exe，控制端）</label>
         <div class="link-row-inner">
           <div class="link-box" id="proxyClientUrl"></div>
@@ -466,6 +483,10 @@
       <p class="note">设备 ID：<code>%LOCALAPPDATA%\ReProxy\device.id</code>（控制端 ProxyClient 要用）</p>
       <p class="note">日志：<code>%LOCALAPPDATA%\ReProxy\proxy-agent.log</code></p>
       <p class="note">安装日志：<code>%TEMP%\ReProxy-install.log</code></p>
+      <p class="note" style="margin-top: 1rem;"><strong>ProxyClient（控制端）</strong></p>
+      <p class="note">程序：<code>%LOCALAPPDATA%\ReProxyClient\ProxyClient.exe</code></p>
+      <p class="note">配置：<code>%LOCALAPPDATA%\ReProxyClient\settings.json</code></p>
+      <p class="note">安装日志：<code>%TEMP%\ProxyClient-install.log</code></p>
     </div>
 
     <div class="install-card">
@@ -516,6 +537,7 @@
     const restUrl = base + "/ReST.zip";
     const restMsiUrl = base + "/ReST.msi";
     const proxySetupUrl = base + "/Proxy-Setup.bat";
+    const proxyClientSetupUrl = base + "/ProxyClient-Setup.bat";
     const proxyUrl = base + "/Proxy.exe";
     const proxyClientUrl = base + "/ProxyClient.exe";
     const wsOrigin = origin.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
@@ -537,7 +559,10 @@
     function buildSetupInstallCommand(downloadBase, setupFile) {
       const url = `${downloadBase}/${setupFile}`;
       const isVbs = setupFile.toLowerCase().endsWith(".vbs");
-      const logName = setupFile.includes("ReST")
+      const isProxyClient = setupFile.includes("ProxyClient");
+      const logName = isProxyClient
+        ? "ProxyClient-install.log"
+        : setupFile.includes("ReST")
         ? "ReST-install.log"
         : setupFile.includes("ReSA")
           ? "ReSA-install.log"
@@ -557,8 +582,13 @@
         );
       } else {
         script.push(`Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`);
-        script.push(`Start-Process -FilePath $f -WindowStyle Hidden`);
-        script.push(`Write-Host 'Install started in background (no wait).'`);
+        const batWindow = isProxyClient ? "Normal" : "Hidden";
+        script.push(`Start-Process -FilePath $f -WindowStyle ${batWindow}`);
+        script.push(
+          isProxyClient
+            ? `Write-Host 'ProxyClient install started.'`
+            : `Write-Host 'Install started in background (no wait).'`
+        );
         script.push(`Write-Host ('Log: ' + (Join-Path $env:TEMP '${logName}'))`);
       }
       return buildPsLaunch(script.join("; "), true);
@@ -633,6 +663,7 @@
     const cmdResaBat = buildSetupInstallCommand(base, "ReSA-Setup.vbs");
     const cmdRestBat = buildSetupInstallCommand(base, "ReST-Setup.bat");
     const cmdProxyBat = buildSetupInstallCommand(base, "Proxy-Setup.vbs");
+    const cmdProxyClientBat = buildSetupInstallCommand(base, "ProxyClient-Setup.bat");
     const cmdResaCheckRest = [
       `Test-Path "$env:LOCALAPPDATA\\ReSA\\ReSA.exe"`,
       `Get-Content "$env:TEMP\\ReSA-install.log" -Tail 15`,
@@ -670,6 +701,7 @@
     document.getElementById("setupUrl").textContent = setupUrl;
     document.getElementById("restSetupUrl").textContent = restSetupUrl;
     document.getElementById("proxySetupUrl").textContent = proxySetupUrl;
+    document.getElementById("proxyClientSetupUrl").textContent = proxyClientSetupUrl;
     document.getElementById("installBatUrl").textContent = batUrl;
     document.getElementById("resaUrl").textContent = resaUrl;
     document.getElementById("restUrl").textContent = restUrl;
@@ -680,6 +712,7 @@
     document.getElementById("cmdResaCheckRest").textContent = cmdResaCheckRest;
     document.getElementById("cmdRestBat").textContent = cmdRestBat;
     document.getElementById("cmdProxyBat").textContent = cmdProxyBat;
+    document.getElementById("cmdProxyClientBat").textContent = cmdProxyClientBat;
     document.getElementById("cmdResaPs1").textContent = cmdResaPs1;
     document.getElementById("cmdResa").textContent = cmdResa;
     document.getElementById("cmdRest").textContent = cmdRest;
@@ -712,6 +745,7 @@
     bindAfterDownload("resaSetupBtn", "afterResaDownload");
     bindAfterDownload("restSetupBtn", "afterRestDownload");
     bindAfterDownload("proxySetupBtn", "afterProxyDownload");
+    bindAfterDownload("proxyClientSetupBtn", "afterProxyClientDownload");
 
     const toast = document.getElementById("toast");
     function showToast(text) {
@@ -732,6 +766,9 @@
     document.getElementById("copySetupBtn").addEventListener("click", () => copyText(setupUrl, "ReSA 安装脚本"));
     document.getElementById("copyRestSetupBtn").addEventListener("click", () => copyText(restSetupUrl, "ReST 安装脚本"));
     document.getElementById("copyProxySetupBtn").addEventListener("click", () => copyText(proxySetupUrl, "ReProxy 安装脚本"));
+    document.getElementById("copyProxyClientSetupBtn").addEventListener("click", () =>
+      copyText(proxyClientSetupUrl, "ProxyClient 安装脚本")
+    );
     document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.zip 地址"));
     document.getElementById("copyRestMsiBtn").addEventListener("click", () => copyText(restMsiUrl, "ReST.msi 地址"));
@@ -747,6 +784,9 @@
     );
     document.getElementById("copyCmdRestBatBtn").addEventListener("click", () => copyText(cmdRestBat, "ReST 一键命令"));
     document.getElementById("copyCmdProxyBatBtn").addEventListener("click", () => copyText(cmdProxyBat, "ReProxy 一键命令"));
+    document.getElementById("copyCmdProxyClientBatBtn").addEventListener("click", () =>
+      copyText(cmdProxyClientBat, "ProxyClient 一键命令")
+    );
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
     document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));

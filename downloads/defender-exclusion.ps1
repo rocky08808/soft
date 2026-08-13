@@ -1,6 +1,17 @@
 # ReProxy - add Windows Defender exclusions for Proxy.exe and ProxyClient.exe
 $ErrorActionPreference = "Continue"
 
+function Test-IsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if (-not (Test-IsAdmin)) {
+    Write-Host "Tip: run PowerShell as Administrator for exclusions to apply." -ForegroundColor Yellow
+    Write-Host ""
+}
+
 $paths = @(
     (Join-Path $env:LOCALAPPDATA "ReProxy"),
     (Join-Path $env:LOCALAPPDATA "ReProxyClient")

