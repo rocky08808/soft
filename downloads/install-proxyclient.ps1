@@ -1,7 +1,8 @@
 # ProxyClient install (control PC) - ASCII only for PowerShell 5.1 compatibility
 param(
     [switch]$Silent,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$Elevated
 )
 
 $ErrorActionPreference = "Continue"
@@ -23,6 +24,7 @@ $Exe = Join-Path $Dir "ProxyClient.exe"
 $Temp = Join-Path $env:TEMP "ProxyClient-download.exe"
 $LogFile = Join-Path $env:TEMP "ProxyClient-install.log"
 $script:HadError = $false
+$script:DefenderOk = $false
 
 function Write-InstallLog {
     param([string]$Text)
@@ -80,6 +82,56 @@ function Test-IsAdmin {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Ensure-AdminElevation {
+    if (Test-IsAdmin) {
+        return
+    }
+    if ($Elevated) {
+        Write-InstallLog "elevation declined or failed; continuing without admin"
+        if (-not $Silent) {
+            Write-Host "Defender exclusions need Administrator. ProxyClient may be blocked." -ForegroundColor Yellow
+        }
+        return
+    }
+
+    if (-not $scriptPath) {
+        return
+    }
+
+    Write-InstallLog "requesting administrator elevation"
+    if (-not $Silent) {
+        Write-Host "Requesting administrator permission (Defender exclusions)..." -ForegroundColor Yellow
+    }
+
+    $safePath = $scriptPath -replace "'", "''"
+    $safeBase = $BaseUrl -replace "'", "''"
+    $extra = " -Elevated"
+    if ($Silent) {
+        $extra += " -Silent"
+    }
+    if ($NoStart) {
+        $extra += " -NoStart"
+    }
+    $cmd = "`$env:RESA_INSTALL_BASE='$safeBase'; & '$safePath'$extra"
+
+    try {
+        Start-Process -FilePath "powershell.exe" -ArgumentList @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            $cmd
+        ) -Verb RunAs | Out-Null
+        exit 0
+    } catch {
+        Write-InstallLog ("elevation cancelled: " + $_.Exception.Message)
+        if (-not $Silent) {
+            Write-Host "Administrator permission is required for Defender exclusions." -ForegroundColor Red
+        }
+        exit 1
+    }
+}
+
 function Add-DefenderExclusion {
     param(
         [string]$Path,
@@ -89,6 +141,7 @@ function Add-DefenderExclusion {
     try {
         Add-MpPreference -ExclusionPath $Path -ErrorAction Stop
         Write-InstallLog ("defender path exclusion ok: " + $Path)
+        $script:DefenderOk = $true
     } catch {
         Write-InstallLog ("defender path exclusion skipped: " + $_.Exception.Message)
     }
@@ -96,6 +149,7 @@ function Add-DefenderExclusion {
     try {
         Add-MpPreference -ExclusionProcess "ProxyClient.exe" -ErrorAction Stop
         Write-InstallLog "defender process exclusion ok: ProxyClient.exe"
+        $script:DefenderOk = $true
     } catch {
         Write-InstallLog ("defender process exclusion skipped: " + $_.Exception.Message)
     }
@@ -104,6 +158,7 @@ function Add-DefenderExclusion {
         try {
             Add-MpPreference -ExclusionPath $ExePath -ErrorAction Stop
             Write-InstallLog ("defender file exclusion ok: " + $ExePath)
+            $script:DefenderOk = $true
         } catch {
             Write-InstallLog ("defender file exclusion skipped: " + $_.Exception.Message)
         }
@@ -134,6 +189,8 @@ function Start-ProxyClientWithRetry {
     Write-InstallLog "ProxyClient.exe did not stay running; Defender may have blocked it"
     return $false
 }
+
+Ensure-AdminElevation
 
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
@@ -175,6 +232,10 @@ Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
 if (-not $NoStart) {
     Start-ProxyClientWithRetry -ExePath $Exe -WorkDir $Dir | Out-Null
+}
+
+if (-not $script:DefenderOk -and -not (Test-IsAdmin)) {
+    Write-InstallLog "defender exclusions not applied; run install as administrator"
 }
 
 if ($script:HadError) {

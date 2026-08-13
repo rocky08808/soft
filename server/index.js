@@ -181,15 +181,23 @@ function buildSetupBat(base, opts = {}) {
   const psCmd = buildInstallRunCommand(base, merged).replace(/"/g, '\\"');
   const psWindow =
     merged.hiddenInstall === false ? "" : "-WindowStyle Hidden ";
-  return [
-    "@echo off",
+  const lines = ["@echo off"];
+  if (merged.requireAdmin) {
+    lines.push("net session >nul 2>&1");
+    lines.push("if %errorLevel% neq 0 (");
+    lines.push('  powershell -NoProfile -Command "Start-Process -FilePath \'%~f0\' -Verb RunAs"');
+    lines.push("  exit /b 0");
+    lines.push(")");
+  }
+  lines.push(
     "powershell " +
       psWindow +
       "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
       psCmd +
       "\"",
-    "exit /b %ERRORLEVEL%",
-  ].join("\r\n");
+    "exit /b %ERRORLEVEL%"
+  );
+  return lines.join("\r\n");
 }
 
 function sendSetupVbs(res, filename, filenameStar, base, opts = {}) {
@@ -485,6 +493,7 @@ app.get("/download/ProxyClient-Setup.bat", (req, res) => {
       launcherId: "proxyclient-setup",
       silentInstall: false,
       hiddenInstall: false,
+      requireAdmin: true,
       downloadMessage: "Downloading ProxyClient installer...",
     })
   );
