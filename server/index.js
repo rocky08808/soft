@@ -181,10 +181,6 @@ function buildSetupBat(base, opts = {}) {
   const psCmd = buildInstallRunCommand(base, merged).replace(/"/g, '\\"');
   return [
     "@echo off",
-    "if \"%~1\"==\"H\" goto :work",
-    "powershell -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -FilePath '%~f0' -ArgumentList 'H' -WindowStyle Hidden\"",
-    "exit /b 0",
-    ":work",
     "powershell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" +
       psCmd +
       "\"",
