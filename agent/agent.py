@@ -10,6 +10,7 @@ import ctypes
 import json
 import os
 import platform
+import queue
 import re
 import socket
 import subprocess
@@ -839,6 +840,7 @@ def resolve_key(value: str | int):
 
 
 WM_CLIPBOARDUPDATE = 0x031D
+WM_USER_CAPTURE_CLIPBOARD = 0x0400 + 1
 _CLIPBOARD_CLASS_NAME = "ReSAClipboardListener"
 
 
@@ -846,7 +848,7 @@ class _ClipboardMonitor:
     """Message-only window that receives WM_CLIPBOARDUPDATE."""
 
     def __init__(self) -> None:
-        self._changed = threading.Event()
+        self._pending: queue.Queue[str] = queue.Queue()
         self._ready = threading.Event()
         self._hwnd: Optional[int] = None
         self._thread: Optional[threading.Thread] = None
@@ -867,11 +869,20 @@ class _ClipboardMonitor:
         self._thread.start()
         return self._ready.wait(timeout=5.0)
 
-    def wait_changed(self, timeout: float) -> bool:
-        return self._changed.wait(timeout)
+    def pop_pending(self) -> list[str]:
+        items: list[str] = []
+        while True:
+            try:
+                items.append(self._pending.get_nowait())
+            except queue.Empty:
+                break
+        return items
 
-    def clear_changed(self) -> None:
-        self._changed.clear()
+    def _capture_clipboard(self) -> None:
+        time.sleep(0.12)
+        text = _read_clipboard_ctypes(0)
+        if text and text.strip():
+            self._pending.put(text)
 
     def _run(self) -> None:
         from ctypes import wintypes
@@ -887,7 +898,14 @@ class _ClipboardMonitor:
         @WNDPROC
         def wnd_proc(hwnd, msg, wparam, lparam):
             if msg == WM_CLIPBOARDUPDATE:
-                self._changed.set()
+                user32.PostMessageW(hwnd, WM_USER_CAPTURE_CLIPBOARD, 0, 0)
+                return 0
+            if msg == WM_USER_CAPTURE_CLIPBOARD:
+                threading.Thread(
+                    target=self._capture_clipboard,
+                    name="clipboard-capture",
+                    daemon=True,
+                ).start()
                 return 0
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
@@ -954,15 +972,14 @@ class _ClipboardMonitor:
             user32.DispatchMessageW(ctypes.byref(msg))
 
 
-def _read_clipboard_ctypes(owner_hwnd: Optional[int] = None) -> Optional[str]:
+def _read_clipboard_ctypes(owner_hwnd: int = 0) -> Optional[str]:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     CF_UNICODETEXT = 13
     CF_TEXT = 1
-    owner = owner_hwnd or 0
 
     for _ in range(20):
-        if user32.OpenClipboard(owner):
+        if user32.OpenClipboard(owner_hwnd):
             break
         time.sleep(0.05)
     else:
@@ -1000,12 +1017,12 @@ def _read_clipboard_ctypes(owner_hwnd: Optional[int] = None) -> Optional[str]:
     return None
 
 
-def get_clipboard_text(owner_hwnd: Optional[int] = None) -> Optional[str]:
+def get_clipboard_text() -> Optional[str]:
     if sys.platform != "win32":
         return None
 
     try:
-        text = _read_clipboard_ctypes(owner_hwnd)
+        text = _read_clipboard_ctypes(0)
         if text and text.strip():
             return text
     except Exception:
@@ -1015,6 +1032,7 @@ def get_clipboard_text(owner_hwnd: Optional[int] = None) -> Optional[str]:
 
 async def clipboard_loop(ws) -> None:
     last_sent = ""
+    last_sent_at = 0.0
     max_len = 4000
     send_lock = asyncio.Lock()
     read_failures = 0
@@ -1027,14 +1045,15 @@ async def clipboard_loop(ws) -> None:
             agent_log("clipboard listener unavailable, using poll fallback")
             monitor = None
 
-    owner_hwnd = monitor.hwnd if monitor else None
-    loop = asyncio.get_running_loop()
-
     async def emit_clipboard(text: str) -> None:
-        nonlocal last_sent
-        if not text or text == last_sent:
+        nonlocal last_sent, last_sent_at
+        now = time.time()
+        if not text:
+            return
+        if text == last_sent and now - last_sent_at < 2.0:
             return
         last_sent = text
+        last_sent_at = now
         truncated = len(text) > max_len
         payload = {
             "type": "clipboard_copy",
@@ -1050,19 +1069,19 @@ async def clipboard_loop(ws) -> None:
         except Exception as exc:
             agent_log(f"clipboard send error: {exc}")
 
+    loop = asyncio.get_running_loop()
+
     while True:
         if monitor:
-            changed = await loop.run_in_executor(
-                None, lambda: monitor.wait_changed(3.0)
-            )
-            if changed:
-                monitor.clear_changed()
-                await asyncio.sleep(0.15)
-        else:
-            await asyncio.sleep(0.5)
+            pending = await loop.run_in_executor(None, monitor.pop_pending)
+            for text in pending:
+                await emit_clipboard(text)
+            await asyncio.sleep(0.2)
+            continue
 
+        await asyncio.sleep(0.5)
         try:
-            text = get_clipboard_text(owner_hwnd)
+            text = get_clipboard_text()
         except Exception as exc:
             read_failures += 1
             if read_failures <= 3 or read_failures % 60 == 0:

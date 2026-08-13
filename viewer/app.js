@@ -1547,6 +1547,7 @@ function connect() {
 
     if (msg.type === "clipboard_copy" && msg.entry) {
       addClipboardEntry(msg.entry);
+      setClipboardHint(`设备: ${deviceId} · 实时更新`);
       return;
     }
 

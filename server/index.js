@@ -1329,6 +1329,7 @@ wss.on("connection", (ws, req) => {
       }
 
       if (msg.type === "clipboard_copy") {
+        touchAgentMeta(deviceId);
         const entry = addClipboardEntry(deviceId, msg);
         addAudit("clipboard_copy", {
           deviceId,
