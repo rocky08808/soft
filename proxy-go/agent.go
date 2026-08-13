@@ -19,7 +19,7 @@ type wsAgent struct {
 func newWSAgent(s settings) *wsAgent {
 	core := newAgent(s)
 	w := &wsAgent{agent: core, done: make(chan struct{})}
-	core.setSender(w.sendJSON)
+	core.setSender(w.sendJSON, w.sendBinary)
 	return w
 }
 
@@ -84,7 +84,7 @@ func (w *wsAgent) connectOnce(url string) error {
 	defer close(stopHeartbeat)
 
 	for {
-		_, raw, err := conn.ReadMessage()
+		mt, raw, err := conn.ReadMessage()
 		if err != nil {
 			if ce, ok := err.(*websocket.CloseError); ok && ce.Code == 4000 &&
 				strings.Contains(strings.ToLower(ce.Text), "replaced") {
@@ -93,6 +93,14 @@ func (w *wsAgent) connectOnce(url string) error {
 			return err
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(readTimeout))
+
+		if mt == websocket.BinaryMessage {
+			if id, data, ok := decodeProxyData(raw); ok {
+				w.handleProxyBinary(id, data)
+				continue
+			}
+			continue
+		}
 
 		var msg map[string]any
 		if json.Unmarshal(raw, &msg) != nil {
@@ -110,6 +118,12 @@ func (w *wsAgent) sendJSON(msg map[string]any) error {
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
 	return w.conn.WriteMessage(websocket.TextMessage, raw)
+}
+
+func (w *wsAgent) sendBinary(frame []byte) error {
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+	return w.conn.WriteMessage(websocket.BinaryMessage, frame)
 }
 
 func (w *wsAgent) pingLoop(conn *websocket.Conn, stop <-chan struct{}) {

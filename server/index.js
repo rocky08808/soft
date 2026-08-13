@@ -548,6 +548,46 @@ function parseBinaryAgentMessage(raw) {
   return null;
 }
 
+const PROXY_FRAME_DATA = 0x10;
+const PROXY_TUNNEL_ID_LEN = 16;
+
+function parseBinaryProxyMessage(raw) {
+  const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  if (buf.length < 1 + PROXY_TUNNEL_ID_LEN || buf[0] !== PROXY_FRAME_DATA) {
+    return null;
+  }
+  return { kind: "proxy_binary", buffer: buf };
+}
+
+function relayBinaryProxy(ws, deviceId, raw) {
+  const binaryProxy = parseBinaryProxyMessage(raw);
+  if (!binaryProxy) return false;
+  const peer =
+    ws.role === "proxy_client"
+      ? proxyAgents.get(deviceId)
+      : ws.role === "proxy"
+        ? proxyClients.get(deviceId)
+        : null;
+  if (peer && peer.readyState === WebSocket.OPEN) {
+    peer.send(binaryProxy.buffer);
+  }
+  return true;
+}
+
+function relayLegacyProxyData(ws, deviceId, msg) {
+  if (msg?.type !== "proxy_data") return false;
+  const peer =
+    ws.role === "proxy_client"
+      ? proxyAgents.get(deviceId)
+      : ws.role === "proxy"
+        ? proxyClients.get(deviceId)
+        : null;
+  if (peer && peer.readyState === WebSocket.OPEN) {
+    send(peer, msg);
+  }
+  return true;
+}
+
 function parseBinaryFrame(raw) {
   const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
   if (buf.length < 5 || buf[0] !== 0x01) return null;
@@ -860,7 +900,6 @@ function isProxyMessage(msg) {
     type === "proxy_open" ||
     type === "proxy_open_ok" ||
     type === "proxy_open_err" ||
-    type === "proxy_data" ||
     type === "proxy_close"
   );
 }
@@ -1170,6 +1209,12 @@ wss.on("connection", (ws, req) => {
   }
 
   ws.on("message", (raw) => {
+    if (ws.role === "proxy_client" || ws.role === "proxy") {
+      if (relayBinaryProxy(ws, deviceId, raw)) {
+        return;
+      }
+    }
+
     if (ws.role === "agent") {
       const binaryMsg = parseBinaryAgentMessage(raw);
       if (binaryMsg) {
@@ -1191,6 +1236,10 @@ wss.on("connection", (ws, req) => {
     try {
       msg = JSON.parse(raw.toString());
     } catch {
+      return;
+    }
+
+    if (relayLegacyProxyData(ws, deviceId, msg)) {
       return;
     }
 
@@ -1404,9 +1453,6 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy_client" && isProxyMessage(msg)) {
       const proxy = proxyAgents.get(deviceId);
-      console.log(
-        `[proxy] client ${deviceId} <- ${msg.type}${msg.id ? " id=" + msg.id : ""}`
-      );
       if (!wsOpen(proxy)) {
         if (msg.type === "proxy_open") {
           send(ws, {
@@ -1464,9 +1510,6 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy" && isProxyMessage(msg)) {
       const client = proxyClients.get(deviceId);
-      console.log(
-        `[proxy] agent ${deviceId} -> ${msg.type}${msg.id ? " id=" + msg.id : ""}`
-      );
       if (!wsOpen(client)) {
         if (msg.type === "proxy_open_ok" || msg.type === "proxy_open_err") {
           console.log(

@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -224,11 +223,19 @@ func (m *tunnelManager) connect(url string) error {
 	defer close(stopPing)
 
 	for {
-		_, raw, err := conn.ReadMessage()
+		mt, raw, err := conn.ReadMessage()
 		if err != nil {
 			return err
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(180 * time.Second))
+
+		if mt == websocket.BinaryMessage {
+			if id, data, ok := decodeProxyData(raw); ok {
+				m.deliverStreamData(id, data)
+				continue
+			}
+			continue
+		}
 
 		var msg map[string]any
 		if json.Unmarshal(raw, &msg) != nil {
@@ -352,16 +359,6 @@ func (m *tunnelManager) dispatch(msg map[string]any) {
 			}
 			m.opens.Delete(id)
 		}
-	case "proxy_data":
-		raw, ok := msg["data"].(string)
-		if !ok {
-			return
-		}
-		data, err := base64.StdEncoding.DecodeString(raw)
-		if err != nil || len(data) == 0 {
-			return
-		}
-		m.deliverStreamData(id, data)
 	case "proxy_close":
 		if value, ok := m.streams.LoadAndDelete(id); ok {
 			if ch, ok := value.(chan []byte); ok {
@@ -456,11 +453,16 @@ func (m *tunnelManager) sendData(id string, data []byte) error {
 	if len(data) == 0 {
 		return nil
 	}
-	return m.writeJSON(map[string]any{
-		"type": "proxy_data",
-		"id":   id,
-		"data": base64.StdEncoding.EncodeToString(data),
-	})
+	frame, err := encodeProxyData(id, data)
+	if err != nil {
+		return err
+	}
+	m.writeMu.Lock()
+	defer m.writeMu.Unlock()
+	if m.conn == nil {
+		return fmt.Errorf("not connected")
+	}
+	return m.conn.WriteMessage(websocket.BinaryMessage, frame)
 }
 
 func (m *tunnelManager) closeTunnel(id string) {

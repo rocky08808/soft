@@ -132,7 +132,7 @@ func relayTunnel(conn net.Conn, mgr *tunnelManager, id string, stream <-chan []b
 
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 32*1024)
+		buf := make([]byte, 128*1024)
 		for {
 			n, readErr := conn.Read(buf)
 			if n > 0 {
