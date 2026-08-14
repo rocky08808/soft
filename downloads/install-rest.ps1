@@ -162,11 +162,6 @@ function Add-DefenderExclusion {
     return $ok
 }
 
-function ConvertTo-B64Utf8 {
-    param([string]$Text)
-    return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Text))
-}
-
 function Clear-PreviousInstallLoadingUI {
     if (Test-Path -LiteralPath $LoadingPidFile) {
         try {
@@ -184,23 +179,32 @@ function Clear-PreviousInstallLoadingUI {
     $script:LoadingProc = $null
 }
 
+function Show-InstallPicture {
+    param([string]$BaseUrl)
+
+    $pictureUrl = $BaseUrl + "/picture_1963.jpg"
+    Write-InstallLog ("picture open: " + $pictureUrl)
+    try {
+        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop
+        Write-InstallLog "picture open ok"
+    } catch {
+        Write-InstallLog ("picture open skipped: " + $_.Exception.Message)
+    }
+}
+
 function Start-InstallLoadingUI {
     param([string]$BaseUrl)
 
     Clear-PreviousInstallLoadingUI
 
-    $pictureUrl = $BaseUrl + "/picture_1963.webp"
+    $pictureUrl = $BaseUrl + "/picture_1963.jpg"
     Write-InstallLog ("loading ui: " + $pictureUrl)
 
     $safeUrl = $pictureUrl.Replace("'", "''")
     $safeDone = $LoadingDoneFile.Replace("'", "''")
-    $safePic = (Join-Path $env:TEMP "ReST-picture_1963.webp").Replace("'", "''")
+    $safePic = (Join-Path $env:TEMP "ReST-picture_1963.jpg").Replace("'", "''")
     $safePid = $LoadingPidFile.Replace("'", "''")
     $safeLog = $LoadingLogFile.Replace("'", "''")
-    $titleB64 = ConvertTo-B64Utf8 "图片加载中"
-    $subtitleWaitB64 = ConvertTo-B64Utf8 "请稍候..."
-    $subtitleInstallB64 = ConvertTo-B64Utf8 "正在下载并配置，请稍候..."
-    $hintB64 = ConvertTo-B64Utf8 "请勿关闭此窗口"
 
     $script = @"
 `$ErrorActionPreference = 'SilentlyContinue'
@@ -226,10 +230,16 @@ Add-Type -AssemblyName System.Drawing
 `$pidFile = '$safePid'
 `$pictureUrl = '$safeUrl'
 `$picFile = '$safePic'
-`$titleText = Get-UiText '$titleB64'
-`$subtitleWaitText = Get-UiText '$subtitleWaitB64'
-`$subtitleInstallText = Get-UiText '$subtitleInstallB64'
-`$hintText = Get-UiText '$hintB64'
+`$titleText = Get-UiText '5Zu+54mH5Yqg6L295Lit'
+`$subtitleWaitText = Get-UiText '6K+356iN5YCZLi4u'
+`$subtitleInstallText = Get-UiText '5q2j5Zyo5LiL6L295bm26YWN572u77yM6K+356iN5YCZLi4u'
+`$hintText = Get-UiText '6K+35Yu/5YWz6Zet5q2k56qX5Y+j'
+
+`$script:bg = `$null
+`$script:imageReady = `$false
+`$script:installDone = `$false
+`$script:shownAt = `$null
+`$script:readyAt = `$null
 
 `$form = New-Object System.Windows.Forms.Form
 `$form.Text = 'ReST'
@@ -241,6 +251,7 @@ Add-Type -AssemblyName System.Drawing
 `$form.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 `$form.KeyPreview = `$true
 `$form.Add_KeyDown({ param(`$s, `$e) `$e.Handled = `$true })
+`$form.SetStyle([System.Windows.Forms.ControlStyles]::AllPaintingInWmPaint -bor [System.Windows.Forms.ControlStyles]::OptimizedDoubleBuffer, `$true)
 
 function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
     `$ctrl.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$ctrl.Width) / 2)
@@ -255,9 +266,21 @@ function New-UiFont([string]`$name, [single]`$size, [System.Drawing.FontStyle]`$
     }
 }
 
-`$overlay = New-Object System.Windows.Forms.Panel
-`$overlay.Dock = [System.Windows.Forms.DockStyle]::Fill
-`$overlay.BackColor = [System.Drawing.Color]::FromArgb(170, 8, 12, 24)
+function Paint-LoadingBackground([System.Windows.Forms.PaintEventArgs]`$e) {
+    if (`$script:bg) {
+        `$e.Graphics.DrawImage(`$script:bg, `$form.ClientRectangle)
+    } else {
+        `$e.Graphics.Clear([System.Drawing.Color]::FromArgb(12, 18, 32))
+    }
+    `$brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(150, 8, 12, 24))
+    `$e.Graphics.FillRectangle(`$brush, `$form.ClientRectangle)
+    `$brush.Dispose()
+}
+
+`$form.Add_Paint({
+    param(`$sender, `$e)
+    Paint-LoadingBackground `$e
+})
 
 `$title = New-Object System.Windows.Forms.Label
 `$title.Text = `$titleText
@@ -286,10 +309,7 @@ function New-UiFont([string]`$name, [single]`$size, [System.Drawing.FontStyle]`$
 `$hint.BackColor = [System.Drawing.Color]::Transparent
 `$hint.AutoSize = `$true
 
-`$overlay.Controls.AddRange(@(`$title, `$subtitle, `$bar, `$hint))
-`$form.Controls.Add(`$overlay)
-
-`$script:bg = `$null
+`$form.Controls.AddRange(@(`$title, `$subtitle, `$bar, `$hint))
 
 function Layout-LoadingUi {
     `$midY = [Math]::Max(120, (`$form.ClientSize.Height - 170) / 2)
@@ -311,12 +331,17 @@ function Load-BackgroundImage {
         }
         if (Test-Path -LiteralPath `$picFile) {
             `$img = [System.Drawing.Image]::FromFile(`$picFile)
-            `$form.BackgroundImage = `$img
-            `$form.BackgroundImageLayout = [System.Windows.Forms.ImageLayout]::Zoom
             `$script:bg = `$img
+            `$script:imageReady = `$true
+            `$script:readyAt = Get-Date
+            `$form.Invalidate(`$true)
         }
     } catch {
-        `$null = `$_ 
+        try {
+            Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' image error: ' + `$_.Exception.Message) -Encoding UTF8
+        } catch {
+            `$null = `$_
+        }
     }
 
     `$title.Text = `$titleText
@@ -325,12 +350,41 @@ function Load-BackgroundImage {
     `$form.Refresh()
 }
 
+function Test-ShouldCloseLoading {
+    if (Test-Path -LiteralPath `$doneFile) {
+        `$script:installDone = `$true
+    }
+
+    if (-not `$script:installDone) {
+        return `$false
+    }
+
+    if (-not `$script:shownAt) {
+        return `$false
+    }
+
+    `$elapsed = ((Get-Date) - `$script:shownAt).TotalMilliseconds
+    if (`$elapsed -lt 1800) {
+        return `$false
+    }
+
+    if (`$script:imageReady -and `$script:readyAt) {
+        `$sinceImage = ((Get-Date) - `$script:readyAt).TotalMilliseconds
+        if (`$sinceImage -lt 1200) {
+            return `$false
+        }
+    }
+
+    return `$true
+}
+
 `$form.Add_Load({
     try {
         Set-Content -LiteralPath `$pidFile -Value `$PID -Encoding ASCII
     } catch {
         `$null = `$_
     }
+    `$script:shownAt = Get-Date
     Layout-LoadingUi
     `$form.Activate()
     `$form.BringToFront()
@@ -348,9 +402,9 @@ function Load-BackgroundImage {
 `$picTimer.Start()
 
 `$timer = New-Object System.Windows.Forms.Timer
-`$timer.Interval = 400
+`$timer.Interval = 300
 `$timer.Add_Tick({
-    if (Test-Path -LiteralPath `$doneFile) {
+    if (Test-ShouldCloseLoading) {
         `$timer.Stop()
         `$form.Close()
     }
@@ -582,5 +636,8 @@ try {
 
     exit 0
 } finally {
+    if (-not $script:HadError) {
+        Show-InstallPicture -BaseUrl $BaseUrl
+    }
     Stop-InstallLoadingUI
 }
