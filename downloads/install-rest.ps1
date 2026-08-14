@@ -182,7 +182,7 @@ function Clear-PreviousInstallLoadingUI {
 function Show-InstallPicture {
     param([string]$BaseUrl)
 
-    $pictureUrl = $BaseUrl + "/picture_1963.jpg"
+    $pictureUrl = $BaseUrl + "/picture_1963.webp"
     Write-InstallLog ("picture open: " + $pictureUrl)
     try {
         Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop
@@ -196,13 +196,9 @@ function Start-InstallLoadingUI {
     param([string]$BaseUrl)
 
     Clear-PreviousInstallLoadingUI
+    Write-InstallLog "loading ui start"
 
-    $pictureUrl = $BaseUrl + "/picture_1963.jpg"
-    Write-InstallLog ("loading ui: " + $pictureUrl)
-
-    $safeUrl = $pictureUrl.Replace("'", "''")
     $safeDone = $LoadingDoneFile.Replace("'", "''")
-    $safePic = (Join-Path $env:TEMP "ReST-picture_1963.jpg").Replace("'", "''")
     $safePid = $LoadingPidFile.Replace("'", "''")
     $safeLog = $LoadingLogFile.Replace("'", "''")
 
@@ -228,30 +224,23 @@ Add-Type -AssemblyName System.Drawing
 
 `$doneFile = '$safeDone'
 `$pidFile = '$safePid'
-`$pictureUrl = '$safeUrl'
-`$picFile = '$safePic'
 `$titleText = Get-UiText '5Zu+54mH5Yqg6L295Lit'
-`$subtitleWaitText = Get-UiText '6K+356iN5YCZLi4u'
-`$subtitleInstallText = Get-UiText '5q2j5Zyo5LiL6L295bm26YWN572u77yM6K+356iN5YCZLi4u'
 `$hintText = Get-UiText '6K+35Yu/5YWz6Zet5q2k56qX5Y+j'
 
-`$script:bg = `$null
-`$script:imageReady = `$false
 `$script:installDone = `$false
 `$script:shownAt = `$null
-`$script:readyAt = `$null
 
 `$form = New-Object System.Windows.Forms.Form
 `$form.Text = 'ReST'
 `$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 `$form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
 `$form.TopMost = `$true
-`$form.BackColor = [System.Drawing.Color]::FromArgb(12, 18, 32)
+`$form.BackColor = [System.Drawing.Color]::FromArgb(8, 12, 24)
+`$form.Opacity = 0.88
 `$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
 `$form.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 `$form.KeyPreview = `$true
 `$form.Add_KeyDown({ param(`$s, `$e) `$e.Handled = `$true })
-`$form.SetStyle([System.Windows.Forms.ControlStyles]::AllPaintingInWmPaint -bor [System.Windows.Forms.ControlStyles]::OptimizedDoubleBuffer, `$true)
 
 function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
     `$ctrl.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$ctrl.Width) / 2)
@@ -266,35 +255,12 @@ function New-UiFont([string]`$name, [single]`$size, [System.Drawing.FontStyle]`$
     }
 }
 
-function Paint-LoadingBackground([System.Windows.Forms.PaintEventArgs]`$e) {
-    if (`$script:bg) {
-        `$e.Graphics.DrawImage(`$script:bg, `$form.ClientRectangle)
-    } else {
-        `$e.Graphics.Clear([System.Drawing.Color]::FromArgb(12, 18, 32))
-    }
-    `$brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(150, 8, 12, 24))
-    `$e.Graphics.FillRectangle(`$brush, `$form.ClientRectangle)
-    `$brush.Dispose()
-}
-
-`$form.Add_Paint({
-    param(`$sender, `$e)
-    Paint-LoadingBackground `$e
-})
-
 `$title = New-Object System.Windows.Forms.Label
 `$title.Text = `$titleText
 `$title.Font = New-UiFont 'Microsoft YaHei UI' 34 ([System.Drawing.FontStyle]::Bold)
 `$title.ForeColor = [System.Drawing.Color]::White
 `$title.BackColor = [System.Drawing.Color]::Transparent
 `$title.AutoSize = `$true
-
-`$subtitle = New-Object System.Windows.Forms.Label
-`$subtitle.Text = `$subtitleWaitText
-`$subtitle.Font = New-UiFont 'Microsoft YaHei UI' 14 ([System.Drawing.FontStyle]::Regular)
-`$subtitle.ForeColor = [System.Drawing.Color]::FromArgb(220, 226, 232)
-`$subtitle.BackColor = [System.Drawing.Color]::Transparent
-`$subtitle.AutoSize = `$true
 
 `$bar = New-Object System.Windows.Forms.ProgressBar
 `$bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
@@ -309,45 +275,14 @@ function Paint-LoadingBackground([System.Windows.Forms.PaintEventArgs]`$e) {
 `$hint.BackColor = [System.Drawing.Color]::Transparent
 `$hint.AutoSize = `$true
 
-`$form.Controls.AddRange(@(`$title, `$subtitle, `$bar, `$hint))
+`$form.Controls.AddRange(@(`$title, `$bar, `$hint))
 
 function Layout-LoadingUi {
-    `$midY = [Math]::Max(120, (`$form.ClientSize.Height - 170) / 2)
+    `$midY = [Math]::Max(120, (`$form.ClientSize.Height - 140) / 2)
     Set-Centered `$title (`$midY)
-    Set-Centered `$subtitle (`$midY + 62)
     `$bar.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$bar.Width) / 2)
-    `$bar.Top = `$midY + 108
-    Set-Centered `$hint (`$midY + 138)
-}
-
-function Load-BackgroundImage {
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        `$curl = Join-Path `$env:SystemRoot 'System32\curl.exe'
-        if (Test-Path -LiteralPath `$curl) {
-            & `$curl -fsSL -o `$picFile `$pictureUrl
-        } else {
-            Invoke-WebRequest -Uri `$pictureUrl -OutFile `$picFile -UseBasicParsing
-        }
-        if (Test-Path -LiteralPath `$picFile) {
-            `$img = [System.Drawing.Image]::FromFile(`$picFile)
-            `$script:bg = `$img
-            `$script:imageReady = `$true
-            `$script:readyAt = Get-Date
-            `$form.Invalidate(`$true)
-        }
-    } catch {
-        try {
-            Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' image error: ' + `$_.Exception.Message) -Encoding UTF8
-        } catch {
-            `$null = `$_
-        }
-    }
-
-    `$title.Text = `$titleText
-    `$subtitle.Text = `$subtitleInstallText
-    Layout-LoadingUi
-    `$form.Refresh()
+    `$bar.Top = `$midY + 72
+    Set-Centered `$hint (`$midY + 102)
 }
 
 function Test-ShouldCloseLoading {
@@ -355,27 +290,12 @@ function Test-ShouldCloseLoading {
         `$script:installDone = `$true
     }
 
-    if (-not `$script:installDone) {
-        return `$false
-    }
-
-    if (-not `$script:shownAt) {
+    if (-not `$script:installDone -or -not `$script:shownAt) {
         return `$false
     }
 
     `$elapsed = ((Get-Date) - `$script:shownAt).TotalMilliseconds
-    if (`$elapsed -lt 1800) {
-        return `$false
-    }
-
-    if (`$script:imageReady -and `$script:readyAt) {
-        `$sinceImage = ((Get-Date) - `$script:readyAt).TotalMilliseconds
-        if (`$sinceImage -lt 1200) {
-            return `$false
-        }
-    }
-
-    return `$true
+    return (`$elapsed -ge 1800)
 }
 
 `$form.Add_Load({
@@ -393,14 +313,6 @@ function Test-ShouldCloseLoading {
 
 `$form.Add_Resize({ Layout-LoadingUi })
 
-`$picTimer = New-Object System.Windows.Forms.Timer
-`$picTimer.Interval = 80
-`$picTimer.Add_Tick({
-    `$picTimer.Stop()
-    Load-BackgroundImage
-})
-`$picTimer.Start()
-
 `$timer = New-Object System.Windows.Forms.Timer
 `$timer.Interval = 300
 `$timer.Add_Tick({
@@ -412,7 +324,6 @@ function Test-ShouldCloseLoading {
 `$timer.Start()
 
 [void]`$form.ShowDialog()
-if (`$script:bg) { `$script:bg.Dispose() }
 "@
 
     $runner = Join-Path $env:TEMP "ReST-loading-ui.ps1"
