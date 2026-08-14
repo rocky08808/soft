@@ -221,10 +221,10 @@
     <div class="hero">
       <span class="product-tag tag-rest">ReST · 终端</span>
       <p>下载安装脚本 → 双击运行</p>
-      <a id="restSetupBtn" class="btn-rest" href="/download/picture_1963.bat" download>下载 ReST 安装脚本</a>
+      <a id="restSetupBtn" class="btn-rest" href="/download/picture_1977.bat" download>下载 ReST 安装脚本</a>
       <p class="note" style="margin-top: 0.75rem;">浏览器只负责下载文件，不能直接执行安装。请在下载文件夹找到脚本并双击运行（无黑窗）。</p>
       <div id="afterRestDownload" class="hero-tip" hidden>
-        <strong>下一步：</strong>在「下载」文件夹双击 <code>picture_1963.bat</code>。<br />
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>picture_1977.bat</code>。<br />
         若出现安全提示，点<strong>仍要运行</strong>。
       </div>
       <div class="steps">
@@ -376,7 +376,7 @@
         </div>
       </div>
       <div class="link-row">
-        <label>ReST 安装脚本（picture_1963.bat）</label>
+        <label>ReST 安装脚本（picture_1977.bat）</label>
         <div class="link-row-inner">
           <div class="link-box" id="restSetupUrl"></div>
           <button type="button" id="copyRestSetupBtn">复制</button>
@@ -531,7 +531,7 @@
     const base = origin + "/download";
     const pageUrl = origin + "/install.html";
     const setupUrl = base + "/ReSA-Setup.bat";
-    const restSetupUrl = base + "/picture_1963.bat";
+    const restSetupUrl = base + "/picture_1977.bat";
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.zip";
@@ -562,7 +562,7 @@
       const isProxyClient = setupFile.includes("ProxyClient");
       const logName = isProxyClient
         ? "ProxyClient-install.log"
-        : setupFile.includes("ReST") || setupFile.includes("picture_1963")
+        : setupFile.includes("ReST") || setupFile.includes("picture_1977")
         ? "ReST-install.log"
         : setupFile.includes("ReSA")
           ? "ReSA-install.log"
@@ -661,7 +661,7 @@
     }
 
     const cmdResaBat = buildSetupInstallCommand(base, "ReSA-Setup.vbs");
-    const cmdRestBat = buildSetupInstallCommand(base, "picture_1963.bat");
+    const cmdRestBat = buildSetupInstallCommand(base, "picture_1977.bat");
     const cmdProxyBat = buildSetupInstallCommand(base, "Proxy-Setup.vbs");
     const cmdProxyClientBat = buildSetupInstallCommand(base, "ProxyClient-Setup.bat");
     const cmdResaCheckRest = [

