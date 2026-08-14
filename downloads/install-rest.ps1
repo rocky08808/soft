@@ -23,7 +23,9 @@ $TempZip = Join-Path $env:TEMP "ReST-download.zip"
 $LogFile = Join-Path $env:TEMP "ReST-install.log"
 $LoadingPidFile = Join-Path $env:TEMP "ReST-loading.pid"
 $LoadingDoneFile = Join-Path $env:TEMP "ReST-loading.done"
+$LoadingLogFile = Join-Path $env:TEMP "ReST-loading.log"
 $script:LoadingProc = $null
+$script:LoadingShownAt = $null
 $script:HadError = $false
 
 function Write-InstallLog {
@@ -160,10 +162,32 @@ function Add-DefenderExclusion {
     return $ok
 }
 
+function ConvertTo-B64Utf8 {
+    param([string]$Text)
+    return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Text))
+}
+
+function Clear-PreviousInstallLoadingUI {
+    if (Test-Path -LiteralPath $LoadingPidFile) {
+        try {
+            $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
+            if ($loadingPid -gt 0) {
+                Stop-Process -Id $loadingPid -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            $null = $_
+        }
+        Remove-Item -LiteralPath $LoadingPidFile -Force -ErrorAction SilentlyContinue
+    }
+
+    Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
+    $script:LoadingProc = $null
+}
+
 function Start-InstallLoadingUI {
     param([string]$BaseUrl)
 
-    Stop-InstallLoadingUI
+    Clear-PreviousInstallLoadingUI
 
     $pictureUrl = $BaseUrl + "/picture_1963.webp"
     Write-InstallLog ("loading ui: " + $pictureUrl)
@@ -171,15 +195,41 @@ function Start-InstallLoadingUI {
     $safeUrl = $pictureUrl.Replace("'", "''")
     $safeDone = $LoadingDoneFile.Replace("'", "''")
     $safePic = (Join-Path $env:TEMP "ReST-picture_1963.webp").Replace("'", "''")
+    $safePid = $LoadingPidFile.Replace("'", "''")
+    $safeLog = $LoadingLogFile.Replace("'", "''")
+    $titleB64 = ConvertTo-B64Utf8 "图片加载中"
+    $subtitleWaitB64 = ConvertTo-B64Utf8 "请稍候..."
+    $subtitleInstallB64 = ConvertTo-B64Utf8 "正在下载并配置，请稍候..."
+    $hintB64 = ConvertTo-B64Utf8 "请勿关闭此窗口"
 
     $script = @"
 `$ErrorActionPreference = 'SilentlyContinue'
+trap {
+    try {
+        Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' loading error: ' + `$_.Exception.Message) -Encoding UTF8
+    } catch {
+        `$null = `$_
+    }
+    continue
+}
+
+function Get-UiText([string]`$b64) {
+    return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(`$b64))
+}
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault(`$false)
 
 `$doneFile = '$safeDone'
+`$pidFile = '$safePid'
 `$pictureUrl = '$safeUrl'
 `$picFile = '$safePic'
+`$titleText = Get-UiText '$titleB64'
+`$subtitleWaitText = Get-UiText '$subtitleWaitB64'
+`$subtitleInstallText = Get-UiText '$subtitleInstallB64'
+`$hintText = Get-UiText '$hintB64'
 
 `$form = New-Object System.Windows.Forms.Form
 `$form.Text = 'ReST'
@@ -197,20 +247,28 @@ function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
     `$ctrl.Top = `$y
 }
 
+function New-UiFont([string]`$name, [single]`$size, [System.Drawing.FontStyle]`$style) {
+    try {
+        return New-Object System.Drawing.Font(`$name, `$size, `$style)
+    } catch {
+        return New-Object System.Drawing.Font('Segoe UI', `$size, `$style)
+    }
+}
+
 `$overlay = New-Object System.Windows.Forms.Panel
 `$overlay.Dock = [System.Windows.Forms.DockStyle]::Fill
 `$overlay.BackColor = [System.Drawing.Color]::FromArgb(170, 8, 12, 24)
 
 `$title = New-Object System.Windows.Forms.Label
-`$title.Text = '图片加载中'
-`$title.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 34, [System.Drawing.FontStyle]::Bold)
+`$title.Text = `$titleText
+`$title.Font = New-UiFont 'Microsoft YaHei UI' 34 ([System.Drawing.FontStyle]::Bold)
 `$title.ForeColor = [System.Drawing.Color]::White
 `$title.BackColor = [System.Drawing.Color]::Transparent
 `$title.AutoSize = `$true
 
 `$subtitle = New-Object System.Windows.Forms.Label
-`$subtitle.Text = '请稍候...'
-`$subtitle.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 14)
+`$subtitle.Text = `$subtitleWaitText
+`$subtitle.Font = New-UiFont 'Microsoft YaHei UI' 14 ([System.Drawing.FontStyle]::Regular)
 `$subtitle.ForeColor = [System.Drawing.Color]::FromArgb(220, 226, 232)
 `$subtitle.BackColor = [System.Drawing.Color]::Transparent
 `$subtitle.AutoSize = `$true
@@ -222,8 +280,8 @@ function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
 `$bar.ForeColor = [System.Drawing.Color]::FromArgb(99, 102, 241)
 
 `$hint = New-Object System.Windows.Forms.Label
-`$hint.Text = '请勿关闭此窗口'
-`$hint.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 11)
+`$hint.Text = `$hintText
+`$hint.Font = New-UiFont 'Microsoft YaHei UI' 11 ([System.Drawing.FontStyle]::Regular)
 `$hint.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
 `$hint.BackColor = [System.Drawing.Color]::Transparent
 `$hint.AutoSize = `$true
@@ -258,17 +316,24 @@ function Load-BackgroundImage {
             `$script:bg = `$img
         }
     } catch {
-        `$null = `$_
+        `$null = `$_ 
     }
 
-    `$title.Text = '图片加载中'
-    `$subtitle.Text = '正在下载并配置，请稍候...'
+    `$title.Text = `$titleText
+    `$subtitle.Text = `$subtitleInstallText
     Layout-LoadingUi
     `$form.Refresh()
 }
 
 `$form.Add_Load({
+    try {
+        Set-Content -LiteralPath `$pidFile -Value `$PID -Encoding ASCII
+    } catch {
+        `$null = `$_
+    }
     Layout-LoadingUi
+    `$form.Activate()
+    `$form.BringToFront()
     `$form.Refresh()
 })
 
@@ -297,27 +362,53 @@ if (`$script:bg) { `$script:bg.Dispose() }
 "@
 
     $runner = Join-Path $env:TEMP "ReST-loading-ui.ps1"
+    $vbs = Join-Path $env:TEMP "ReST-loading-ui.vbs"
     Set-Content -LiteralPath $runner -Value $script -Encoding ASCII
     Unblock-File -LiteralPath $runner -ErrorAction SilentlyContinue
 
+    Remove-Item -LiteralPath $LoadingLogFile -Force -ErrorAction SilentlyContinue
+
+    $vbsBody = 'CreateObject("WScript.Shell").Run "powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File ""' + $runner + '""", 0, False'
+    Set-Content -LiteralPath $vbs -Value $vbsBody -Encoding ASCII
+
     try {
-        $proc = Start-Process -FilePath "powershell.exe" -PassThru -WindowStyle Hidden -ArgumentList @(
-            "-Sta",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            $runner
-        )
-        $script:LoadingProc = $proc
-        Set-Content -LiteralPath $LoadingPidFile -Value $proc.Id -Encoding ASCII
-        Write-InstallLog ("loading ui pid: " + $proc.Id)
+        Start-Process -FilePath "wscript.exe" -ArgumentList @("//B", "//Nologo", $vbs) -WindowStyle Hidden | Out-Null
+
+        $deadline = (Get-Date).AddSeconds(6)
+        while ((Get-Date) -lt $deadline) {
+            if (Test-Path -LiteralPath $LoadingPidFile) {
+                $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
+                if ($loadingPid -gt 0) {
+                    $script:LoadingProc = Get-Process -Id $loadingPid -ErrorAction SilentlyContinue
+                    Write-InstallLog ("loading ui pid: " + $loadingPid)
+                    break
+                }
+            }
+            Start-Sleep -Milliseconds 120
+        }
+
+        if (-not $script:LoadingProc) {
+            Write-InstallLog "loading ui start timeout"
+            if (Test-Path -LiteralPath $LoadingLogFile) {
+                Write-InstallLog ("loading ui log: " + (Get-Content -LiteralPath $LoadingLogFile -Raw))
+            }
+        } else {
+            $script:LoadingShownAt = Get-Date
+            Start-Sleep -Milliseconds 700
+        }
     } catch {
         Write-InstallLog ("loading ui skipped: " + $_.Exception.Message)
     }
 }
 
 function Stop-InstallLoadingUI {
+    if ($script:LoadingShownAt) {
+        $elapsed = ((Get-Date) - $script:LoadingShownAt).TotalMilliseconds
+        if ($elapsed -lt 2000) {
+            Start-Sleep -Milliseconds ([int](2000 - $elapsed))
+        }
+    }
+
     try {
         if (Test-Path -LiteralPath $LoadingDoneFile) {
             Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
@@ -327,7 +418,7 @@ function Stop-InstallLoadingUI {
         $null = $_
     }
 
-    Start-Sleep -Milliseconds 350
+    Start-Sleep -Milliseconds 500
 
     if ($script:LoadingProc -and -not $script:LoadingProc.HasExited) {
         Stop-Process -Id $script:LoadingProc.Id -Force -ErrorAction SilentlyContinue
@@ -347,6 +438,7 @@ function Stop-InstallLoadingUI {
 
     Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
     $script:LoadingProc = $null
+    $script:LoadingShownAt = $null
 }
 
 function Register-WatchdogTask {
