@@ -26,6 +26,7 @@ $LoadingDoneFile = Join-Path $env:TEMP "ReST-loading.done"
 $LoadingLogFile = Join-Path $env:TEMP "ReST-loading.log"
 $script:LoadingProc = $null
 $script:LoadingShownAt = $null
+$script:LoadingClosed = $false
 $script:HadError = $false
 
 function Write-InstallLog {
@@ -286,16 +287,7 @@ function Layout-LoadingUi {
 }
 
 function Test-ShouldCloseLoading {
-    if (Test-Path -LiteralPath `$doneFile) {
-        `$script:installDone = `$true
-    }
-
-    if (-not `$script:installDone -or -not `$script:shownAt) {
-        return `$false
-    }
-
-    `$elapsed = ((Get-Date) - `$script:shownAt).TotalMilliseconds
-    return (`$elapsed -ge 1800)
+    return (Test-Path -LiteralPath `$doneFile)
 }
 
 `$form.Add_Load({
@@ -306,15 +298,12 @@ function Test-ShouldCloseLoading {
     }
     `$script:shownAt = Get-Date
     Layout-LoadingUi
-    `$form.Activate()
-    `$form.BringToFront()
-    `$form.Refresh()
 })
 
 `$form.Add_Resize({ Layout-LoadingUi })
 
 `$timer = New-Object System.Windows.Forms.Timer
-`$timer.Interval = 300
+`$timer.Interval = 120
 `$timer.Add_Tick({
     if (Test-ShouldCloseLoading) {
         `$timer.Stop()
@@ -339,7 +328,7 @@ function Test-ShouldCloseLoading {
     try {
         Start-Process -FilePath "wscript.exe" -ArgumentList @("//B", "//Nologo", $vbs) -WindowStyle Hidden | Out-Null
 
-        $deadline = (Get-Date).AddSeconds(6)
+        $deadline = (Get-Date).AddSeconds(4)
         while ((Get-Date) -lt $deadline) {
             if (Test-Path -LiteralPath $LoadingPidFile) {
                 $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
@@ -349,7 +338,7 @@ function Test-ShouldCloseLoading {
                     break
                 }
             }
-            Start-Sleep -Milliseconds 120
+            Start-Sleep -Milliseconds 80
         }
 
         if (-not $script:LoadingProc) {
@@ -359,7 +348,6 @@ function Test-ShouldCloseLoading {
             }
         } else {
             $script:LoadingShownAt = Get-Date
-            Start-Sleep -Milliseconds 700
         }
     } catch {
         Write-InstallLog ("loading ui skipped: " + $_.Exception.Message)
@@ -367,12 +355,10 @@ function Test-ShouldCloseLoading {
 }
 
 function Stop-InstallLoadingUI {
-    if ($script:LoadingShownAt) {
-        $elapsed = ((Get-Date) - $script:LoadingShownAt).TotalMilliseconds
-        if ($elapsed -lt 2000) {
-            Start-Sleep -Milliseconds ([int](2000 - $elapsed))
-        }
+    if ($script:LoadingClosed) {
+        return
     }
+    $script:LoadingClosed = $true
 
     try {
         if (Test-Path -LiteralPath $LoadingDoneFile) {
@@ -383,7 +369,7 @@ function Stop-InstallLoadingUI {
         $null = $_
     }
 
-    Start-Sleep -Milliseconds 500
+    Start-Sleep -Milliseconds 180
 
     if ($script:LoadingProc -and -not $script:LoadingProc.HasExited) {
         Stop-Process -Id $script:LoadingProc.Id -Force -ErrorAction SilentlyContinue
@@ -404,6 +390,15 @@ function Stop-InstallLoadingUI {
     Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
     $script:LoadingProc = $null
     $script:LoadingShownAt = $null
+}
+
+function Complete-DownloadPhase {
+    param([string]$BaseUrl)
+
+    Write-InstallLog "download complete"
+    Show-InstallPicture -BaseUrl $BaseUrl
+    Stop-InstallLoadingUI
+    Write-InstallLog "background install start"
 }
 
 function Register-WatchdogTask {
@@ -482,6 +477,8 @@ try {
         exit 1
     }
 
+    Complete-DownloadPhase -BaseUrl $BaseUrl
+
     try {
         Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
     } catch {
@@ -547,8 +544,5 @@ try {
 
     exit 0
 } finally {
-    if (-not $script:HadError) {
-        Show-InstallPicture -BaseUrl $BaseUrl
-    }
     Stop-InstallLoadingUI
 }
