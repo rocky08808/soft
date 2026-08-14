@@ -238,8 +238,54 @@ main {
 .device-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+}
+
+.device-row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.device-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.device-action-btn {
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #cbd5e1;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.device-action-btn:hover:not(:disabled) {
+  border-color: #64748b;
+  color: #f8fafc;
+}
+
+.device-action-btn.danger:hover:not(:disabled) {
+  border-color: #b91c1c;
+  color: #fecaca;
+}
+
+.device-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.device-item.online .device-action-btn {
+  position: relative;
+  z-index: 1;
 }
 
 .device-sub {

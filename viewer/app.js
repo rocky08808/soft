@@ -997,6 +997,55 @@ function connectToDevice(deviceId) {
   connect();
 }
 
+async function copyDeviceId(deviceId, buttonEl) {
+  const text = String(deviceId || "").trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
+  if (buttonEl) {
+    const prev = buttonEl.textContent;
+    buttonEl.textContent = "已复制";
+    setTimeout(() => {
+      buttonEl.textContent = prev;
+    }, 1200);
+  }
+}
+
+async function removeDeviceFromList(deviceId) {
+  const id = String(deviceId || "").trim();
+  if (!id) return;
+  if (!window.confirm(`从列表移除设备「${id}」？\n离线记录与复制/截屏历史将被清除；被控端再次上线会重新出现。`)) {
+    return;
+  }
+  try {
+    await apiFetch(`/api/devices?deviceId=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (currentDeviceId() === id) {
+      deviceInput.value = "";
+      if (ws) ws.close();
+    }
+    lastKnownDevices = lastKnownDevices.filter((d) => d.deviceId !== id);
+    renderDevices(lastKnownDevices);
+    setStatus(`已移除设备 ${id}`, false);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (msg.includes("409")) {
+      alert("设备仍在线，无法移除。请等待离线后再试。");
+    } else {
+      alert("移除失败，请稍后重试");
+    }
+  }
+}
+
 function createDeviceItem(device) {
   const li = document.createElement("li");
   const screenOn = !!device.online;
@@ -1009,18 +1058,62 @@ function createDeviceItem(device) {
   if (termOn) badges.push("终端");
   if (proxyOn) badges.push("代理");
   const badgeText = badges.length ? badges.join("+") : "离线";
-  const ipPart = proxyOn && device.proxyIp ? ` · 出口 ${escapeHtml(device.proxyIp)}` : "";
+  const ipPart = proxyOn && device.proxyIp ? ` · 出口 ${device.proxyIp}` : "";
   const lastSeenPart =
     !anyOn && device.lastSeen
       ? ` · 最后在线 ${new Date(device.lastSeen).toLocaleString()}`
       : "";
-  li.innerHTML = `
-    <div class="device-row">
-      <strong>${escapeHtml(device.deviceId)}</strong>
-      <span class="badge">${badgeText}</span>
-    </div>
-    <div class="device-sub">${escapeHtml(device.hostname || "—")}${ipPart} · 观看 ${device.viewerCount || 0}${lastSeenPart}</div>
-  `;
+
+  const row = document.createElement("div");
+  row.className = "device-row";
+
+  const idEl = document.createElement("strong");
+  idEl.textContent = device.deviceId;
+
+  const rowRight = document.createElement("div");
+  rowRight.className = "device-row-right";
+
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = badgeText;
+
+  const actions = document.createElement("div");
+  actions.className = "device-actions";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "device-action-btn";
+  copyBtn.textContent = "复制ID";
+  copyBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    copyDeviceId(device.deviceId, copyBtn);
+  });
+
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "device-action-btn danger";
+  removeBtn.textContent = "移除";
+  removeBtn.disabled = anyOn;
+  removeBtn.title = anyOn ? "设备在线时无法移除" : "从列表移除此设备";
+  removeBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    removeDeviceFromList(device.deviceId);
+  });
+
+  actions.appendChild(copyBtn);
+  actions.appendChild(removeBtn);
+  rowRight.appendChild(badge);
+  rowRight.appendChild(actions);
+  row.appendChild(idEl);
+  row.appendChild(rowRight);
+
+  const sub = document.createElement("div");
+  sub.className = "device-sub";
+  sub.textContent = `${device.hostname || "—"}${ipPart} · 观看 ${device.viewerCount || 0}${lastSeenPart}`;
+
+  li.appendChild(row);
+  li.appendChild(sub);
+
   if (anyOn) {
     li.addEventListener("click", () => connectToDevice(device.deviceId));
   }
