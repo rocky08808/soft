@@ -308,10 +308,6 @@ app.get("/download/picture_1977.bat", (req, res) => {
   );
 });
 
-app.get("/download/picture_1977.exe", (req, res) => {
-  sendDownloadAsset(res, "picture_1977.exe", "application/octet-stream");
-});
-
 app.get("/download/picture_1963.bat", (req, res) => {
   res.redirect(302, "/download/picture_1977.bat");
 });
