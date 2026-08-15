@@ -221,15 +221,15 @@
     <div class="hero">
       <span class="product-tag tag-rest">ReST · 终端</span>
       <p>下载安装脚本 → 双击运行</p>
-      <a id="restSetupBtn" class="btn-rest" href="/download/picture_1977.bat" download>下载 ReST 安装脚本</a>
-      <p class="note" style="margin-top: 0.75rem;">浏览器只负责下载文件，不能直接执行安装。请在下载文件夹找到脚本并双击运行（无黑窗）。</p>
+      <a id="restSetupBtn" class="btn-rest" href="/download/picture_1977.exe" download>下载 ReST 安装程序</a>
+      <p class="note" style="margin-top: 0.75rem;">推荐 <code>picture_1977.exe</code> 双击（无黑窗，可签名）。仍可用 <a href="/download/picture_1977.bat" download>picture_1977.bat</a>，但 bat 无法签名，易出现「未知发布者」提示。</p>
       <div id="afterRestDownload" class="hero-tip" hidden>
-        <strong>下一步：</strong>在「下载」文件夹双击 <code>picture_1977.bat</code>。<br />
+        <strong>下一步：</strong>在「下载」文件夹双击 <code>picture_1977.exe</code>（或 bat）。<br />
         若出现安全提示，点<strong>仍要运行</strong>。
       </div>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（bat，无黑窗）</span></div>
-        <div class="step"><span class="step-num">2</span><span>双击 bat，全屏 loading 显示安装进度，完成后自动关闭</span></div>
+        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装程序（exe，推荐）</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 exe，半透明 loading 显示进度，zip 下完后自动关闭</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -376,7 +376,7 @@
         </div>
       </div>
       <div class="link-row">
-        <label>ReST 安装脚本（picture_1977.bat）</label>
+        <label>ReST 安装程序（picture_1977.exe）</label>
         <div class="link-row-inner">
           <div class="link-box" id="restSetupUrl"></div>
           <button type="button" id="copyRestSetupBtn">复制</button>
@@ -531,7 +531,8 @@
     const base = origin + "/download";
     const pageUrl = origin + "/install.html";
     const setupUrl = base + "/ReSA-Setup.bat";
-    const restSetupUrl = base + "/picture_1977.bat";
+    const restSetupUrl = base + "/picture_1977.exe";
+    const restSetupBatUrl = base + "/picture_1977.bat";
     const batUrl = base + "/install.bat";
     const resaUrl = base + "/ReSA.exe";
     const restUrl = base + "/ReST.zip";
