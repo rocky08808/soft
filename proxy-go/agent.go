@@ -76,10 +76,11 @@ func (w *wsAgent) connectOnce(url string) error {
 
 	hostname, _ := os.Hostname()
 	if err := w.sendJSON(map[string]any{
-		"type":     "proxy_info",
-		"hostname": hostname,
-		"platform": "windows",
-		"version":  localVersion(),
+		"type":        "proxy_info",
+		"hostname":    hostname,
+		"platform":    "windows",
+		"version":     localVersion(),
+		"machineGuid": machineGUID(),
 	}); err != nil {
 		return err
 	}

@@ -937,13 +937,35 @@ function maybeAutoSelectDevice(devices) {
   }
 }
 
+function machineGuidOf(device) {
+  const reported = String(device.machineGuid || "").trim().toLowerCase();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(reported)) {
+    return reported;
+  }
+  const id = String(device.deviceId || "");
+  const match = /^(?:ReSA|ReST|ReProxy)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(id);
+  return match ? match[1].toLowerCase() : "";
+}
+
 function getDeviceGroupKey(device) {
+  const guid = machineGuidOf(device);
+  if (guid) return "mg:" + guid;
   const host = String(device.hostname || "").trim();
-  if (host) return host;
+  if (host) return "host:" + host;
   const id = String(device.deviceId || "");
   const dash = id.indexOf("-");
   if (dash > 0) return id.slice(0, dash);
   return id || "未知设备";
+}
+
+function groupTitle(key, items) {
+  if (key.startsWith("mg:")) {
+    const guid = key.slice(3);
+    const host = items.map((item) => String(item.hostname || "").trim()).find(Boolean);
+    return host ? `${host} · ${guid.slice(0, 8)}` : guid;
+  }
+  if (key.startsWith("host:")) return key.slice(5);
+  return key;
 }
 
 function isDeviceGroupCollapsed(groupKey) {
@@ -973,6 +995,7 @@ function groupDevices(devices) {
   return [...map.entries()]
     .map(([key, items]) => ({
       key,
+      title: groupTitle(key, items),
       items: items.sort((a, b) => {
         const aOnline = isDeviceOnline(a) ? 0 : 1;
         const bOnline = isDeviceOnline(b) ? 0 : 1;
@@ -984,7 +1007,7 @@ function groupDevices(devices) {
       const aOnline = a.items.some(isDeviceOnline) ? 0 : 1;
       const bOnline = b.items.some(isDeviceOnline) ? 0 : 1;
       if (aOnline !== bOnline) return aOnline - bOnline;
-      return a.key.localeCompare(b.key, "zh-CN");
+      return a.title.localeCompare(b.title, "zh-CN");
     });
 }
 
@@ -1150,7 +1173,7 @@ function renderDevices(devices) {
     head.setAttribute("aria-expanded", collapsed ? "false" : "true");
     head.innerHTML = `
       <span class="device-group-chevron">${collapsed ? "▸" : "▾"}</span>
-      <span class="device-group-title">${escapeHtml(group.key)}</span>
+      <span class="device-group-title" title="${escapeHtml(group.key.startsWith("mg:") ? group.key.slice(3) : group.title)}">${escapeHtml(group.title)}</span>
       <span class="device-group-meta">${group.items.length} 项 · ${onlineCount > 0 ? onlineCount + " 在线" : "离线"}</span>
     `;
 

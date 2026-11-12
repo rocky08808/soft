@@ -889,6 +889,21 @@ function getProxyIp(meta) {
   return meta.proxyPublicIp || meta.proxyIp || "";
 }
 
+function machineGuidFromId(deviceId) {
+  const match = String(deviceId || "").match(
+    /^(?:ReSA|ReST|ReProxy)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+  );
+  return match ? match[1].toLowerCase() : "";
+}
+
+function rememberMachineGuid(meta, value, deviceId) {
+  const reported = String(value || "").trim().toLowerCase();
+  const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(reported)
+    ? reported
+    : machineGuidFromId(deviceId);
+  if (guid) meta.machineGuid = guid;
+}
+
 function deviceSnapshot(deviceId) {
   const meta = agentMeta.get(deviceId) || {};
   const viewerCount = viewers.get(deviceId)?.size || 0;
@@ -898,6 +913,7 @@ function deviceSnapshot(deviceId) {
     termOnline: termAgents.has(deviceId),
     proxyOnline: proxyAgents.has(deviceId),
     viewerCount,
+    machineGuid: meta.machineGuid || machineGuidFromId(deviceId),
     hostname: meta.hostname || meta.termHostname || meta.proxyHostname || "",
     platform: meta.platform || meta.termPlatform || meta.proxyPlatform || "",
     agentVersion: meta.agentVersion || "",
@@ -1374,6 +1390,7 @@ wss.on("connection", (ws, req) => {
 
       if (msg.type === "agent_info") {
         const meta = agentMeta.get(deviceId) || {};
+        rememberMachineGuid(meta, msg.machineGuid, deviceId);
         meta.hostname = msg.hostname || meta.hostname;
         meta.platform = msg.platform || meta.platform;
         meta.monitor = msg.monitor ?? meta.monitor;
@@ -1434,6 +1451,7 @@ wss.on("connection", (ws, req) => {
       const meta = agentMeta.get(deviceId) || {};
       meta.lastSeen = new Date().toISOString();
       if (msg.type === "term_info") {
+        rememberMachineGuid(meta, msg.machineGuid, deviceId);
         meta.termHostname = msg.hostname || meta.termHostname;
         meta.termPlatform = msg.platform || meta.termPlatform;
         if (msg.version) meta.termVersion = msg.version;
@@ -1610,6 +1628,7 @@ wss.on("connection", (ws, req) => {
 
     if (ws.role === "proxy" && msg.type === "proxy_info") {
       const meta = agentMeta.get(deviceId) || {};
+      rememberMachineGuid(meta, msg.machineGuid, deviceId);
       meta.proxyHostname = msg.hostname || meta.proxyHostname;
       meta.proxyPlatform = msg.platform || meta.proxyPlatform;
       if (msg.version) meta.proxyVersion = msg.version;

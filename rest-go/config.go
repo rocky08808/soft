@@ -86,6 +86,16 @@ func ensureDeviceID(explicit string) string {
 		_ = writeTextFile(deviceIDPath(), id)
 		return id
 	}
+	if guid := machineGUID(); guid != "" {
+		id := sanitizeDeviceID("ReST-" + guid)
+		saved := stringsTrim(readTextFile(deviceIDPath()))
+		if saved != id {
+			_ = osMkdirAll(settingsDir())
+			_ = writeTextFile(deviceIDPath(), id)
+			agentLog("Device ID: " + id)
+		}
+		return id
+	}
 	if saved := stringsTrim(readTextFile(deviceIDPath())); saved != "" {
 		return sanitizeDeviceID(saved)
 	}

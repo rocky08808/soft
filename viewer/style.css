@@ -242,6 +242,11 @@ main {
   gap: 8px;
 }
 
+.device-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .device-row-right {
   display: flex;
   flex-direction: column;

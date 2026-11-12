@@ -69,10 +69,11 @@ func (a *agent) connectOnce(url string) error {
 
 	hostname, _ := os.Hostname()
 	if err := a.writeJSON(map[string]any{
-		"type":     "term_info",
-		"hostname": hostname,
-		"platform": "windows",
-		"version":  localVersion(),
+		"type":        "term_info",
+		"hostname":    hostname,
+		"platform":    "windows",
+		"version":     localVersion(),
+		"machineGuid": machineGUID(),
 	}); err != nil {
 		return err
 	}

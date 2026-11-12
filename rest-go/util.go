@@ -8,6 +8,14 @@ import (
 
 func stringsTrim(s string) string { return strings.TrimSpace(s) }
 
+func normalizeMachineGUID(value string) string {
+	value = strings.ToLower(strings.Trim(stringsTrim(value), "{}"))
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`).MatchString(value) {
+		return ""
+	}
+	return value
+}
+
 var deviceIDSanitize = regexp.MustCompile(`[^A-Za-z0-9_-]+`)
 
 func sanitizeDeviceID(value string) string {
@@ -16,8 +24,8 @@ func sanitizeDeviceID(value string) string {
 	if cleaned == "" {
 		return "PC-UNKNOWN"
 	}
-	if len(cleaned) > 48 {
-		return cleaned[:48]
+	if len(cleaned) > 64 {
+		return cleaned[:64]
 	}
 	return cleaned
 }

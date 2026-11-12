@@ -711,7 +711,29 @@ def get_device_id_path() -> Path:
 def sanitize_device_id(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", value.strip())
     cleaned = cleaned.strip("-_")
-    return cleaned[:48] or "PC-UNKNOWN"
+    return cleaned[:64] or "PC-UNKNOWN"
+
+
+def get_machine_guid() -> str:
+    if sys.platform != "win32":
+        return ""
+    try:
+        import winreg
+
+        access = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+            0,
+            access,
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "MachineGuid")
+        guid = str(value).strip().strip("{}").lower()
+        if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", guid):
+            return guid
+    except Exception:
+        return ""
+    return ""
 
 
 def agent_log(message: str) -> None:
@@ -734,6 +756,18 @@ def ensure_device_id(explicit: Optional[str] = None) -> str:
         return device_id
 
     saved_path = get_device_id_path()
+    guid = get_machine_guid()
+    if guid:
+        device_id = sanitize_device_id(f"ReSA-{guid}")
+        saved = ""
+        if saved_path.is_file():
+            saved = saved_path.read_text(encoding="utf-8").strip()
+        if saved != device_id:
+            get_settings_dir().mkdir(parents=True, exist_ok=True)
+            saved_path.write_text(device_id, encoding="utf-8")
+            agent_log(f"Device ID: {device_id}")
+        return device_id
+
     if saved_path.is_file():
         saved = saved_path.read_text(encoding="utf-8").strip()
         if saved:
@@ -2352,6 +2386,7 @@ async def run_agent(
                             "platform": platform_name,
                             "monitor": monitor,
                             "version": get_local_version(),
+                            "machineGuid": get_machine_guid(),
                         }
                     )
                 )
