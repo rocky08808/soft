@@ -291,20 +291,6 @@ app.get("/download/ReSA-Install.ps1", (req, res) => {
   sendPs1Download(res, "ReSA-Install.ps1", buildInstallWrapperPs1(base));
 });
 
-app.get("/r.bat", (req, res) => {
-  const base = `${publicBaseUrl(req)}/download`;
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", 'attachment; filename="r.bat"');
-  res.send(
-    buildSetupBat(base, {
-      installScript: "install-rest.ps1",
-      tempScript: "ReST-install.ps1",
-      launcherId: "rest-setup",
-      silentInstall: true,
-    })
-  );
-});
-
 app.get("/download/ReST-Setup.bat", (req, res) => {
   const base = `${publicBaseUrl(req)}/download`;
   res.setHeader("Content-Type", "application/octet-stream");
