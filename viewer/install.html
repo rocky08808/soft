@@ -220,16 +220,11 @@
 
     <div class="hero">
       <span class="product-tag tag-rest">ReST · 终端</span>
-      <p>下载安装脚本 → 双击运行</p>
-      <a id="restSetupBtn" class="btn-rest" href="/download/ReST-Setup.bat" download>下载 ReST 安装脚本</a>
-      <p class="note" style="margin-top: 0.75rem;">浏览器只负责下载文件。请在「下载」文件夹双击 <code>ReST-Setup.bat</code>（或 <code>ReST安装.bat</code>）运行。若出现安全提示，点<strong>仍要运行</strong>；也可改用下方一键命令（Win+R）。</p>
-      <div id="afterRestDownload" class="hero-tip" hidden>
-        <strong>下一步：</strong>在「下载」文件夹双击 <code>ReST-Setup.bat</code>。<br />
-        若出现安全提示，点<strong>仍要运行</strong>。
-      </div>
+      <p>复制命令，粘贴到 Win+R 运行</p>
+      <p class="note" style="margin-top: 0.75rem;">不要双击下载的 <code>ReST-Setup.bat</code>。Windows 会直接拦截从网页下载的 bat，黑窗口只显示「拒绝访问」，脚本不会运行。</p>
       <div class="steps">
-        <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（bat）</span></div>
-        <div class="step"><span class="step-num">2</span><span>运行命令或双击 bat，后台安装，无窗口</span></div>
+        <div class="step"><span class="step-num">1</span><span>复制下面的整行命令</span></div>
+        <div class="step"><span class="step-num">2</span><span>Win+R 粘贴并回车，后台安装，无窗口</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -723,6 +718,7 @@
     function bindAfterDownload(btnId, tipId) {
       const btn = document.getElementById(btnId);
       const tip = document.getElementById(tipId);
+      if (!btn || !tip) return;
       btn.addEventListener("click", () => {
         setTimeout(() => {
           tip.hidden = false;
@@ -731,7 +727,6 @@
       });
     }
     bindAfterDownload("resaSetupBtn", "afterResaDownload");
-    bindAfterDownload("restSetupBtn", "afterRestDownload");
     bindAfterDownload("proxySetupBtn", "afterProxyDownload");
     bindAfterDownload("proxyClientSetupBtn", "afterProxyClientDownload");
 
