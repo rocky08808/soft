@@ -40,8 +40,16 @@ function Fail-Install {
     param([string]$Text)
     $script:HadError = $true
     Write-InstallLog $Text
+    Write-Host $Text -ForegroundColor Red
+    try {
+        $ws = New-Object -ComObject WScript.Shell
+        $null = $ws.Popup($Text + "`nLog:`n" + $LogFile, 0, "ReST Install", 48)
+    } catch {
+        $null = $_
+    }
     if (-not $Silent) {
-        Write-Host $Text -ForegroundColor Red
+        Write-Host "Press Enter to close"
+        Read-Host | Out-Null
     }
 }
 
@@ -112,10 +120,26 @@ function Extract-ReSTZip {
             throw "ReST.exe missing in zip"
         }
 
-        if (Test-Path -LiteralPath $OutExe) {
-            Remove-Item -LiteralPath $OutExe -Force -ErrorAction SilentlyContinue
+        $moved = $false
+        for ($try = 0; $try -lt 5; $try++) {
+            Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+            try {
+                if (Test-Path -LiteralPath $OutExe) {
+                    Remove-Item -LiteralPath $OutExe -Force -ErrorAction Stop
+                }
+                Move-Item -LiteralPath $extracted -Destination $OutExe -Force -ErrorAction Stop
+                $moved = $true
+                break
+            } catch {
+                if ($try -eq 4) {
+                    throw
+                }
+            }
         }
-        Move-Item -LiteralPath $extracted -Destination $OutExe -Force
+        if (-not $moved) {
+            throw "could not replace ReST.exe"
+        }
     } finally {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -298,8 +322,10 @@ try {
     }
 
     Write-InstallLog "install complete"
+    Write-Host "ReST install complete." -ForegroundColor Green
     if (-not $Silent) {
-        Write-Host "ReST install complete." -ForegroundColor Green
+        Write-Host "Press Enter to close"
+        Read-Host | Out-Null
     }
 
     exit 0

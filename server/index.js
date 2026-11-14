@@ -325,16 +325,7 @@ app.get("/download/ReST-Setup.vbs", (req, res) => {
 });
 
 app.get("/download/ReST-Install.ps1", (req, res) => {
-  const base = `${publicBaseUrl(req)}/download`;
-  sendPs1Download(
-    res,
-    "ReST-Install.ps1",
-    buildInstallWrapperPs1(base, {
-      installScript: "install-rest.ps1",
-      tempScript: "ReST-install.ps1",
-      logFile: "ReST-install.log",
-    })
-  );
+  sendDownloadAsset(res, "install-rest.ps1", "text/plain; charset=utf-8");
 });
 
 app.get("/download/install.bat", (req, res) => {

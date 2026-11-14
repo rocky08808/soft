@@ -229,12 +229,12 @@
       </div>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>下载 ReST 安装脚本（bat）</span></div>
-        <div class="step"><span class="step-num">2</span><span>双击 bat，后台下载并安装，无弹窗</span></div>
+        <div class="step"><span class="step-num">2</span><span>运行命令或双击 bat，后台安装，无窗口</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>命令行一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制整行运行（Base64 编码，CMD / Win+R / PowerShell 均可）：</p>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行运行（CMD / Win+R / PowerShell 均可），后台安装，无窗口。</p>
         <div class="cmd-box" id="cmdRestBat"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdRestBatBtn">复制一键命令</button>
@@ -599,14 +599,14 @@
       return [
         `$ProgressPreference = 'SilentlyContinue'`,
         `$env:RESA_INSTALL_BASE='${safeBase}'`,
-        `$f = Join-Path $env:TEMP 'ReST-Install.ps1'`,
+        `$f = Join-Path $env:TEMP 'ReST-run.ps1'`,
         `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
-        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL -o $f ($env:RESA_INSTALL_BASE + '/ReST-Install.ps1') }`,
-        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/ReST-Install.ps1') -OutFile $f -UseBasicParsing }`,
+        `if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($env:RESA_INSTALL_BASE + '/install-rest.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install-rest.ps1') -OutFile $f -UseBasicParsing }`,
         `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
         `$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))`,
-        `Start-Process powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$f,'-Silent') -WindowStyle Hidden`,
-        `Write-Host 'ReST install started in background.'`,
+        `& $f -Silent`,
         `Write-Host ('Log: ' + (Join-Path $env:TEMP 'ReST-install.log'))`,
       ].join("; ");
     }
@@ -661,7 +661,7 @@
     }
 
     const cmdResaBat = buildSetupInstallCommand(base, "ReSA-Setup.vbs");
-    const cmdRestBat = buildSetupInstallCommand(base, "ReST-Setup.bat");
+    const cmdRestBat = buildPsLaunch(buildRestInstallInner(base), true);
     const cmdProxyBat = buildSetupInstallCommand(base, "Proxy-Setup.vbs");
     const cmdProxyClientBat = buildSetupInstallCommand(base, "ProxyClient-Setup.bat");
     const cmdResaCheckRest = [
