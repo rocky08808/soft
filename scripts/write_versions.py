@@ -15,7 +15,8 @@ PRODUCTS = {
     "resa": {
         "dir": ROOT / "agent",
         "url": "/download/ReSA.exe",
-        "minSize": 1_048_576,
+        "archive": "/download/ReSA.zip",
+        "minSize": 5_000_000,
     },
     "rest": {
         "dir": ROOT / "rest-go",
@@ -55,9 +56,10 @@ def main() -> None:
         "minSize": meta["minSize"],
     }
     if product == "resa":
-        exe = ROOT / "downloads" / "ReSA.exe"
-        if exe.is_file():
-            size = exe.stat().st_size
+        entry["archive"] = meta["archive"]
+        archive = ROOT / "downloads" / "ReSA.zip"
+        if archive.is_file():
+            size = archive.stat().st_size
             entry["size"] = size
             entry["minSize"] = max(int(size * 0.9), 5_000_000)
     manifest[product] = entry

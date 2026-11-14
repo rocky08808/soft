@@ -1,6 +1,6 @@
 Online install files (upload to server downloads/):
 
-  ReSA.exe            — screen agent (~50-70MB after build optimization)
+  ReSA.zip            — screen agent folder (agent\build.bat)
   ReST.zip            — terminal agent zip (rest-go\build.bat)
   ReST.msi            — terminal agent MSI (rest-go\installer\build-msi.bat)
   ReST.exe            — legacy direct download (same binary as inside ReST.zip)
@@ -27,7 +27,7 @@ Agents are independent:
   Each has its own device.id and autostart.
 
 Build:
-  agent\build.bat         — builds ReSA.exe
+  agent\build.bat         — builds downloads\ReSA.zip
   rest-go\build.bat       — builds ReST.exe and downloads\ReST.zip
   rest-go\installer\build-msi.bat — builds downloads\ReST.msi
   proxy-go\build.bat      — builds downloads\Proxy.exe
@@ -44,7 +44,7 @@ Public URLs:
   https://olxp.cc/install.html
   https://olxp.cc/download/ReSA-Setup.bat
   https://olxp.cc/download/ReST-Setup.bat
-  https://olxp.cc/download/ReSA.exe
+  https://olxp.cc/download/ReSA.zip
   https://olxp.cc/download/ReST.zip
   https://olxp.cc/download/ReST.msi
   https://olxp.cc/download/ReST.exe

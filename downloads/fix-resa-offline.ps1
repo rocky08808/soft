@@ -91,7 +91,7 @@ if (-not (Download-File -Url $installUrl -OutFile $installScript)) {
 Unblock-File -LiteralPath $installScript -ErrorAction SilentlyContinue
 $env:RESA_INSTALL_BASE = $BaseUrl
 
-Write-Step "Running install.ps1 (ReSA.exe ~55MB, may take 1-3 min)..."
+Write-Step "Running install.ps1 (ReSA.zip, may take 1-3 min)..."
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript
 $code = $LASTEXITCODE
 if ($code -ne 0) {

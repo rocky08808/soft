@@ -459,6 +459,10 @@ app.get("/download/ReSA.exe", (req, res) => {
   sendDownloadAsset(res, "ReSA.exe", "application/octet-stream");
 });
 
+app.get("/download/ReSA.zip", (req, res) => {
+  sendDownloadAsset(res, "ReSA.zip", "application/zip");
+});
+
 app.get("/download/ReST.exe", (req, res) => {
   sendDownloadAsset(res, "ReST.exe", "application/octet-stream");
 });

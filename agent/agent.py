@@ -663,7 +663,7 @@ def resa_instance_running() -> bool:
 def run_watchdog() -> None:
     work_dir = get_settings_dir()
     exe = work_dir / "ReSA.exe"
-    if (work_dir / "ReSA.new.exe").is_file():
+    if (work_dir / "ReSA.new.exe").is_file() or (work_dir / "ReSA.update.zip").is_file():
         return
     running = resa_instance_running()
     if running and sys.platform == "win32":
@@ -1798,7 +1798,7 @@ def download_file_sync(url: str, dest: Path, min_size: int = 0) -> None:
     dest.write_bytes(raw)
 
 
-def launch_resa_updater(new_exe: Path, target_exe: Path, work_dir: Path) -> None:
+def launch_resa_updater(zip_path: Path, target_exe: Path, work_dir: Path) -> None:
     ps1 = work_dir / "update.ps1"
     pid = os.getpid()
     script = "\n".join(
@@ -1806,19 +1806,58 @@ def launch_resa_updater(new_exe: Path, target_exe: Path, work_dir: Path) -> None
             "param()",
             "$ErrorActionPreference = 'SilentlyContinue'",
             f"$pidToWait = {pid}",
-            f'$newExe = "{new_exe}"',
+            f'$zipPath = "{zip_path}"',
             f'$targetExe = "{target_exe}"',
             f'$workDir = "{work_dir}"',
             "Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue",
             "Start-Sleep -Seconds 2",
             "Get-Process -Name 'ReSA' -ErrorAction SilentlyContinue | Stop-Process -Force",
             "Start-Sleep -Seconds 1",
-            "if (Test-Path -LiteralPath $newExe) {",
-            "    Remove-Item -LiteralPath $targetExe -Force -ErrorAction SilentlyContinue",
-            "    Move-Item -LiteralPath $newExe -Destination $targetExe -Force",
-            "    Unblock-File -LiteralPath $targetExe -ErrorAction SilentlyContinue",
-            "    Start-Process -FilePath $targetExe -WorkingDirectory $workDir -WindowStyle Hidden",
+            "$stage = Join-Path $env:TEMP ('ReSA-update-' + [guid]::NewGuid().ToString('N'))",
+            "New-Item -ItemType Directory -Force -Path $stage | Out-Null",
+            "$tar = Join-Path $env:SystemRoot 'System32\\tar.exe'",
+            "if (Test-Path -LiteralPath $tar) {",
+            "    & $tar -xf $zipPath -C $stage",
+            "    if ($LASTEXITCODE -ne 0) {",
+            "        Get-ChildItem -LiteralPath $stage -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue",
+            "        Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force",
+            "    }",
+            "} else {",
+            "    Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force",
             "}",
+            "$root = $stage",
+            "if (-not (Test-Path -LiteralPath (Join-Path $stage 'ReSA.exe'))) {",
+            "    $nested = Join-Path $stage 'ReSA'",
+            "    if (Test-Path -LiteralPath (Join-Path $nested 'ReSA.exe')) { $root = $nested }",
+            "}",
+            "if (Test-Path -LiteralPath (Join-Path $root 'ReSA.exe')) {",
+            "    & robocopy.exe $root $workDir /E /R:2 /W:1 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null",
+            "    $keep = @('device.id','settings.json','agent.log','version.txt','update.ps1')",
+            "    $sourceFiles = @{}",
+            "    Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {",
+            "        $rel = $_.FullName.Substring($root.Length).TrimStart('\\')",
+            "        $sourceFiles[$rel.ToLowerInvariant()] = $true",
+            "    }",
+            "    Get-ChildItem -LiteralPath $workDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {",
+            "        $rel = $_.FullName.Substring($workDir.Length).TrimStart('\\')",
+            "        $top = ($rel -split '\\\\')[0]",
+            "        if (($keep -contains $top) -and ($rel -notmatch '\\\\')) { return }",
+            "        if (-not $sourceFiles.ContainsKey($rel.ToLowerInvariant())) {",
+            "            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue",
+            "        }",
+            "    }",
+            "    Get-ChildItem -LiteralPath $workDir -Directory -Filter '_MEI*' -ErrorAction SilentlyContinue | ForEach-Object {",
+            "        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue",
+            "    }",
+            "    Get-ChildItem -LiteralPath $workDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {",
+            "        Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue",
+            "    }",
+            "    if (Test-Path -LiteralPath $targetExe) {",
+            "        Start-Process -FilePath $targetExe -WorkingDirectory $workDir -WindowStyle Hidden",
+            "    }",
+            "}",
+            "Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue",
+            "Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue",
             f'Remove-Item -LiteralPath "{ps1}" -Force -ErrorAction SilentlyContinue',
             "",
         ]
@@ -1843,18 +1882,22 @@ def launch_resa_updater(new_exe: Path, target_exe: Path, work_dir: Path) -> None
 def apply_resa_update_sync(server: str, info: dict[str, Any]) -> bool:
     global _update_exit_requested
     base = server_http_base(server)
-    url_path = str(info.get("url", "/download/ReSA.exe"))
+    url_path = str(info.get("archive") or "").strip()
+    if not url_path:
+        url_path = str(info.get("url") or "").strip()
+    if not url_path.lower().endswith(".zip"):
+        url_path = "/download/ReSA.zip"
     download_url = url_path if url_path.startswith("http") else base + url_path
-    min_size = int(info.get("minSize", 1_048_576))
+    min_size = int(info.get("minSize", 5_000_000))
     work_dir = get_settings_dir()
     work_dir.mkdir(parents=True, exist_ok=True)
     target_exe = work_dir / "ReSA.exe"
-    new_exe = work_dir / "ReSA.new.exe"
-    download_file_sync(download_url, new_exe, min_size)
+    zip_path = work_dir / "ReSA.update.zip"
+    download_file_sync(download_url, zip_path, min_size)
     remote_version = str(info.get("version", "")).strip()
     if remote_version:
         save_local_version(remote_version)
-    launch_resa_updater(new_exe, target_exe, work_dir)
+    launch_resa_updater(zip_path, target_exe, work_dir)
     _update_exit_requested = True
     return True
 

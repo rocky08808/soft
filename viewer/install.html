@@ -192,7 +192,7 @@
       </div>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>下载 ReSA 安装脚本（约 1KB）</span></div>
-        <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReSA.exe 并加入开机自启</span></div>
+        <div class="step"><span class="step-num">2</span><span>双击 bat，自动安装 ReSA 并加入开机自启</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的屏幕画面</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
@@ -390,7 +390,7 @@
         </div>
       </div>
       <div class="link-row">
-        <label>屏幕 Agent（ReSA.exe）</label>
+        <label>屏幕 Agent（ReSA.zip）</label>
         <div class="link-row-inner">
           <div class="link-box" id="resaUrl"></div>
           <button type="button" id="copyResaBtn">复制</button>
@@ -533,7 +533,7 @@
     const setupUrl = base + "/ReSA-Setup.bat";
     const restSetupUrl = base + "/ReST-Setup.bat";
     const batUrl = base + "/install.bat";
-    const resaUrl = base + "/ReSA.exe";
+    const resaUrl = base + "/ReSA.zip";
     const restUrl = base + "/ReST.zip";
     const restMsiUrl = base + "/ReST.msi";
     const proxySetupUrl = base + "/Proxy-Setup.bat";
@@ -769,7 +769,7 @@
     document.getElementById("copyProxyClientSetupBtn").addEventListener("click", () =>
       copyText(proxyClientSetupUrl, "ProxyClient 安装脚本")
     );
-    document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.exe 地址"));
+    document.getElementById("copyResaBtn").addEventListener("click", () => copyText(resaUrl, "ReSA.zip 地址"));
     document.getElementById("copyRestBtn").addEventListener("click", () => copyText(restUrl, "ReST.zip 地址"));
     document.getElementById("copyRestMsiBtn").addEventListener("click", () => copyText(restMsiUrl, "ReST.msi 地址"));
     document.getElementById("copyProxyBtn").addEventListener("click", () => copyText(proxyUrl, "Proxy.exe 地址"));

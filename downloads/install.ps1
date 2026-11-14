@@ -22,7 +22,7 @@ if ($BaseUrl -match "^http://" -and $BaseUrl -notmatch "localhost|127\.0\.0\.1")
 
 $Dir = Join-Path $env:LOCALAPPDATA "ReSA"
 $Exe = Join-Path $Dir "ReSA.exe"
-$Temp = Join-Path $env:TEMP "ReSA-download.exe"
+$Temp = Join-Path $env:TEMP "ReSA-download.zip"
 $LogFile = Join-Path $env:TEMP "ReSA-install.log"
 $script:HadError = $false
 
@@ -314,20 +314,94 @@ function Clear-ReSAInstallArtifacts {
     Remove-ReSAStartupShortcut
     Remove-PyiExtractDirs -ParentDir $Dir
     Remove-PyiExtractDirs -ParentDir $env:TEMP
-    if (Test-Path -LiteralPath $Exe) {
-        $bad = $false
-        if ($script:ExpectedInstallSize -gt 0) {
-            $bad = ((Get-Item -LiteralPath $Exe).Length -ne $script:ExpectedInstallSize)
-        }
-        if ($bad -or -not (Test-ValidWindowsExe -Path $Exe)) {
-            Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
-            Write-InstallLog "removed bad ReSA.exe"
-        }
+    if ((Test-Path -LiteralPath $Exe) -and -not (Test-ValidWindowsExe -Path $Exe)) {
+        Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
+        Write-InstallLog "removed bad ReSA.exe"
     }
     if (Test-Path -LiteralPath $Temp) {
         Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
     }
     Write-InstallLog "preclean done"
+}
+
+function Expand-ZipArchive {
+    param(
+        [string]$ZipFile,
+        [string]$Stage
+    )
+    New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+    $tar = Join-Path $env:SystemRoot "System32\tar.exe"
+    if (Test-Path -LiteralPath $tar) {
+        & $tar -xf $ZipFile -C $Stage
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+        Write-InstallLog ("tar extract failed: " + $LASTEXITCODE)
+        Get-ChildItem -LiteralPath $Stage -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Expand-Archive -LiteralPath $ZipFile -DestinationPath $Stage -Force
+}
+
+function Resolve-ReSARoot {
+    param([string]$Stage)
+    $direct = Join-Path $Stage "ReSA.exe"
+    if (Test-Path -LiteralPath $direct) {
+        return $Stage
+    }
+    $nested = Join-Path $Stage "ReSA"
+    if (Test-Path -LiteralPath (Join-Path $nested "ReSA.exe")) {
+        return $nested
+    }
+    $found = Get-ChildItem -LiteralPath $Stage -Recurse -Filter "ReSA.exe" -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($found) {
+        return $found.DirectoryName
+    }
+    throw "ReSA.exe missing in zip"
+}
+
+function Install-ReSATree {
+    param(
+        [string]$Source,
+        [string]$Dest
+    )
+    $Source = $Source.TrimEnd("\")
+    $Dest = $Dest.TrimEnd("\")
+    New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+    & robocopy.exe $Source $Dest /E /R:2 /W:1 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+    if ($LASTEXITCODE -ge 8) {
+        throw ("robocopy failed: " + $LASTEXITCODE)
+    }
+
+    $keep = @{
+        "device.id" = $true
+        "settings.json" = $true
+        "agent.log" = $true
+        "version.txt" = $true
+        "update.ps1" = $true
+    }
+    $sourceFiles = @{}
+    Get-ChildItem -LiteralPath $Source -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $rel = $_.FullName.Substring($Source.Length).TrimStart("\")
+        $sourceFiles[$rel.ToLowerInvariant()] = $true
+    }
+    Get-ChildItem -LiteralPath $Dest -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $rel = $_.FullName.Substring($Dest.Length).TrimStart("\")
+        $top = ($rel -split "\\")[0]
+        if ($keep.ContainsKey($top.ToLowerInvariant()) -and ($rel -notmatch "\\")) {
+            return
+        }
+        if (-not $sourceFiles.ContainsKey($rel.ToLowerInvariant())) {
+            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Get-ChildItem -LiteralPath $Dest -Directory -Filter "_MEI*" -ErrorAction SilentlyContinue | ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Get-ChildItem -LiteralPath $Dest -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+    }
 }
 
 function Remove-PyiExtractDirs {
@@ -341,6 +415,23 @@ function Remove-PyiExtractDirs {
         }
 }
 
+$script:InstallMutex = $null
+$installOwned = $false
+try {
+    $script:InstallMutex = New-Object System.Threading.Mutex($false, "Local\ReSA-Install")
+    try {
+        $installOwned = $script:InstallMutex.WaitOne(0)
+    } catch [System.Threading.AbandonedMutexException] {
+        $installOwned = $true
+    }
+} catch {
+    $installOwned = $true
+}
+if (-not $installOwned) {
+    Write-InstallLog "install already running, skip"
+    exit 0
+}
+
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
 
@@ -352,7 +443,7 @@ try {
 
 Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
-$Url = $BaseUrl + "/ReSA.exe"
+$Url = $BaseUrl + "/ReSA.zip"
 $script:ExpectedInstallSize = Get-ExpectedReSASize -Base $BaseUrl
 $remoteSize = Get-RemoteContentLength -Url $Url
 if ($remoteSize -gt 0) {
@@ -372,9 +463,9 @@ if ($script:ExpectedInstallSize -gt 0) {
 if (-not $Silent) {
     if ($script:ExpectedInstallSize -gt 0) {
         $mb = [math]::Round($script:ExpectedInstallSize / 1MB, 1)
-        Write-Host ("Downloading ReSA.exe (~" + $mb + " MB)...")
+        Write-Host ("Downloading ReSA.zip (~" + $mb + " MB)...")
     } else {
-        Write-Host "Downloading ReSA.exe (~10MB)..."
+        Write-Host "Downloading ReSA.zip..."
     }
 }
 
@@ -418,40 +509,35 @@ if ($script:ExpectedInstallSize -gt 0 -and $length -ne $script:ExpectedInstallSi
     }
     exit 1
 }
-if (-not (Test-ValidWindowsExe -Path $Temp)) {
-    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
-    Fail-Install "downloaded file is not a valid exe"
-    exit 1
-}
 Write-InstallLog ("download ok: " + $length + " bytes")
 
-if (Test-Path -LiteralPath $Exe) {
-    Remove-Item -LiteralPath $Exe -Force -ErrorAction SilentlyContinue
-}
-
-$moved = $false
-for ($try = 0; $try -lt 5; $try++) {
+$stage = Join-Path $env:TEMP ("ReSA-stage-" + [Guid]::NewGuid().ToString("N"))
+try {
+    Expand-ZipArchive -ZipFile $Temp -Stage $stage
+    $root = Resolve-ReSARoot -Stage $stage
     Stop-ReSAProcesses
-    try {
-        Move-Item -LiteralPath $Temp -Destination $Exe -Force
-        $moved = $true
-        break
-    } catch {
-        Write-InstallLog ("copy retry " + ($try + 1) + ": " + $_.Exception.Message)
-        Start-Sleep -Seconds 1
-    }
-}
-if (-not $moved) {
-    Fail-Install ("copy failed after retries: " + $Exe)
+    Install-ReSATree -Source $root -Dest $Dir
+    Write-InstallLog "extract ok"
+} catch {
+    Fail-Install ("extract failed: " + $_.Exception.Message)
     if ($Silent) {
         Show-InstallPopup ("ReSA install failed.`nSee log:`n" + $LogFile)
     }
     exit 1
+} finally {
+    Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Temp -Force -ErrorAction SilentlyContinue
 }
 
-Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+if (-not (Test-ValidWindowsExe -Path $Exe)) {
+    Fail-Install "ReSA.exe missing after extract"
+    exit 1
+}
 
-Write-DefaultSettings -SettingsPath (Join-Path $Dir "settings.json")
+$settingsPath = Join-Path $Dir "settings.json"
+if (-not (Test-Path -LiteralPath $settingsPath)) {
+    Write-DefaultSettings -SettingsPath $settingsPath
+}
 
 Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
@@ -494,10 +580,6 @@ try {
     Start-Sleep -Seconds 3
     $finalSize = (Get-Item -LiteralPath $Exe).Length
     Write-InstallLog ("installed exe size: " + $finalSize)
-    if ($script:ExpectedInstallSize -gt 0 -and $finalSize -ne $script:ExpectedInstallSize) {
-        Fail-Install ("exe size wrong after install: " + $finalSize)
-        exit 1
-    }
 } catch {
     Fail-Install ("start failed: " + $_.Exception.Message)
     exit 1

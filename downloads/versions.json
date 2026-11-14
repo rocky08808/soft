@@ -2,6 +2,7 @@
   "resa": {
     "version": "2026.11.12.1216",
     "url": "/download/ReSA.exe",
+    "archive": "/download/ReSA.zip",
     "minSize": 52186939,
     "size": 57985488
   },

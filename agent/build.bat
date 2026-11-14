@@ -21,7 +21,7 @@ if not exist agent.config.json (
 
 
 
-echo Building ReSA.exe ...
+echo Building ReSA onedir ...
 
 for /f "delims=" %%V in ('python ..\scripts\write_versions.py resa') do set BUILD_VERSION=%%V
 echo Version: %BUILD_VERSION%
@@ -37,30 +37,30 @@ if errorlevel 1 (
 
 )
 
-
-
-echo.
-
-echo Done: dist\ReSA.exe
-
-echo Config from agent.config.json is built into the exe. Device ID = computer name.
-
-echo.
-
-echo Copying to downloads/ for online install...
+if not exist dist\ReSA\ReSA.exe (
+    echo dist\ReSA\ReSA.exe missing
+    pause
+    exit /b 1
+)
 
 if not exist ..\downloads mkdir ..\downloads
 
-copy /Y dist\ReSA.exe ..\downloads\ >nul
+echo Packing downloads\ReSA.zip ...
+python ..\scripts\pack_resa_zip.py dist\ReSA ..\downloads\ReSA.zip
+if errorlevel 1 (
+    echo Failed to create ReSA.zip
+    pause
+    exit /b 1
+)
+
+python ..\scripts\write_versions.py resa %BUILD_VERSION% >nul
 
 echo.
-echo Version %BUILD_VERSION% written to downloads\versions.json
+echo Done: downloads\ReSA.zip
+echo Config from agent.config.json is built into the folder. Device ID = computer name.
 echo.
-
-echo Next: upload downloads\ReSA.exe to server, then use install page
-
+echo Next: upload downloads\ReSA.zip , downloads\install.ps1 and downloads\versions.json
 echo   https://your-domain/install.html
-
 echo.
 
 exit /b 0
