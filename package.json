@@ -1,0 +1,8 @@
+{
+    "name": "remote-screen-server",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+      "start": "git pull && node server/index.js"
+    }
+}
