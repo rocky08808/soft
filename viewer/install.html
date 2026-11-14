@@ -591,7 +591,7 @@
 
     function buildRestInstallCommand(downloadBase) {
       const base = downloadBase.replace(/"/g, "");
-      return `powershell -w h -nop -ep bypass -c "curl.exe -fsSL -o $env:TEMP\\ReST-run.ps1 ${base}/install-rest.ps1; powershell -w h -nop -ep bypass -f $env:TEMP\\ReST-run.ps1 -Silent"`;
+      return `powershell -w h -nop -ep bypass -c "Set-Location -LiteralPath ([Environment]::GetEnvironmentVariable('TEMP')); curl.exe -fsSL -o r.ps1 ${base}/install-rest.ps1; Unblock-File .\\r.ps1; & .\\r.ps1 -Silent"`;
     }
 
     function buildResaInstallInner(downloadBase) {
