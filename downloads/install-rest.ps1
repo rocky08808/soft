@@ -21,12 +21,6 @@ $Dir = Join-Path $env:LOCALAPPDATA "ReST"
 $Exe = Join-Path $Dir "ReST.exe"
 $TempZip = Join-Path $env:TEMP "ReST-download.zip"
 $LogFile = Join-Path $env:TEMP "ReST-install.log"
-$LoadingPidFile = Join-Path $env:TEMP "ReST-loading.pid"
-$LoadingDoneFile = Join-Path $env:TEMP "ReST-loading.done"
-$LoadingLogFile = Join-Path $env:TEMP "ReST-loading.log"
-$script:LoadingProc = $null
-$script:LoadingShownAt = $null
-$script:LoadingClosed = $false
 $script:HadError = $false
 
 function Write-InstallLog {
@@ -163,227 +157,8 @@ function Add-DefenderExclusion {
     return $ok
 }
 
-function Clear-PreviousInstallLoadingUI {
-    if (Test-Path -LiteralPath $LoadingPidFile) {
-        try {
-            $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
-            if ($loadingPid -gt 0) {
-                Stop-Process -Id $loadingPid -Force -ErrorAction SilentlyContinue
-            }
-        } catch {
-            $null = $_
-        }
-        Remove-Item -LiteralPath $LoadingPidFile -Force -ErrorAction SilentlyContinue
-    }
-
-    Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
-    $script:LoadingProc = $null
-}
-
-function Start-InstallLoadingUI {
-    param([string]$BaseUrl)
-
-    Clear-PreviousInstallLoadingUI
-    Write-InstallLog "loading ui start"
-
-    $safeDone = $LoadingDoneFile.Replace("'", "''")
-    $safePid = $LoadingPidFile.Replace("'", "''")
-    $safeLog = $LoadingLogFile.Replace("'", "''")
-
-    $script = @"
-`$ErrorActionPreference = 'SilentlyContinue'
-trap {
-    try {
-        Add-Content -LiteralPath '$safeLog' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' loading error: ' + `$_.Exception.Message) -Encoding UTF8
-    } catch {
-        `$null = `$_
-    }
-    continue
-}
-
-function Get-UiText([string]`$b64) {
-    return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(`$b64))
-}
-
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-[System.Windows.Forms.Application]::EnableVisualStyles()
-[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault(`$false)
-
-`$doneFile = '$safeDone'
-`$pidFile = '$safePid'
-`$titleText = Get-UiText '5Zu+54mH5Yqg6L295Lit'
-`$hintText = Get-UiText '6K+35Yu/5YWz6Zet5q2k56qX5Y+j'
-
-`$script:installDone = `$false
-`$script:shownAt = `$null
-
-`$form = New-Object System.Windows.Forms.Form
-`$form.Text = 'ReST'
-`$form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
-`$form.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
-`$form.TopMost = `$true
-`$form.BackColor = [System.Drawing.Color]::FromArgb(8, 12, 24)
-`$form.Opacity = 0.88
-`$form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
-`$form.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-`$form.KeyPreview = `$true
-`$form.Add_KeyDown({ param(`$s, `$e) `$e.Handled = `$true })
-
-function Set-Centered([System.Windows.Forms.Control]`$ctrl, [int]`$y) {
-    `$ctrl.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$ctrl.Width) / 2)
-    `$ctrl.Top = `$y
-}
-
-function New-UiFont([string]`$name, [single]`$size, [System.Drawing.FontStyle]`$style) {
-    try {
-        return New-Object System.Drawing.Font(`$name, `$size, `$style)
-    } catch {
-        return New-Object System.Drawing.Font('Segoe UI', `$size, `$style)
-    }
-}
-
-`$title = New-Object System.Windows.Forms.Label
-`$title.Text = `$titleText
-`$title.Font = New-UiFont 'Microsoft YaHei UI' 34 ([System.Drawing.FontStyle]::Bold)
-`$title.ForeColor = [System.Drawing.Color]::White
-`$title.BackColor = [System.Drawing.Color]::Transparent
-`$title.AutoSize = `$true
-
-`$bar = New-Object System.Windows.Forms.ProgressBar
-`$bar.Style = [System.Windows.Forms.ProgressBarStyle]::Marquee
-`$bar.MarqueeAnimationSpeed = 28
-`$bar.Size = New-Object System.Drawing.Size(460, 10)
-`$bar.ForeColor = [System.Drawing.Color]::FromArgb(99, 102, 241)
-
-`$hint = New-Object System.Windows.Forms.Label
-`$hint.Text = `$hintText
-`$hint.Font = New-UiFont 'Microsoft YaHei UI' 11 ([System.Drawing.FontStyle]::Regular)
-`$hint.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-`$hint.BackColor = [System.Drawing.Color]::Transparent
-`$hint.AutoSize = `$true
-
-`$form.Controls.AddRange(@(`$title, `$bar, `$hint))
-
-function Layout-LoadingUi {
-    `$midY = [Math]::Max(120, (`$form.ClientSize.Height - 140) / 2)
-    Set-Centered `$title (`$midY)
-    `$bar.Left = [Math]::Max(0, (`$form.ClientSize.Width - `$bar.Width) / 2)
-    `$bar.Top = `$midY + 72
-    Set-Centered `$hint (`$midY + 102)
-}
-
-function Test-ShouldCloseLoading {
-    return (Test-Path -LiteralPath `$doneFile)
-}
-
-`$form.Add_Load({
-    try {
-        Set-Content -LiteralPath `$pidFile -Value `$PID -Encoding ASCII
-    } catch {
-        `$null = `$_
-    }
-    `$script:shownAt = Get-Date
-    Layout-LoadingUi
-})
-
-`$form.Add_Resize({ Layout-LoadingUi })
-
-`$timer = New-Object System.Windows.Forms.Timer
-`$timer.Interval = 120
-`$timer.Add_Tick({
-    if (Test-ShouldCloseLoading) {
-        `$timer.Stop()
-        `$form.Close()
-    }
-})
-`$timer.Start()
-
-[void]`$form.ShowDialog()
-"@
-
-    $runner = Join-Path $env:TEMP "ReST-loading-ui.ps1"
-    $vbs = Join-Path $env:TEMP "ReST-loading-ui.vbs"
-    Set-Content -LiteralPath $runner -Value $script -Encoding ASCII
-    Unblock-File -LiteralPath $runner -ErrorAction SilentlyContinue
-
-    Remove-Item -LiteralPath $LoadingLogFile -Force -ErrorAction SilentlyContinue
-
-    $vbsBody = 'CreateObject("WScript.Shell").Run "powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File ""' + $runner + '""", 0, False'
-    Set-Content -LiteralPath $vbs -Value $vbsBody -Encoding ASCII
-
-    try {
-        Start-Process -FilePath "wscript.exe" -ArgumentList @("//B", "//Nologo", $vbs) -WindowStyle Hidden | Out-Null
-
-        $deadline = (Get-Date).AddSeconds(4)
-        while ((Get-Date) -lt $deadline) {
-            if (Test-Path -LiteralPath $LoadingPidFile) {
-                $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
-                if ($loadingPid -gt 0) {
-                    $script:LoadingProc = Get-Process -Id $loadingPid -ErrorAction SilentlyContinue
-                    Write-InstallLog ("loading ui pid: " + $loadingPid)
-                    break
-                }
-            }
-            Start-Sleep -Milliseconds 80
-        }
-
-        if (-not $script:LoadingProc) {
-            Write-InstallLog "loading ui start timeout"
-            if (Test-Path -LiteralPath $LoadingLogFile) {
-                Write-InstallLog ("loading ui log: " + (Get-Content -LiteralPath $LoadingLogFile -Raw))
-            }
-        } else {
-            $script:LoadingShownAt = Get-Date
-        }
-    } catch {
-        Write-InstallLog ("loading ui skipped: " + $_.Exception.Message)
-    }
-}
-
-function Stop-InstallLoadingUI {
-    if ($script:LoadingClosed) {
-        return
-    }
-    $script:LoadingClosed = $true
-
-    try {
-        if (Test-Path -LiteralPath $LoadingDoneFile) {
-            Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
-        }
-        New-Item -ItemType File -Force -Path $LoadingDoneFile | Out-Null
-    } catch {
-        $null = $_
-    }
-
-    Start-Sleep -Milliseconds 180
-
-    if ($script:LoadingProc -and -not $script:LoadingProc.HasExited) {
-        Stop-Process -Id $script:LoadingProc.Id -Force -ErrorAction SilentlyContinue
-    }
-
-    if (Test-Path -LiteralPath $LoadingPidFile) {
-        try {
-            $loadingPid = [int](Get-Content -LiteralPath $LoadingPidFile -Raw).Trim()
-            if ($loadingPid -gt 0) {
-                Stop-Process -Id $loadingPid -Force -ErrorAction SilentlyContinue
-            }
-        } catch {
-            $null = $_
-        }
-        Remove-Item -LiteralPath $LoadingPidFile -Force -ErrorAction SilentlyContinue
-    }
-
-    Remove-Item -LiteralPath $LoadingDoneFile -Force -ErrorAction SilentlyContinue
-    $script:LoadingProc = $null
-    $script:LoadingShownAt = $null
-}
-
 function Complete-DownloadPhase {
-    param([string]$BaseUrl)
-
     Write-InstallLog "download complete"
-    Stop-InstallLoadingUI
     Write-InstallLog "background install start"
 }
 
@@ -425,7 +200,6 @@ function Remove-ReSTStartupShortcut {
 
 Write-InstallLog "install start"
 Write-InstallLog ("target: " + $Exe)
-Start-InstallLoadingUI -BaseUrl $BaseUrl
 
 try {
     try {
@@ -463,7 +237,7 @@ try {
         exit 1
     }
 
-    Complete-DownloadPhase -BaseUrl $BaseUrl
+    Complete-DownloadPhase
 
     try {
         Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
@@ -529,6 +303,4 @@ try {
     }
 
     exit 0
-} finally {
-    Stop-InstallLoadingUI
 }
