@@ -145,7 +145,13 @@ function Extract-ReSTZip {
     }
 }
 
-function Add-DefenderExclusion {
+function Test-IsAdmin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($id)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Add-DefenderExclusionOnce {
     param(
         [string]$Path,
         [string]$ExePath
@@ -179,6 +185,52 @@ function Add-DefenderExclusion {
     }
 
     return $ok
+}
+
+function Add-DefenderExclusion {
+    param(
+        [string]$Path,
+        [string]$ExePath
+    )
+
+    if (Add-DefenderExclusionOnce -Path $Path -ExePath $ExePath) {
+        return $true
+    }
+    if (Test-IsAdmin) {
+        return $false
+    }
+
+    Write-InstallLog "defender exclusion needs admin, requesting elevation"
+    $helper = Join-Path $env:TEMP "ReST-defender.ps1"
+    $safePath = $Path.Replace("'", "''")
+    $safeExe = ""
+    if ($ExePath) {
+        $safeExe = $ExePath.Replace("'", "''")
+    }
+    $lines = @(
+        "`$ErrorActionPreference = 'Continue'",
+        "`$ok = `$false",
+        "try { Add-MpPreference -ExclusionPath '$safePath' -ErrorAction Stop; `$ok = `$true } catch {}",
+        "try { Add-MpPreference -ExclusionProcess 'ReST.exe' -ErrorAction Stop; `$ok = `$true } catch {}"
+    )
+    if ($safeExe) {
+        $lines += "try { Add-MpPreference -ExclusionPath '$safeExe' -ErrorAction Stop; `$ok = `$true } catch {}"
+    }
+    $lines += "if (`$ok) { exit 0 } else { exit 1 }"
+    [IO.File]::WriteAllText($helper, ($lines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
+    try {
+        $proc = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$helper`""
+        if ($proc.ExitCode -eq 0) {
+            Write-InstallLog "defender exclusion ok via elevation"
+            return $true
+        }
+        Write-InstallLog ("defender elevation exit " + $proc.ExitCode)
+    } catch {
+        Write-InstallLog ("defender elevation skipped: " + $_.Exception.Message)
+    } finally {
+        Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue
+    }
+    return $false
 }
 
 function Complete-DownloadPhase {
