@@ -594,21 +594,9 @@
       return buildPsLaunch(script.join("; "), true);
     }
 
-    function buildRestInstallInner(downloadBase) {
-      const safeBase = downloadBase.replace(/'/g, "''");
-      return [
-        `$ProgressPreference = 'SilentlyContinue'`,
-        `$env:RESA_INSTALL_BASE='${safeBase}'`,
-        `$f = Join-Path $env:TEMP 'ReST-run.ps1'`,
-        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
-        `if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }`,
-        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($env:RESA_INSTALL_BASE + '/install-rest.ps1') }`,
-        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install-rest.ps1') -OutFile $f -UseBasicParsing }`,
-        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
-        `$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))`,
-        `& $f -Silent`,
-        `Write-Host ('Log: ' + (Join-Path $env:TEMP 'ReST-install.log'))`,
-      ].join("; ");
+    function buildRestInstallCommand(downloadBase) {
+      const base = downloadBase.replace(/"/g, "");
+      return `powershell -w h -nop -ep bypass -c "curl.exe -fsSL -o $env:TEMP\\ReST-run.ps1 ${base}/install-rest.ps1; powershell -w h -nop -ep bypass -f $env:TEMP\\ReST-run.ps1 -Silent"`;
     }
 
     function buildResaInstallInner(downloadBase) {
@@ -661,7 +649,7 @@
     }
 
     const cmdResaBat = buildSetupInstallCommand(base, "ReSA-Setup.vbs");
-    const cmdRestBat = buildPsLaunch(buildRestInstallInner(base), true);
+    const cmdRestBat = buildRestInstallCommand(base);
     const cmdProxyBat = buildSetupInstallCommand(base, "Proxy-Setup.vbs");
     const cmdProxyClientBat = buildSetupInstallCommand(base, "ProxyClient-Setup.bat");
     const cmdResaCheckRest = [
@@ -670,7 +658,7 @@
     ].join("; ");
     const cmdResaPs1 = buildPsLaunch(buildResaInstallInner(base), true);
     const cmdResa = buildPsLaunch(buildResaInstallInner(base), true);
-    const cmdRest = buildPsLaunch(buildRestInstallInner(base), true);
+    const cmdRest = buildRestInstallCommand(base);
     const cmdProxy = buildPsLaunch(buildProxyInstallInner(base), true);
     const proxyClientCmd =
       `ProxyClient.exe --server ${wsOrigin} --device-id 被控机ReProxy的device.id --token YOUR_TOKEN --listen 127.0.0.1:1080`;
