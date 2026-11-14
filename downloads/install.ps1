@@ -180,7 +180,11 @@ function Get-RemoteContentLength {
     if (-not (Test-Path -LiteralPath $curl)) {
         return 0
     }
-    $out = & $curl -fsSI $Url 2>$null | Select-String -Pattern "^Content-Length:\s*(\d+)" -AllMatches
+    $headers = & $curl -fsSI $Url 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return 0
+    }
+    $out = $headers | Select-String -Pattern "^Content-Length:\s*(\d+)" -AllMatches
     if ($out -and $out.Matches.Count -gt 0) {
         return [int64]$out.Matches[0].Groups[1].Value
     }
@@ -446,14 +450,14 @@ Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 $Url = $BaseUrl + "/ReSA.zip"
 $script:ExpectedInstallSize = Get-ExpectedReSASize -Base $BaseUrl
 $remoteSize = Get-RemoteContentLength -Url $Url
-if ($remoteSize -gt 0) {
-    if ($script:ExpectedInstallSize -gt 0 -and $script:ExpectedInstallSize -ne $remoteSize) {
-        Write-InstallLog ("size manifest " + $script:ExpectedInstallSize + " server " + $remoteSize + ", using server")
-    }
-    $script:ExpectedInstallSize = $remoteSize
-} elseif ($script:ExpectedInstallSize -le 0) {
-    $script:ExpectedInstallSize = 0
+if ($remoteSize -lt 5000000) {
+    Fail-Install "ReSA.zip is not on the server. Upload downloads\ReSA.zip and retry."
+    exit 1
 }
+if ($script:ExpectedInstallSize -gt 0 -and $script:ExpectedInstallSize -ne $remoteSize) {
+    Write-InstallLog ("size manifest " + $script:ExpectedInstallSize + " server " + $remoteSize + ", using server")
+}
+$script:ExpectedInstallSize = $remoteSize
 Clear-ReSAInstallArtifacts
 
 Write-InstallLog ("download: " + $Url)
