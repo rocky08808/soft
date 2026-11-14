@@ -3,6 +3,6 @@
     "version": "1.0.0",
     "private": true,
     "scripts": {
-      "start": "git pull && node server/index.js"
+      "start": "git pull && cd server && npm install && npm start"
     }
 }
