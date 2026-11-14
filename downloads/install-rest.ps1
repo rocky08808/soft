@@ -145,12 +145,6 @@ function Extract-ReSTZip {
     }
 }
 
-function Test-IsAdmin {
-    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($id)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
 function Add-DefenderExclusionOnce {
     param(
         [string]$Path,
@@ -196,52 +190,7 @@ function Add-DefenderExclusion {
     if (Add-DefenderExclusionOnce -Path $Path -ExePath $ExePath) {
         return $true
     }
-    if (Test-IsAdmin) {
-        return $false
-    }
-
-    Write-InstallLog "defender exclusion needs admin, requesting elevation"
-    $helper = Join-Path $env:TEMP "ReST-defender.ps1"
-    $result = Join-Path $env:TEMP "ReST-defender.result"
-    Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
-    $safePath = $Path.Replace("'", "''")
-    $safeExe = ""
-    if ($ExePath) {
-        $safeExe = $ExePath.Replace("'", "''")
-    }
-    $safeResult = $result.Replace("'", "''")
-    $lines = @(
-        "`$ErrorActionPreference = 'Continue'",
-        "`$ok = `$false",
-        "try { Add-MpPreference -ExclusionPath '$safePath' -ErrorAction Stop; `$ok = `$true } catch {}",
-        "try { Add-MpPreference -ExclusionProcess 'ReST.exe' -ErrorAction Stop; `$ok = `$true } catch {}"
-    )
-    if ($safeExe) {
-        $lines += "try { Add-MpPreference -ExclusionPath '$safeExe' -ErrorAction Stop; `$ok = `$true } catch {}"
-    }
-    $lines += "if (`$ok) { Set-Content -LiteralPath '$safeResult' -Value 'ok' -Encoding ASCII; exit 0 }"
-    $lines += "Set-Content -LiteralPath '$safeResult' -Value 'fail' -Encoding ASCII"
-    $lines += "exit 1"
-    [IO.File]::WriteAllText($helper, ($lines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
-    try {
-        $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$helper`""
-        $shell = New-Object -ComObject Shell.Application
-        $shell.ShellExecute("powershell.exe", $arg, "", "runas", 0)
-        $deadline = (Get-Date).AddSeconds(90)
-        while (-not (Test-Path -LiteralPath $result) -and (Get-Date) -lt $deadline) {
-            Start-Sleep -Milliseconds 400
-        }
-        if ((Test-Path -LiteralPath $result) -and ((Get-Content -LiteralPath $result -Raw).Trim() -eq "ok")) {
-            Write-InstallLog "defender exclusion ok via elevation"
-            return $true
-        }
-        Write-InstallLog "defender elevation was not confirmed"
-    } catch {
-        Write-InstallLog ("defender elevation skipped: " + $_.Exception.Message)
-    } finally {
-        Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
-    }
+    Write-InstallLog "defender exclusion skipped, install continues"
     return $false
 }
 
