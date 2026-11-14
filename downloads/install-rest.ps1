@@ -202,11 +202,14 @@ function Add-DefenderExclusion {
 
     Write-InstallLog "defender exclusion needs admin, requesting elevation"
     $helper = Join-Path $env:TEMP "ReST-defender.ps1"
+    $result = Join-Path $env:TEMP "ReST-defender.result"
+    Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
     $safePath = $Path.Replace("'", "''")
     $safeExe = ""
     if ($ExePath) {
         $safeExe = $ExePath.Replace("'", "''")
     }
+    $safeResult = $result.Replace("'", "''")
     $lines = @(
         "`$ErrorActionPreference = 'Continue'",
         "`$ok = `$false",
@@ -216,19 +219,28 @@ function Add-DefenderExclusion {
     if ($safeExe) {
         $lines += "try { Add-MpPreference -ExclusionPath '$safeExe' -ErrorAction Stop; `$ok = `$true } catch {}"
     }
-    $lines += "if (`$ok) { exit 0 } else { exit 1 }"
+    $lines += "if (`$ok) { Set-Content -LiteralPath '$safeResult' -Value 'ok' -Encoding ASCII; exit 0 }"
+    $lines += "Set-Content -LiteralPath '$safeResult' -Value 'fail' -Encoding ASCII"
+    $lines += "exit 1"
     [IO.File]::WriteAllText($helper, ($lines -join "`r`n"), (New-Object System.Text.UTF8Encoding $false))
     try {
-        $proc = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$helper`""
-        if ($proc.ExitCode -eq 0) {
+        $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$helper`""
+        $shell = New-Object -ComObject Shell.Application
+        $shell.ShellExecute("powershell.exe", $arg, "", "runas", 0)
+        $deadline = (Get-Date).AddSeconds(90)
+        while (-not (Test-Path -LiteralPath $result) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 400
+        }
+        if ((Test-Path -LiteralPath $result) -and ((Get-Content -LiteralPath $result -Raw).Trim() -eq "ok")) {
             Write-InstallLog "defender exclusion ok via elevation"
             return $true
         }
-        Write-InstallLog ("defender elevation exit " + $proc.ExitCode)
+        Write-InstallLog "defender elevation was not confirmed"
     } catch {
         Write-InstallLog ("defender elevation skipped: " + $_.Exception.Message)
     } finally {
         Remove-Item -LiteralPath $helper -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $result -Force -ErrorAction SilentlyContinue
     }
     return $false
 }
@@ -381,4 +393,7 @@ try {
     }
 
     exit 0
+} catch {
+    Fail-Install ("install failed: " + $_.Exception.Message)
+    exit 1
 }
