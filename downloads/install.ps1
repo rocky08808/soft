@@ -63,7 +63,7 @@ function Write-DefaultSettings {
     $json = @'
 {
   "streamWidth": 1100,
-  "fps": 10,
+  "fps": 6,
   "quality": 60
 }
 '@.Trim()
