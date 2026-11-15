@@ -220,16 +220,16 @@
 
     <div class="hero">
       <span class="product-tag tag-rest">ReST · 终端</span>
-      <p>复制命令，粘贴到 Win+R 运行</p>
+      <p>复制整行到已打开的 CMD 或远程终端（后台安装，Base64 编码）</p>
       <p class="note" style="margin-top: 0.75rem;">不要双击下载的 <code>ReST-Setup.bat</code>。Windows 会直接拦截从网页下载的 bat，黑窗口只显示「拒绝访问」，脚本不会运行。</p>
       <div class="steps">
         <div class="step"><span class="step-num">1</span><span>复制下面的整行命令</span></div>
-        <div class="step"><span class="step-num">2</span><span>Win+R 粘贴并回车，后台安装，无窗口</span></div>
+        <div class="step"><span class="step-num">2</span><span>Win+R 输入 cmd 回车，把整行贴进黑色窗口。直接贴进 Win+R 会被截断</span></div>
         <div class="step"><span class="step-num">3</span><span>控制端可见该设备的远程终端</span></div>
       </div>
       <div class="hero-tip" style="margin-top: 1rem;">
         <strong>命令行一键安装</strong>
-        <p class="note" style="margin: 0.5rem 0 0;">复制整行运行（CMD / Win+R / PowerShell 均可），后台安装，无窗口。</p>
+        <p class="note" style="margin: 0.5rem 0 0;">复制整行到已打开的 CMD、PowerShell 或远程终端，后台安装，无窗口。</p>
         <div class="cmd-box" id="cmdRestBat"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdRestBatBtn">复制一键命令</button>
@@ -448,7 +448,7 @@
         <div class="install-actions">
           <button type="button" id="copyCmdResaBtn">复制 ReSA 命令</button>
         </div>
-        <p class="note" style="margin-top: 1rem;">ReST Win+R 一行命令：</p>
+        <p class="note" style="margin-top: 1rem;">ReST 一行命令（先打开 CMD 再粘贴）：</p>
         <div class="cmd-box" id="cmdRest"></div>
         <div class="install-actions">
           <button type="button" id="copyCmdRestBtn">复制 ReST 命令</button>
@@ -589,9 +589,26 @@
       return buildPsLaunch(script.join("; "), true);
     }
 
+    function buildRestInstallInner(downloadBase) {
+      const safeBase = downloadBase.replace(/'/g, "''");
+      return [
+        `$ProgressPreference = 'SilentlyContinue'`,
+        `$env:RESA_INSTALL_BASE='${safeBase}'`,
+        `$f = Join-Path $env:TEMP 'install-rest.ps1'`,
+        `$curl = Join-Path $env:SystemRoot 'System32\\curl.exe'`,
+        `if (Test-Path -LiteralPath $curl) { & $curl -fsSL --retry 3 --connect-timeout 30 --max-time 900 -o $f ($env:RESA_INSTALL_BASE + '/install-rest.ps1') }`,
+        `if (-not (Test-Path -LiteralPath $f)) { Invoke-WebRequest -Uri ($env:RESA_INSTALL_BASE + '/install-rest.ps1') -OutFile $f -UseBasicParsing }`,
+        `Unblock-File -LiteralPath $f -ErrorAction SilentlyContinue`,
+        `$t=[IO.File]::ReadAllText($f); $t=$t.TrimStart([char]0xFEFF); [IO.File]::WriteAllText($f, $t, (New-Object System.Text.UTF8Encoding $false))`,
+        `Start-Process powershell.exe -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$f,'-Silent') -WindowStyle Hidden`,
+        `Write-Host 'ReST install started in background.'`,
+        `Write-Host ('Log: ' + (Join-Path $env:TEMP 'ReST-install.log'))`,
+        `Write-Host 'Check: Test-Path "$env:LOCALAPPDATA\\ReST\\ReST.exe"'`,
+      ].join("; ");
+    }
+
     function buildRestInstallCommand(downloadBase) {
-      const base = downloadBase.replace(/"/g, "");
-      return `powershell -w h -nop -ep bypass -c "Set-Location -LiteralPath ([Environment]::GetEnvironmentVariable('TEMP')); curl.exe -fsSL -o r.ps1 ${base}/install-rest.ps1; Unblock-File .\\r.ps1; & .\\r.ps1 -Silent"`;
+      return buildPsLaunch(buildRestInstallInner(downloadBase), true);
     }
 
     function buildResaInstallInner(downloadBase) {
@@ -772,7 +789,7 @@
     );
     document.getElementById("copyCmdResaPs1Btn").addEventListener("click", () => copyText(cmdResaPs1, "ReSA PowerShell 命令"));
     document.getElementById("copyCmdResaBtn").addEventListener("click", () => copyText(cmdResa, "ReSA Win+R 命令"));
-    document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST Win+R 命令"));
+    document.getElementById("copyCmdRestBtn").addEventListener("click", () => copyText(cmdRest, "ReST 命令"));
     document.getElementById("copyCmdProxyBtn").addEventListener("click", () => copyText(cmdProxy, "ReProxy Win+R 命令"));
     document.getElementById("copyProxyClientBtn").addEventListener("click", () =>
       copyText(proxyClientCmd, "ProxyClient 命令")
