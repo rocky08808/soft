@@ -2417,6 +2417,7 @@ async def run_agent(
             agent_log(f"Connecting to {url.split('token=')[0]}token=***")
             async with websockets.connect(
                 url,
+                proxy=None,
                 ping_interval=20,
                 ping_timeout=20,
                 max_size=16 * 1024 * 1024,

@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -45,7 +44,6 @@ func (a *agent) run() {
 func (a *agent) connectOnce(url string) error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 30 * time.Second,
-		Proxy:            http.ProxyFromEnvironment,
 	}
 	conn, _, err := dialer.Dial(url, nil)
 	if err != nil {
