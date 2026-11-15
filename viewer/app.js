@@ -12,6 +12,8 @@ const disconnectBtn = document.getElementById("disconnectBtn");
 const refreshBtn = document.getElementById("refreshBtn");
 const statusEl = document.getElementById("status");
 const canvas = document.getElementById("screen");
+const screenWrap = document.getElementById("screenWrap");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
 const placeholder = document.getElementById("placeholder");
 const metaEl = document.getElementById("meta");
 const fpsEl = document.getElementById("fps");
@@ -800,6 +802,7 @@ function markFrameRendered(width, height) {
     metaEl.textContent = `分辨率: ${w} x ${h}`;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
+    if (document.fullscreenElement === screenWrap) fitFullscreenCanvas();
   }
   updateFilesUi();
   placeholder.style.display = "none";
@@ -2035,6 +2038,38 @@ terminalInputEl?.addEventListener("keydown", (e) => {
     resetTerminalTabCycle();
   }
 });
+function fitFullscreenCanvas() {
+  if (document.fullscreenElement !== screenWrap) {
+    canvas.style.width = "";
+    canvas.style.height = "";
+    return;
+  }
+  const frameW = remoteWidth || canvas.width;
+  const frameH = remoteHeight || canvas.height;
+  if (!frameW || !frameH) return;
+  const scale = Math.min(window.innerWidth / frameW, window.innerHeight / frameH);
+  canvas.style.width = Math.round(frameW * scale) + "px";
+  canvas.style.height = Math.round(frameH * scale) + "px";
+}
+
+function updateFullscreenButton() {
+  const active = document.fullscreenElement === screenWrap;
+  fullscreenBtn.textContent = active ? "退出全屏" : "全屏";
+  fitFullscreenCanvas();
+}
+
+fullscreenBtn.addEventListener("click", () => {
+  if (document.fullscreenElement === screenWrap) {
+    document.exitFullscreen();
+    return;
+  }
+  screenWrap.requestFullscreen();
+});
+document.addEventListener("fullscreenchange", updateFullscreenButton);
+window.addEventListener("resize", () => {
+  if (document.fullscreenElement === screenWrap) fitFullscreenCanvas();
+});
+
 function updateMouseTrackUi() {
   canvas.style.cursor = isMouseTrackEnabled() ? "crosshair" : "default";
 }
