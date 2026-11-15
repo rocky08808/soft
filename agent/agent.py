@@ -2394,6 +2394,15 @@ async def receive_loop(
             asyncio.create_task(run_file_request())
 
 
+def open_agent_socket(url: str):
+    return websockets.connect(
+        url,
+        ping_interval=20,
+        ping_timeout=20,
+        max_size=16 * 1024 * 1024,
+    )
+
+
 async def run_agent(
     server: str,
     device_id: str,
@@ -2415,13 +2424,7 @@ async def run_agent(
     while True:
         try:
             agent_log(f"Connecting to {url.split('token=')[0]}token=***")
-            async with websockets.connect(
-                url,
-                proxy=None,
-                ping_interval=20,
-                ping_timeout=20,
-                max_size=16 * 1024 * 1024,
-            ) as ws:
+            async with open_agent_socket(url) as ws:
                 await ws.send(
                     json.dumps(
                         {
